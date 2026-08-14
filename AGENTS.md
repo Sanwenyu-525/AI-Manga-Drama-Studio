@@ -83,7 +83,8 @@ GenerationService → Provider Interface → ComfyUI / API
 
 - ✅ 文档链完成（9 份，见 §2）
 - ✅ **Stage A 完成（2026-08）**：monorepo 骨架 + FastAPI/SQLAlchemy/SQLite（Project/Episode/Scene/Shot 领域模型、Repository、Service、REST API、Alembic、事件总线、软删除、revision 乐观并发、pytest 12 项）+ React Studio Shell（五区布局、ProjectExplorer、Storyboard、ShotInspector）+ Tauri 2 壳（cargo check 通过）。无需 AI 即可创建/编辑项目与分镜。
-- ⬜ **下一步 = Stage B（AI Planning）**：LLMGateway（OpenAI-compatible，LangChain 可选）+ FakeLLMGateway/Mock 开关 + ScenePlan/ShotPlan 结构化输出 + `POST /episodes/{id}/analyze`（202 Operation）+ 小说导入 → Scene → Shot 全链路（mvp-spec §52-62）
+- ✅ **Stage B 完成（2026-08）**：LLMGateway（LangChain `ChatOpenAI` OpenAI-compatible + `FakeLLMGateway`，`STUDIO_LLM_MODE=fake|openai` 切换）、ScenePlan/ShotPlan 结构化输出、Operation 机制（202 + `GET /operations/{id}` + 内存 Store + per-key 锁）、ScriptService（analyze_episode / preview_analysis / generate_shot_plans）、`POST /episodes/{id}/analyze`（202）与 `POST /scenes/{id}/generate-shots`（202）、前端 EpisodePanel（导入小说 → AI 预览 → 确认创建 Scenes）+ Storyboard「AI 生成分镜」按钮 + 轮询刷新。验收：小说 → Scenes + Shots → Storyboard 全链路（pytest 17 项）。
+- ⬜ **下一步 = Stage C（Production）**：Generation 数据模型（generations/media_versions/assets 表 + Alembic）、GenerationService（create/queue/retry/cancel/complete）、asyncio.Queue + GenerationWorker、ComfyUIProvider + WorkflowMapper（workflows/default_image_api.json，$PROMPT/$SEED 占位符）、MockImageProvider（APP_ENV 切换）、`POST /shots/{id}/generations`（202）+ generation 事件（WS 或轮询）+ 前端 Generation Queue + Shot 图片回填 + 版本管理（mvp-spec §63-75）
 
 ### MVP 三原则
 
