@@ -462,3 +462,119 @@ textarea:focus {
   margin: 4px 0 0;
   color: var(--muted);
 }
+
+/* ---------- Generation queue (Stage C) ---------- */
+.queue {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  overflow-y: auto;
+}
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.queue-item.done {
+  opacity: 0.75;
+}
+.queue-item.done.failed {
+  opacity: 1;
+}
+.queue-label {
+  min-width: 150px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.queue-error {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+.progress-track {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-elevated);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.2s;
+}
+.queue-percent {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 34px;
+  text-align: right;
+}
+.badge.ok {
+  background: rgba(87, 171, 90, 0.15);
+  color: var(--ok);
+}
+.badge.completed {
+  background: rgba(87, 171, 90, 0.15);
+  color: var(--ok);
+}
+.badge.running {
+  background: rgba(108, 140, 255, 0.15);
+  color: var(--accent);
+}
+.badge.cancelled {
+  color: var(--muted);
+}
+
+/* ---------- Versions (Stage C) ---------- */
+.versions-block {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.versions-block h4 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.version-preview {
+  width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.version-row-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.version-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+}
+.version-row.active {
+  border-color: var(--accent);
+}
+.version-thumb {
+  width: 40px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+}
+.version-label {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+}

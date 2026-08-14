@@ -18,14 +18,29 @@ logger = get_logger("events")
 
 Subscriber = Callable[["StudioEvent"], None]
 
-# Event names (api-event-contract §55-70) — Stage A subset.
+# Event names (api-event-contract §55-70) — Stage A/C subset.
 EVENT_SHOT_UPDATED = "shot.updated"
 EVENT_SHOT_CREATED = "shot.created"
 EVENT_SHOT_DELETED = "shot.deleted"
+EVENT_SHOT_ACTIVE_VERSION_CHANGED = "shot.active_version.changed"
 EVENT_SCENE_CREATED = "scene.created"
 EVENT_SCENE_UPDATED = "scene.updated"
 EVENT_PROJECT_CREATED = "project.created"
 EVENT_PROJECT_UPDATED = "project.updated"
+
+EVENT_ASSET_CREATED = "asset.created"
+
+EVENT_GENERATION_CREATED = "generation.created"
+EVENT_GENERATION_QUEUED = "generation.queued"
+EVENT_GENERATION_STARTED = "generation.started"
+EVENT_GENERATION_PROGRESS = "generation.progress"
+EVENT_GENERATION_COMPLETED = "generation.completed"
+EVENT_GENERATION_FAILED = "generation.failed"
+EVENT_GENERATION_CANCELLED = "generation.cancelled"
+EVENT_GENERATION_RETRYING = "generation.retrying"
+
+EVENT_PROVIDER_CONNECTED = "provider.connected"
+EVENT_PROVIDER_DISCONNECTED = "provider.disconnected"
 
 
 @dataclass
@@ -45,10 +60,14 @@ class StudioEvent:
 class EventBus:
     def __init__(self) -> None:
         self._subscribers: dict[str, list[Subscriber]] = {}
+        self._wildcards: list[Subscriber] = []
         self._sequence = 0
 
     def subscribe(self, event_type: str, callback: Subscriber) -> None:
-        self._subscribers.setdefault(event_type, []).append(callback)
+        if event_type == "*":
+            self._wildcards.append(callback)
+        else:
+            self._subscribers.setdefault(event_type, []).append(callback)
 
     def publish(self, event: StudioEvent) -> None:
         self._sequence += 1
@@ -58,7 +77,8 @@ class EventBus:
             event.entity_type,
             event.entity_id,
         )
-        for callback in self._subscribers.get(event.event_type, []):
+        callbacks = list(self._subscribers.get(event.event_type, [])) + list(self._wildcards)
+        for callback in callbacks:
             try:
                 callback(event)
             except Exception:  # noqa: BLE001 — subscriber failure must not break the transaction

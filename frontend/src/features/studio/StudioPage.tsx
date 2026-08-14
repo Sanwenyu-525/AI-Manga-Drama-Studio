@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type { Episode, Project } from "../../api/types";
@@ -9,7 +9,9 @@ import { ProjectExplorer } from "./ProjectExplorer";
 import { StoryboardView } from "../storyboard/StoryboardView";
 import { ShotInspector } from "../storyboard/ShotInspector";
 import { EpisodePanel } from "../script/EpisodePanel";
+import { GenerationQueue } from "../generation/GenerationQueue";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { EventRouter, setEventRouter, startEventSocket } from "../../events/socket";
 
 export function StudioPage() {
   const { projectId = "" } = useParams();
@@ -17,6 +19,14 @@ export function StudioPage() {
   const setProject = useSelectionStore((s) => s.setProject);
   const setEpisode = useSelectionStore((s) => s.setEpisode);
   const rightPanelTab = useWorkspaceStore((s) => s.rightPanelTab);
+  const queryClient = useQueryClient();
+
+  // WebSocket event layer: start once, route events to query invalidation + stores
+  useEffect(() => {
+    startEventSocket();
+    setEventRouter(new EventRouter(queryClient));
+    return () => setEventRouter(null);
+  }, [queryClient]);
 
   useEffect(() => {
     setProject(projectId);
@@ -77,7 +87,7 @@ export function StudioPage() {
       </aside>
 
       <footer className="bottom-dock">
-        <span className="muted">Generation Queue（Stage C 接入 ComfyUI 后启用）</span>
+        <GenerationQueue />
       </footer>
     </div>
   );

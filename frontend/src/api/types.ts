@@ -149,6 +149,39 @@ export interface Operation {
   completed_at: string | null;
 }
 
+// --- Stage C: generation DTOs (api-event-contract §35-39) ---
+
+export interface GenerationRead {
+  id: string;
+  project_id: string;
+  shot_id: string | null;
+  type: string;
+  provider: string;
+  model: string | null;
+  workflow_id: string | null;
+  status: string;
+  progress: number;
+  stage: string | null;
+  output_asset_id: string | null;
+  error_message: string | null;
+  retry_of: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface MediaVersionRead {
+  id: string;
+  shot_id: string;
+  asset_id: string;
+  media_type: string;
+  version_number: number;
+  generation_id: string | null;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+}
+
 export const SHOT_TYPES = [
   "extreme_wide",
   "wide",

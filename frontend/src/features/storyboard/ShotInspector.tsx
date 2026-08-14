@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { Shot, ShotUpdatePatch } from "../../api/types";
+import type { GenerationRead, MediaVersionRead, Shot, ShotUpdatePatch } from "../../api/types";
 import { SHOT_TYPES, SHOT_TYPE_LABELS } from "../../api/types";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
@@ -38,6 +38,16 @@ export function ShotInspector() {
   }, [shot]);
 
   const sceneId = shot?.scene_id;
+
+  const generate = useMutation({
+    mutationFn: () => {
+      if (!activeShotId) throw new Error("no active shot");
+      return api.post<GenerationRead>(`/shots/${activeShotId}/generations`, { type: "image" });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["generations", activeShotId] });
+    },
+  });
 
   const saveShot = useMutation({
     mutationFn: (patch: Partial<ShotUpdatePatch>) => {
@@ -178,8 +188,91 @@ export function ShotInspector() {
           <button className="btn primary grow" disabled={!dirty || saveShot.isPending} onClick={() => saveShot.mutate(form)}>
             {saveShot.isPending ? "保存中…" : dirty ? "保存修改" : "已保存"}
           </button>
+          <button
+            className="btn"
+            disabled={generate.isPending}
+            onClick={() => {
+              if (dirty) saveShot.mutate(form, { onSuccess: () => generate.mutate() });
+              else generate.mutate();
+            }}
+            title="提交图片生成任务"
+          >
+            {generate.isPending ? "提交中…" : "生成图片"}
+          </button>
         </div>
         {saveShot.isError && !conflict && <p className="error-text">保存失败：{String(saveShot.error)}</p>}
+        {generate.isError && <p className="error-text">生成失败：{String(generate.error)}</p>}
+
+        <ShotVersions shotId={shot.id} />
+      </div>
+    </div>
+  );
+}
+
+function ShotVersions({ shotId }: { shotId: string }) {
+  const queryClient = useQueryClient();
+
+  const { data: generations } = useQuery({
+    queryKey: ["generations", shotId],
+    queryFn: () => api.get<GenerationRead[]>(`/shots/${shotId}/generations`),
+    refetchInterval: 2000,
+  });
+  const generating = (generations ?? []).some(
+    (g) => g.status === "queued" || g.status === "running" || g.status === "retrying",
+  );
+
+  const { data: versions } = useQuery({
+    queryKey: ["versions", shotId],
+    queryFn: () => api.get<MediaVersionRead[]>(`/shots/${shotId}/versions`),
+    refetchInterval: generating ? 800 : 3000, // poll faster while a generation runs
+  });
+
+  const activate = useMutation({
+    mutationFn: (versionId: string) => api.post<MediaVersionRead>(`/media-versions/${versionId}/activate`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["versions", shotId] });
+      void queryClient.invalidateQueries({ queryKey: ["storyboard"] });
+    },
+  });
+
+  if (!versions || versions.length === 0) {
+    return (
+      <div className="versions-block">
+        <h4>版本</h4>
+        <p className="muted small">还没有生成结果。点击「生成图片」创建 V1。</p>
+      </div>
+    );
+  }
+
+  const active = versions.find((v) => v.is_active);
+  return (
+    <div className="versions-block">
+      <h4>版本（{versions.length}）</h4>
+      {active && (
+        <img
+          className="version-preview"
+          src={`/api/v1/assets/${active.asset_id}/content`}
+          alt={`V${active.version_number}`}
+        />
+      )}
+      <div className="version-row-list">
+        {versions.map((v) => (
+          <div key={v.id} className={`version-row ${v.is_active ? "active" : ""}`}>
+            <img
+              className="version-thumb"
+              src={`/api/v1/assets/${v.asset_id}/thumbnail`}
+              alt={`V${v.version_number}`}
+            />
+            <span className="version-label">V{v.version_number}</span>
+            {v.is_active ? (
+              <span className="badge ok">Active</span>
+            ) : (
+              <button className="btn tiny" onClick={() => activate.mutate(v.id)} disabled={activate.isPending}>
+                设为当前
+              </button>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

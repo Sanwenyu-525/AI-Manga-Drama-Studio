@@ -6,6 +6,7 @@ Rules:
 - No provider/model knowledge here (red line: ShotService never knows concrete models).
 """
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
@@ -71,7 +72,7 @@ def _to_summary(s: Shot) -> ShotSummary:
         duration=s.duration,
         status=s.status,
         dirty_state=s.dirty_state,
-        thumbnail_url=None,  # populated once assets exist (Stage C)
+        thumbnail_url=None,  # resolved per-shot in get_storyboard (needs DB lookups)
     )
 
 
@@ -209,10 +210,40 @@ class ShotService:
             raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
         episode = self.session.get(Episode, scene.episode_id)
         shots = self.repo.list_for_scene(scene_id)
+        thumbnails = self._thumbnail_urls(shots)
+        summaries = []
+        for s in shots:
+            summary = _to_summary(s)
+            summary.thumbnail_url = thumbnails.get(s.id)
+            summaries.append(summary)
         return StoryboardRead(
             scene=SceneSummary(id=scene.id, scene_number=scene.scene_number, name=scene.name),
-            shots=[_to_summary(s) for s in shots],
+            shots=summaries,
         )
+
+    def _thumbnail_urls(self, shots: list[Shot]) -> dict[str, str | None]:
+        """Map shot_id → thumbnail URL via the shot's active image version (Stage C)."""
+        from app.db.models import Asset, MediaVersion
+
+        version_ids = [s.active_image_version_id for s in shots if s.active_image_version_id]
+        if not version_ids:
+            return {s.id: None for s in shots}
+        versions = {
+            v.id: v
+            for v in self.session.scalars(
+                select(MediaVersion).where(MediaVersion.id.in_(version_ids))
+            )
+        }
+        asset_ids = [v.asset_id for v in versions.values()]
+        assets = {
+            a.id: a
+            for a in self.session.scalars(select(Asset).where(Asset.id.in_(asset_ids)))
+        }
+        return {
+            s.id: (f"/api/v1/assets/{versions[s.active_image_version_id].asset_id}/thumbnail"
+                   if s.active_image_version_id in versions else None)
+            for s in shots
+        }
 
     def _project_id_of(self, obj: Shot | Scene) -> str | None:
         if isinstance(obj, Shot):

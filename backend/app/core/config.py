@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     llm_model: str = "deepseek-chat"
     llm_structured_method: str = "json_schema"  # json_schema | function_calling
 
+    # Generation (Stage C): "mock" = MockImageProvider (deterministic test image, default);
+    # "comfyui" = external ComfyUI server (user-started, mvp-spec §8).
+    image_provider: str = "mock"  # mock | comfyui
+    comfyui_url: str = "http://127.0.0.1:8188"
+    generation_concurrency: int = 1  # ComfyUI queue is serial; keep 1 for MVP
+    generation_max_attempts: int = 3
+
     @property
     def database_path(self) -> Path:
         return self.data_dir / "studio.db"

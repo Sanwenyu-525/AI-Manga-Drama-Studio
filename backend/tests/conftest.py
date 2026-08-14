@@ -51,3 +51,6 @@ def client(session_factory) -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
     db_session_module.session_factory_provider = original_provider
     llm_factory.reset_gateway()
+    from app.providers import registry as provider_registry
+
+    provider_registry.reset_providers()
