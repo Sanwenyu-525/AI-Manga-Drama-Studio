@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api import (
+    agents,
     assets,
     episodes,
     generations,
@@ -25,4 +26,5 @@ api_router.include_router(operations.router)
 api_router.include_router(generations.router)
 api_router.include_router(assets.router)
 api_router.include_router(providers.router)
+api_router.include_router(agents.router)
 api_router.include_router(ws_router)

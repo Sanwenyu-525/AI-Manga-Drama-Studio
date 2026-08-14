@@ -4,6 +4,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../api/queryKeys";
+import { useAgentStore } from "../stores/agentStore";
 import { useGenerationStore } from "../stores/generationStore";
 
 export interface StudioEvent {
@@ -72,7 +73,50 @@ export class EventRouter {
 
   handle(event: StudioEvent): void {
     const generation = useGenerationStore.getState();
+    const agent = useAgentStore.getState();
     switch (event.event_type) {
+      // ---- agent events → agentStore (AI Command Center, frontend-ux §15-21) ----
+      case "agent.run.started":
+        break; // start handled at submit time (run_id returned synchronously)
+      case "agent.plan.created": {
+        const plan = event.payload.plan as
+          | { objective?: string; steps?: Array<{ tool: string; arguments: Record<string, unknown> }> }
+          | undefined;
+        if (plan) {
+          agent.setPlan(
+            plan.objective ?? "",
+            (plan.steps ?? []).map((step) => ({ tool: step.tool, args: step.arguments ?? {} })),
+          );
+        }
+        break;
+      }
+      case "agent.tool.started":
+        agent.toolStarted(
+          event.payload.tool as string,
+          ((event.payload.target as { id?: string } | undefined)?.id) as string | undefined,
+        );
+        break;
+      case "agent.tool.completed":
+        agent.toolCompleted(
+          event.payload.tool as string,
+          Boolean(event.payload.success),
+          (event.payload.changed_fields as string[] | undefined) ?? [],
+          event.payload.error as string | undefined,
+        );
+        break;
+      case "agent.run.completed":
+        agent.runCompleted(event.payload.result as Record<string, unknown> | null);
+        void this.queryClient.invalidateQueries({ queryKey: ["shots"] });
+        void this.queryClient.invalidateQueries({ queryKey: ["storyboard"] });
+        break;
+      case "agent.run.failed":
+        agent.runFailed(event.payload.error as string | undefined);
+        break;
+      case "agent.run.cancelled":
+        agent.runFailed("已取消");
+        break;
+
+      // ---- generation events (contract §64-67) ----
       case "generation.queued":
       case "generation.started":
       case "generation.retrying":

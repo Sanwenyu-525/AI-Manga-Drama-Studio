@@ -42,6 +42,21 @@ EVENT_GENERATION_RETRYING = "generation.retrying"
 EVENT_PROVIDER_CONNECTED = "provider.connected"
 EVENT_PROVIDER_DISCONNECTED = "provider.disconnected"
 
+EVENT_AGENT_RUN_STARTED = "agent.run.started"
+EVENT_AGENT_INTENT_RESOLVED = "agent.intent.resolved"
+EVENT_AGENT_CONTEXT_LOADED = "agent.context.loaded"
+EVENT_AGENT_PLAN_CREATED = "agent.plan.created"
+EVENT_AGENT_APPROVAL_REQUIRED = "agent.approval.required"
+EVENT_AGENT_RESUMED = "agent.resumed"
+EVENT_AGENT_TOOL_STARTED = "agent.tool.started"
+EVENT_AGENT_TOOL_COMPLETED = "agent.tool.completed"
+EVENT_AGENT_REVIEW_STARTED = "agent.review.started"
+EVENT_AGENT_REVIEW_COMPLETED = "agent.review.completed"
+EVENT_AGENT_CHANGE_SET_CREATED = "agent.change_set.created"
+EVENT_AGENT_RUN_COMPLETED = "agent.run.completed"
+EVENT_AGENT_RUN_FAILED = "agent.run.failed"
+EVENT_AGENT_RUN_CANCELLED = "agent.run.cancelled"
+
 
 @dataclass
 class StudioEvent:

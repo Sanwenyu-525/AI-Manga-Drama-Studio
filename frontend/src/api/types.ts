@@ -112,6 +112,15 @@ export interface Health {
   env: string;
 }
 
+export interface ProviderStatus {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  capabilities: Record<string, boolean>;
+  base_url?: string;
+}
+
 // --- Stage B: AI planning DTOs (mvp-spec §55-57) ---
 
 export interface ScenePlan {
@@ -180,6 +189,31 @@ export interface MediaVersionRead {
   is_active: boolean;
   notes: string | null;
   created_at: string;
+}
+
+// --- Stage D: agent DTOs (api-event-contract §23-33) ---
+
+export interface AgentPlanStep {
+  tool: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface AgentRunRead {
+  id: string;
+  project_id: string;
+  status: string;
+  current_stage: string | null;
+  plan: {
+    objective: string;
+    steps: AgentPlanStep[];
+    requires_clarification: boolean;
+    clarification_message: string | null;
+  } | null;
+  approval: Record<string, unknown> | null;
+  change_set_id: string | null;
+  result: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export const SHOT_TYPES = [

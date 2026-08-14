@@ -1,27 +1,29 @@
 import { useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Circle, FilmReel, FilmStrip, ImageSquare, MagicWand, Play, Scroll, SquaresFour } from "@phosphor-icons/react";
 import { Link, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { Episode, Project } from "../../api/types";
-import { useSelectionStore } from "../../stores/selectionStore";
-import { ProjectExplorer } from "./ProjectExplorer";
-import { StoryboardView } from "../storyboard/StoryboardView";
-import { ShotInspector } from "../storyboard/ShotInspector";
-import { EpisodePanel } from "../script/EpisodePanel";
-import { GenerationQueue } from "../generation/GenerationQueue";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
+import type { Episode, GenerationRead, Project, ProviderStatus } from "../../api/types";
 import { EventRouter, setEventRouter, startEventSocket } from "../../events/socket";
+import { useSelectionStore } from "../../stores/selectionStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { AIDirectorPanel } from "../director/AIDirectorPanel";
+import { GenerationQueue } from "../generation/GenerationQueue";
+import { EpisodePanel } from "../script/EpisodePanel";
+import { ShotInspector } from "../storyboard/ShotInspector";
+import { StoryboardView } from "../storyboard/StoryboardView";
+import { ProjectExplorer } from "./ProjectExplorer";
 
 export function StudioPage() {
   const { projectId = "" } = useParams();
-  const selection = useSelectionStore((s) => s.selection);
-  const setProject = useSelectionStore((s) => s.setProject);
-  const setEpisode = useSelectionStore((s) => s.setEpisode);
-  const rightPanelTab = useWorkspaceStore((s) => s.rightPanelTab);
+  const selection = useSelectionStore((state) => state.selection);
+  const setProject = useSelectionStore((state) => state.setProject);
+  const setEpisode = useSelectionStore((state) => state.setEpisode);
+  const rightPanelTab = useWorkspaceStore((state) => state.rightPanelTab);
+  const dockExpanded = useWorkspaceStore((state) => state.bottomDockExpanded);
   const queryClient = useQueryClient();
 
-  // WebSocket event layer: start once, route events to query invalidation + stores
   useEffect(() => {
     startEventSocket();
     setEventRouter(new EventRouter(queryClient));
@@ -40,34 +42,60 @@ export function StudioPage() {
   const { data: episodes } = useQuery({
     queryKey: queryKeys.episodes(projectId),
     queryFn: () => api.get<Episode[]>(`/projects/${projectId}/episodes`),
-    enabled: !!projectId,
+    enabled: Boolean(projectId),
   });
 
-  // auto-select first episode so the explorer has a scene to expand
+  const { data: providers } = useQuery({
+    queryKey: ["providers"],
+    queryFn: () => api.get<ProviderStatus[]>("/providers"),
+    staleTime: 30_000,
+  });
+
   useEffect(() => {
-    if (!selection.episodeId && episodes && episodes.length > 0) {
-      setEpisode(episodes[0].id);
-    }
+    if (!selection.episodeId && episodes?.[0]) setEpisode(episodes[0].id);
   }, [episodes, selection.episodeId, setEpisode]);
 
-  const activeEpisode = episodes?.find((e) => e.id === selection.episodeId);
+  const activeEpisode = episodes?.find((episode) => episode.id === selection.episodeId);
+  const provider = providers?.find((item) => item.status === "active") ?? providers?.find((item) => item.status === "connected");
+  const selectedShotId = selection.shotIds[0];
+  const generateSelectedShot = useMutation({
+    mutationFn: () => {
+      if (!selectedShotId) throw new Error("请先选择镜头");
+      return api.post<GenerationRead>(`/shots/${selectedShotId}/generations`, { type: "image" });
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["generations"] }),
+  });
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${dockExpanded ? "dock-expanded" : ""}`}>
       <header className="top-bar">
-        <Link to="/" className="brand">
-          🎬 AI Manga Drama Studio
-        </Link>
-        <span className="top-project">{project?.name ?? "…"}</span>
-        <span className="top-spacer" />
-        <span className={`dot ${selection.sceneId ? "on" : ""}`}>
-          {selection.sceneId ? "Storyboard" : "Script"}
-        </span>
+        <Link to="/" className="studio-project-name">{project?.name ?? "AI Manga Drama Studio"}</Link>
+        <nav className="studio-nav" aria-label="工作台导航">
+          <button className={!selection.sceneId ? "active" : ""} onClick={() => activeEpisode && setEpisode(activeEpisode.id)}>
+            <Scroll size={17} /> 剧本
+          </button>
+          <button className={selection.sceneId ? "active" : ""} disabled={!selection.sceneId}>
+            <SquaresFour size={17} /> 分镜
+          </button>
+          <button disabled title="Stage D 后开放"><MagicWand size={17} /> 导演画布</button>
+          <button disabled title="素材库后续接入"><ImageSquare size={17} /> 素材</button>
+          <button disabled title="时间线后续接入"><FilmReel size={17} /> 时间线</button>
+        </nav>
+        <div className="studio-statuses">
+          <span className="connection-status"><Circle size={9} weight="fill" /> {provider?.name ?? "Provider"}</span>
+          <span className="director-status"><Circle size={9} weight="fill" /> AI 导演 {rightPanelTab === "director" ? "已打开" : "空闲"}</span>
+          <button
+            className="btn primary compact"
+            disabled={!selectedShotId || generateSelectedShot.isPending}
+            onClick={() => generateSelectedShot.mutate()}
+            title={selectedShotId ? "为当前镜头提交图片生成任务" : "先选择一个镜头"}
+          >
+            <Play size={14} weight="fill" /> {generateSelectedShot.isPending ? "提交中…" : "生成图片"}
+          </button>
+        </div>
       </header>
 
-      <aside className="explorer">
-        <ProjectExplorer projectId={projectId} />
-      </aside>
+      <aside className="explorer"><ProjectExplorer projectId={projectId} /></aside>
 
       <main className="workspace">
         {selection.sceneId ? (
@@ -75,38 +103,16 @@ export function StudioPage() {
         ) : activeEpisode ? (
           <EpisodePanel episode={activeEpisode} />
         ) : (
-          <div className="empty-state">
-            <p>从左侧选择一个剧集开始</p>
-            <p className="muted">创建项目 → 添加剧集 → 导入小说 → AI 分析 → 生成分镜</p>
+          <div className="empty-state studio-empty">
+            <FilmStrip size={34} />
+            <h2>添加第一个剧集</h2>
+            <p>从左侧项目树建立剧集，然后导入小说开始 AI 分析。</p>
           </div>
         )}
       </main>
 
-      <aside className="right-panel">
-        {rightPanelTab === "inspector" ? <ShotInspector /> : <DirectorPlaceholder />}
-      </aside>
-
-      <footer className="bottom-dock">
-        <GenerationQueue />
-      </footer>
-    </div>
-  );
-}
-
-function DirectorPlaceholder() {
-  const setRightPanelTab = useWorkspaceStore((s) => s.setRightPanelTab);
-  return (
-    <div className="panel-tab-content">
-      <div className="panel-tabs">
-        <button className="tab active" onClick={() => setRightPanelTab("inspector")}>
-          Inspector
-        </button>
-        <button className="tab">AI Director</button>
-      </div>
-      <div className="placeholder-note">
-        <h3>AI Director</h3>
-        <p className="muted">Stage D 接入。届时可直接说：“把这个镜头改成近景”。</p>
-      </div>
+      <aside className="right-panel">{rightPanelTab === "inspector" ? <ShotInspector /> : <AIDirectorPanel />}</aside>
+      <footer className="bottom-dock"><GenerationQueue /></footer>
     </div>
   );
 }

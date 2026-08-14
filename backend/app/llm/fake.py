@@ -14,10 +14,19 @@ from pydantic import BaseModel
 
 from app.core.logging import get_logger
 from app.domain.analysis import ScenePlan, ShotPlan
+from app.domain.agent import DirectorPlan, ProductionIntent
+from app.agents.fake_planner import parse_director_plan, parse_production_intent
 
 logger = get_logger("llm.fake")
 
 T = TypeVar("T", bound=BaseModel)
+
+# Selection context injected by the graph for fake planning (message → target resolution)
+_FAKE_SELECTION: dict = {"shot_id": None}
+
+
+def set_fake_selection(shot_id: str | None) -> None:
+    _FAKE_SELECTION["shot_id"] = shot_id
 
 _MOODS = ["tense", "calm", "warm", "melancholic", "excited"]
 _SHOT_TYPES = ["wide", "medium", "close_up", "extreme_close_up", "full", "medium"]
@@ -39,6 +48,10 @@ class FakeLLMGateway:
             return plans[0]  # type: ignore[return-value]
         if schema is ShotPlan:
             return self._shot_plans(prompt)[0]  # type: ignore[return-value]
+        if schema is DirectorPlan:
+            return parse_director_plan(prompt, _FAKE_SELECTION["shot_id"])  # type: ignore[return-value]
+        if schema is ProductionIntent:
+            return parse_production_intent(prompt, _FAKE_SELECTION["shot_id"])  # type: ignore[return-value]
         raise NotImplementedError(f"FakeLLMGateway.structured unsupported schema: {schema}")
 
     async def structured_list(self, schema: type[T], system: str, prompt: str) -> list[T]:
