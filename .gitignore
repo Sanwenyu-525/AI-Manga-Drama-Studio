@@ -1,0 +1,46 @@
+# --- Dependencies ---
+node_modules/
+.pnpm-store/
+
+# --- Build output ---
+dist/
+build/
+out/
+release/
+*.tsbuildinfo
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# --- Env & secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Local studio data ---
+studio.db
+studio.db-*
+data/
+projects/
+exports/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.suo
+*.user
+.DS_Store
+Thumbs.db
+
+# --- Logs ---
+*.log
+npm-debug.log*
