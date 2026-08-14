@@ -82,8 +82,8 @@ GenerationService → Provider Interface → ComfyUI / API
 ### 状态
 
 - ✅ 文档链完成（9 份，见 §2）
-- ⬜ 代码未开始：下一步 = mvp-spec §134 的第一批 20 个 Coding Task
-  （Git → Tauri+React → FastAPI → /health → SQLite → Project/Episode/Scene/Shot Model → Alembic → ProjectService/SceneService/ShotService → Project/Scene/Shot API → AppShell → ProjectExplorer → StoryboardGrid → ShotCard）
+- ✅ **Stage A 完成（2026-08）**：monorepo 骨架 + FastAPI/SQLAlchemy/SQLite（Project/Episode/Scene/Shot 领域模型、Repository、Service、REST API、Alembic、事件总线、软删除、revision 乐观并发、pytest 12 项）+ React Studio Shell（五区布局、ProjectExplorer、Storyboard、ShotInspector）+ Tauri 2 壳（cargo check 通过）。无需 AI 即可创建/编辑项目与分镜。
+- ⬜ **下一步 = Stage B（AI Planning）**：LLMGateway（OpenAI-compatible，LangChain 可选）+ FakeLLMGateway/Mock 开关 + ScenePlan/ShotPlan 结构化输出 + `POST /episodes/{id}/analyze`（202 Operation）+ 小说导入 → Scene → Shot 全链路（mvp-spec §52-62）
 
 ### MVP 三原则
 
