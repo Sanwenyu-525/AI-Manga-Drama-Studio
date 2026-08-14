@@ -31,6 +31,13 @@ def session_factory(db_path: Path):
 def client(session_factory) -> Generator[TestClient, None, None]:
     factory, _ = session_factory
 
+    # Route background operation jobs to the same isolated DB (not the real studio.db).
+    from app.db import session as db_session_module
+    from app.llm import factory as llm_factory
+
+    original_provider = db_session_module.session_factory_provider
+    db_session_module.session_factory_provider = lambda: factory
+
     def override_get_db() -> Generator[Session, None, None]:
         session = factory()
         try:
@@ -42,3 +49,5 @@ def client(session_factory) -> Generator[TestClient, None, None]:
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+    db_session_module.session_factory_provider = original_provider
+    llm_factory.reset_gateway()

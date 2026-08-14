@@ -1,12 +1,15 @@
-"""Scene API (api-event-contract §16-18, mvp-spec §34/§36)."""
+"""Scene API (api-event-contract §16-18, mvp-spec §34/§36/§61)."""
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_db, get_llm
 from app.domain.scene import SceneCreate, SceneRead, SceneUpdate
 from app.domain.shot import StoryboardRead
+from app.llm.gateway import LLMGateway
+from app.operations.store import operation_store
 from app.services import SceneService, ShotService
+from app.services.script_service import ScriptService
 
 router = APIRouter(tags=["scenes"])
 
@@ -46,3 +49,26 @@ def delete_scene(scene_id: str, db: Session = Depends(get_db)) -> dict:
 def get_storyboard(scene_id: str, db: Session = Depends(get_db)) -> StoryboardRead:
     """Aggregate endpoint (api-event-contract §101): scene + shot summaries in one call."""
     return ShotService(db).get_storyboard(scene_id)
+
+
+@router.post("/scenes/{scene_id}/generate-shots", status_code=status.HTTP_202_ACCEPTED)
+async def generate_shots(
+    scene_id: str,
+    db: Session = Depends(get_db),
+    llm: LLMGateway = Depends(get_llm),
+) -> dict:
+    """202 + operation_id; the job persists ShotPlan[] when finished (mvp-spec §61)."""
+    scene = SceneService(db).get_scene(scene_id)
+    op = operation_store.create("scene_shot_planning", project_id=scene.episode_id)
+
+    async def job() -> dict:
+        from app.db.session import session_factory_provider
+
+        async with operation_store.lock_for(f"shots:{scene_id}"):
+            factory = session_factory_provider()
+            with factory() as session:
+                result = await ScriptService(session, llm).generate_shot_plans(scene_id)
+                return result.model_dump()
+
+    operation_store.start(op["id"], job)
+    return {"operation_id": op["id"], "status": op["status"]}

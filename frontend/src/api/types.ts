@@ -112,6 +112,43 @@ export interface Health {
   env: string;
 }
 
+// --- Stage B: AI planning DTOs (mvp-spec §55-57) ---
+
+export interface ScenePlan {
+  scene_number: number;
+  title: string;
+  location: string;
+  time: string | null;
+  description: string;
+  mood: string | null;
+}
+
+export interface ShotPlan {
+  shot_number: number;
+  shot_type: string;
+  camera_angle: string | null;
+  camera_movement: string | null;
+  duration: number;
+  action: string;
+  emotion: string | null;
+  dialogue: string | null;
+  image_prompt: string | null;
+}
+
+export type OperationStatus = "queued" | "running" | "completed" | "failed";
+
+export interface Operation {
+  id: string;
+  type: string;
+  project_id: string | null;
+  status: OperationStatus;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
 export const SHOT_TYPES = [
   "extreme_wide",
   "wide",

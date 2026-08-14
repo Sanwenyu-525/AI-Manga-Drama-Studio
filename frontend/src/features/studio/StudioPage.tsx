@@ -8,6 +8,7 @@ import { useSelectionStore } from "../../stores/selectionStore";
 import { ProjectExplorer } from "./ProjectExplorer";
 import { StoryboardView } from "../storyboard/StoryboardView";
 import { ShotInspector } from "../storyboard/ShotInspector";
+import { EpisodePanel } from "../script/EpisodePanel";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 export function StudioPage() {
@@ -39,6 +40,8 @@ export function StudioPage() {
     }
   }, [episodes, selection.episodeId, setEpisode]);
 
+  const activeEpisode = episodes?.find((e) => e.id === selection.episodeId);
+
   return (
     <div className="app-shell">
       <header className="top-bar">
@@ -47,7 +50,9 @@ export function StudioPage() {
         </Link>
         <span className="top-project">{project?.name ?? "…"}</span>
         <span className="top-spacer" />
-        <span className={`dot ${selection.sceneId ? "on" : ""}`}>Storyboard</span>
+        <span className={`dot ${selection.sceneId ? "on" : ""}`}>
+          {selection.sceneId ? "Storyboard" : "Script"}
+        </span>
       </header>
 
       <aside className="explorer">
@@ -57,10 +62,12 @@ export function StudioPage() {
       <main className="workspace">
         {selection.sceneId ? (
           <StoryboardView sceneId={selection.sceneId} />
+        ) : activeEpisode ? (
+          <EpisodePanel episode={activeEpisode} />
         ) : (
           <div className="empty-state">
-            <p>从左侧选择一个场景开始</p>
-            <p className="muted">创建项目 → 添加剧集 → 添加场景 → 生成分镜</p>
+            <p>从左侧选择一个剧集开始</p>
+            <p className="muted">创建项目 → 添加剧集 → 导入小说 → AI 分析 → 生成分镜</p>
           </div>
         )}
       </main>

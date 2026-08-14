@@ -42,6 +42,12 @@ engine = build_engine()
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
+# Provider indirection so background operation jobs (api/operations flow) can use the
+# same session factory as the app — tests override this with their isolated factory.
+# NOTE: provider returns the CALLABLE factory (sessionmaker), not a session instance.
+_default_session_factory = SessionLocal
+session_factory_provider = lambda: _default_session_factory  # noqa: E731
+
 
 def get_db() -> Generator[Session, None, None]:
     """FastAPI dependency: one session per request, always closed."""

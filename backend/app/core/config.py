@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # LLM (Stage B): "fake" = deterministic FakeLLMGateway (no key needed, default for dev/tests);
+    # "openai" = OpenAI-compatible endpoint via LangChain ChatOpenAI (DeepSeek / Ollama / vLLM / OpenAI).
+    llm_mode: str = "fake"  # fake | openai
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None  # prefer env STUDIO_LLM_API_KEY; never stored in DB
+    llm_model: str = "deepseek-chat"
+    llm_structured_method: str = "json_schema"  # json_schema | function_calling
+
     @property
     def database_path(self) -> Path:
         return self.data_dir / "studio.db"
