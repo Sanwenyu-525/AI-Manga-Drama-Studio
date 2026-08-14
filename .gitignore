@@ -26,6 +26,9 @@ env/
 *.pem
 *.key
 
+# --- Rust / Tauri ---
+target/
+
 # --- Local studio data ---
 studio.db
 studio.db-*
