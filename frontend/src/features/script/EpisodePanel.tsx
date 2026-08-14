@@ -1,8 +1,6 @@
-// Episode AI panel (mvp-spec §58-60, frontend-ux §8-9):
-// import novel text → AI analyze preview → user confirms → create Scenes (202 operation).
-
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { BookOpenText, Check, CheckCircle, CloudCheck, FileArrowUp, MagicWand, MapPin, Moon, Sparkle, UsersThree } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type { Episode, Operation, ScenePlan } from "../../api/types";
@@ -11,101 +9,161 @@ import { useOperationPolling } from "../ai/useOperationPolling";
 
 export function EpisodePanel({ episode }: { episode: Episode }) {
   const queryClient = useQueryClient();
-  const setScene = useSelectionStore((s) => s.setScene);
-
+  const setScene = useSelectionStore((state) => state.setScene);
   const [sourceText, setSourceText] = useState(episode.source_text ?? "");
   const [preview, setPreview] = useState<ScenePlan[] | null>(null);
+  const [activePlanIndex, setActivePlanIndex] = useState(0);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [createOpId, setCreateOpId] = useState<string | null>(null);
 
+  useEffect(() => {
+    setSourceText(episode.source_text ?? "");
+    setPreview(null);
+    setActivePlanIndex(0);
+  }, [episode.id, episode.source_text]);
+
   const saveSource = useMutation({
     mutationFn: () => api.patch<Episode>(`/episodes/${episode.id}`, { source_text: sourceText }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(episode.project_id) });
-    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(episode.project_id) }),
   });
 
   const runPreview = useMutation({
-    mutationFn: () => api.post<ScenePlan[]>(`/episodes/${episode.id}/analyze/preview`),
+    mutationFn: async () => {
+      if (sourceText !== (episode.source_text ?? "")) await api.patch<Episode>(`/episodes/${episode.id}`, { source_text: sourceText });
+      return api.post<ScenePlan[]>(`/episodes/${episode.id}/analyze/preview`);
+    },
     onSuccess: (plans) => {
       setPreview(plans);
+      setActivePlanIndex(0);
       setPreviewError(null);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(episode.project_id) });
     },
     onError: (error) => setPreviewError(error instanceof Error ? error.message : String(error)),
   });
 
   const createScenes = useMutation({
     mutationFn: () => api.post<{ operation_id: string; status: string }>(`/episodes/${episode.id}/analyze`),
-    onSuccess: (resp) => setCreateOpId(resp.operation_id),
+    onSuccess: (response) => setCreateOpId(response.operation_id),
   });
 
   useOperationPolling(
     createOpId,
-    (op: Operation) => {
-      const ids = (op.result?.created_scene_ids as string[]) ?? [];
+    (operation: Operation) => {
+      const ids = (operation.result?.created_scene_ids as string[]) ?? [];
       void queryClient.invalidateQueries({ queryKey: queryKeys.scenes(episode.id) });
-      if (ids.length > 0) setScene(ids[0]);
+      if (ids[0]) setScene(ids[0]);
       setCreateOpId(null);
     },
-    () => setCreateOpId(null),
+    (operation) => {
+      setPreviewError(operation.error ?? "创建场景失败");
+      setCreateOpId(null);
+    },
   );
 
   const dirty = sourceText !== (episode.source_text ?? "");
+  const activePlan = preview?.[activePlanIndex];
+  const wordCount = useMemo(() => sourceText.replace(/\s/g, "").length, [sourceText]);
 
   return (
-    <div className="episode-panel">
-      <h2>EP{String(episode.episode_number).padStart(2, "0")} {episode.title ?? ""} — 剧本</h2>
+    <div className={`episode-panel ${preview ? "has-preview" : ""}`}>
+      <header className="analysis-header">
+        <div>
+          <span className="eyebrow">SCRIPT ANALYSIS</span>
+          <h1>EP{String(episode.episode_number).padStart(2, "0")} · {episode.title || "未命名剧集"}</h1>
+          <p>{wordCount.toLocaleString("zh-CN")} 字 · {episode.status}</p>
+        </div>
+        <div className="analysis-steps">
+          <span className="done">01 导入 <Check size={13} /></span><i />
+          <span className={preview ? "done" : "active"}>02 分析 {preview && <Check size={13} />}</span><i />
+          <span className={preview ? "active" : ""}>03 检查</span><i />
+          <span>04 创建结构</span>
+        </div>
+      </header>
 
-      <label className="field">
-        <span className="field-label">小说 / 剧本原文</span>
-        <textarea
-          rows={10}
-          value={sourceText}
-          placeholder="粘贴小说章节（1000-3000 字效果最佳）…"
-          onChange={(e) => setSourceText(e.target.value)}
-        />
-      </label>
+      <div className="analysis-workspace">
+        <section className="source-editor-column">
+          <div className="column-header">
+            <div><BookOpenText size={18} /><strong>小说原文</strong></div>
+            <button className="btn secondary compact"><FileArrowUp size={15} /> 替换原文</button>
+          </div>
+          <textarea
+            className="source-editor"
+            value={sourceText}
+            placeholder="粘贴小说章节（1000–3000 字效果最佳）…"
+            onChange={(event) => setSourceText(event.target.value)}
+          />
+          <div className="editor-status">
+            <span><CloudCheck size={16} /> {dirty ? "有未保存修改" : "已保存"}</span>
+            <span>{wordCount.toLocaleString("zh-CN")} 字</span>
+          </div>
+        </section>
 
-      <div className="row gap">
-        <button className="btn" disabled={!dirty || saveSource.isPending} onClick={() => saveSource.mutate()}>
-          {saveSource.isPending ? "保存中…" : dirty ? "保存剧本" : "已保存"}
-        </button>
-        <button
-          className="btn primary"
-          disabled={!sourceText.trim() || runPreview.isPending}
-          onClick={() => runPreview.mutate()}
-        >
-          {runPreview.isPending ? "AI 分析中…" : "AI 分析"}
-        </button>
+        {preview ? (
+          <>
+            <section className="scene-plan-column">
+              <div className="analysis-result-bar"><CheckCircle size={17} weight="fill" /><strong>分析完成</strong><span>{preview.length} 个场景</span></div>
+              <div className="scene-plan-list">
+                {preview.map((plan, index) => (
+                  <button key={`${plan.scene_number}-${plan.title}`} className={`scene-plan-card ${index === activePlanIndex ? "active" : ""}`} onClick={() => setActivePlanIndex(index)}>
+                    <div><span>SC{String(plan.scene_number).padStart(2, "0")}</span><strong>{plan.title}</strong></div>
+                    <p>{plan.description}</p>
+                    <small>{plan.location} · {plan.time ?? "未定"}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <aside className="scene-detail-column">
+              <span className="eyebrow">SCENE BREAKDOWN</span>
+              <h2>SC{String(activePlan?.scene_number ?? 0).padStart(2, "0")} 场景解构</h2>
+              <div className="scene-fact-grid">
+                <div><span><MapPin size={14} /> 地点</span><strong>{activePlan?.location ?? "—"}</strong></div>
+                <div><span><Moon size={14} /> 时间</span><strong>{activePlan?.time ?? "—"}</strong></div>
+                <div><span><Sparkle size={14} /> 情绪</span><strong>{activePlan?.mood ?? "—"}</strong></div>
+                <div><span><MagicWand size={14} /> 预计镜头</span><strong>AI 创建后确定</strong></div>
+              </div>
+              <div className="scene-description-block">
+                <span className="field-label">场景描述</span>
+                <p>{activePlan?.description}</p>
+              </div>
+              <div className="scene-description-block muted-block">
+                <span className="field-label"><UsersThree size={14} /> 角色提取</span>
+                <p>角色关系将在确认创建场景后进入 Project State。</p>
+              </div>
+            </aside>
+          </>
+        ) : (
+          <section className="analysis-start-panel">
+            <div className="analysis-orbit"><MagicWand size={30} weight="fill" /></div>
+            <span className="eyebrow">STRUCTURED OUTPUT</span>
+            <h2>把原文拆成可制作的场景</h2>
+            <p>AI 将识别场景、地点、时间、情绪与剧情节点。预览不会写入 Project State。</p>
+            <ul>
+              <li><CheckCircle size={16} /> 先预览，再确认创建</li>
+              <li><CheckCircle size={16} /> 1000–3000 字效果最佳</li>
+              <li><CheckCircle size={16} /> 保留现有场景，不自动覆盖</li>
+            </ul>
+          </section>
+        )}
       </div>
 
-      {previewError && <p className="error-text">{previewError}</p>}
+      {previewError && <div className="error-banner">{previewError}</div>}
 
-      {runPreview.isPending && <p className="muted">正在分析剧情结构…</p>}
-
-      {preview && !runPreview.isPending && (
-        <div className="preview-block">
-          <h3>AI 分析结果（{preview.length} 个场景）</h3>
-          <ul className="preview-list">
-            {preview.map((plan) => (
-              <li key={plan.scene_number} className="preview-item">
-                <strong>SC{String(plan.scene_number).padStart(2, "0")} {plan.title}</strong>
-                <span className="muted">
-                  {plan.location} · {plan.time ?? "—"} · {plan.mood ?? "—"}
-                </span>
-                <p className="small">{plan.description}</p>
-              </li>
-            ))}
-          </ul>
-          <button className="btn primary" disabled={createScenes.isPending} onClick={() => createScenes.mutate()}>
-            {createScenes.isPending || createOpId ? "创建中…" : "创建这些场景"}
-          </button>
+      <footer className="analysis-footer">
+        <div className="row gap">
+          <button className="btn secondary" disabled={!dirty || saveSource.isPending} onClick={() => saveSource.mutate()}>{saveSource.isPending ? "保存中…" : dirty ? "保存剧本" : "已保存"}</button>
+          {preview && <button className="btn secondary" onClick={() => setPreview(null)}>返回修改原文</button>}
         </div>
-      )}
-
-      {episode.source_text && episode.source_text.length > 0 && (
-        <p className="muted small">已保存 {episode.source_text.length} 字。重新分析会重复创建场景（后续版本将支持替换）。</p>
-      )}
+        {preview ? (
+          <button className="btn primary" disabled={createScenes.isPending || Boolean(createOpId)} onClick={() => createScenes.mutate()}>
+            {createScenes.isPending || createOpId ? "正在创建…" : `确认并创建 ${preview.length} 个场景`}
+          </button>
+        ) : (
+          <button className="btn primary" disabled={!sourceText.trim() || runPreview.isPending} onClick={() => runPreview.mutate()}>
+            <MagicWand size={16} weight="fill" /> {runPreview.isPending ? "AI 分析中…" : "AI 分析并预览"}
+          </button>
+        )}
+      </footer>
     </div>
   );
 }

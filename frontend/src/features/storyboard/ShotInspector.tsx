@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Aperture, ArrowSquareOut, CheckCircle, Clock, DotsThree, ImageSquare, MagicWand, VideoCamera } from "@phosphor-icons/react";
+import { Link } from "react-router-dom";
 import { api, ApiError } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type { GenerationRead, MediaVersionRead, Shot, ShotUpdatePatch } from "../../api/types";
 import { SHOT_TYPES, SHOT_TYPE_LABELS } from "../../api/types";
+import { useSelectionStore } from "../../stores/selectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 // Shot Inspector (frontend-ux §12-13): edit the selected shot, PATCH with optimistic revision.
@@ -91,8 +94,10 @@ export function ShotInspector() {
     return (
       <div className="panel-tab-content">
         <PanelTabs active="inspector" onSwitch={setRightPanelTab} />
-        <div className="placeholder-note">
-          <p className="muted">点击一个镜头查看与编辑参数</p>
+        <div className="placeholder-note inspector-empty">
+          <ImageSquare size={32} />
+          <h3>选择一个镜头</h3>
+          <p>在 Storyboard 里选择 Shot，参数和版本会显示在这里。</p>
         </div>
       </div>
     );
@@ -102,7 +107,7 @@ export function ShotInspector() {
     return (
       <div className="panel-tab-content">
         <PanelTabs active="inspector" onSwitch={setRightPanelTab} />
-        <p className="muted">加载中…</p>
+        <p className="muted inspector-loading">正在读取镜头…</p>
       </div>
     );
   }
@@ -112,10 +117,23 @@ export function ShotInspector() {
       <PanelTabs active="inspector" onSwitch={setRightPanelTab} />
 
       <div className="inspector">
-        <h3>
-          Shot {String(shot.shot_number).padStart(3, "0")}{" "}
-          <span className="muted">rev {shot.revision}</span>
-        </h3>
+        <div className="inspector-title-row">
+          <div>
+            <span className="eyebrow">SHOT DETAILS</span>
+            <h2>Shot {String(shot.shot_number).padStart(3, "0")}</h2>
+            <span className="ready-line"><CheckCircle size={15} weight="fill" /> {shot.status === "image_ready" ? "已出图" : "可编辑"} · rev {shot.revision}</span>
+          </div>
+          <button className="icon-button" aria-label="更多操作"><DotsThree size={20} /></button>
+        </div>
+
+        <div className="inspector-fact-grid">
+          <div><span><Aperture size={14} /> 景别</span><strong>{SHOT_TYPE_LABELS[form.shot_type ?? shot.shot_type]}</strong></div>
+          <div><span><VideoCamera size={14} /> 机位</span><strong>{form.camera_angle || "未设置"}</strong></div>
+          <div><span><MagicWand size={14} /> 运动</span><strong>{form.camera_movement || "静止"}</strong></div>
+          <div><span><Clock size={14} /> 时长</span><strong>{form.duration ? `${form.duration}s` : "—"}</strong></div>
+        </div>
+
+        <div className="inspector-section-title">镜头参数</div>
 
         <Field label="景别">
           <select
@@ -184,12 +202,12 @@ export function ShotInspector() {
 
         {conflict && <p className="error-text">{conflict}</p>}
 
-        <div className="row gap">
+        <div className="inspector-actions">
           <button className="btn primary grow" disabled={!dirty || saveShot.isPending} onClick={() => saveShot.mutate(form)}>
             {saveShot.isPending ? "保存中…" : dirty ? "保存修改" : "已保存"}
           </button>
           <button
-            className="btn"
+            className="btn secondary"
             disabled={generate.isPending}
             onClick={() => {
               if (dirty) saveShot.mutate(form, { onSuccess: () => generate.mutate() });
@@ -197,19 +215,19 @@ export function ShotInspector() {
             }}
             title="提交图片生成任务"
           >
-            {generate.isPending ? "提交中…" : "生成图片"}
+            <MagicWand size={15} /> {generate.isPending ? "提交中…" : "生成图片"}
           </button>
         </div>
         {saveShot.isError && !conflict && <p className="error-text">保存失败：{String(saveShot.error)}</p>}
         {generate.isError && <p className="error-text">生成失败：{String(generate.error)}</p>}
 
-        <ShotVersions shotId={shot.id} />
+        <ShotVersions shotId={shot.id} projectId={useSelectionStore.getState().selection.projectId} />
       </div>
     </div>
   );
 }
 
-function ShotVersions({ shotId }: { shotId: string }) {
+function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: string }) {
   const queryClient = useQueryClient();
 
   const { data: generations } = useQuery({
@@ -247,7 +265,10 @@ function ShotVersions({ shotId }: { shotId: string }) {
   const active = versions.find((v) => v.is_active);
   return (
     <div className="versions-block">
-      <h4>版本（{versions.length}）</h4>
+      <div className="versions-title-row">
+        <h4>版本（{versions.length}）</h4>
+        {projectId && <Link className="text-action" to={`/projects/${projectId}/shots/${shotId}/versions`}>全屏审片 <ArrowSquareOut size={14} /></Link>}
+      </div>
       {active && (
         <img
           className="version-preview"
@@ -282,7 +303,7 @@ function PanelTabs({ active, onSwitch }: { active: "inspector" | "director"; onS
   return (
     <div className="panel-tabs">
       <button className={`tab ${active === "inspector" ? "active" : ""}`} onClick={() => onSwitch("inspector")}>
-        Inspector
+        镜头检查器
       </button>
       <button className={`tab ${active === "director" ? "active" : ""}`} onClick={() => onSwitch("director")}>
         AI Director

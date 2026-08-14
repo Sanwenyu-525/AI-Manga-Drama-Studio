@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle, ImageSquare, ListBullets, MagicWand, Plus, SquaresFour, WarningCircle } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type { Shot, Storyboard } from "../../api/types";
@@ -8,11 +9,12 @@ import { useSelectionStore } from "../../stores/selectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useOperationPolling } from "../ai/useOperationPolling";
 
-// Storyboard card grid (frontend-ux §10-11): the most important workspace.
 export function StoryboardView({ sceneId }: { sceneId: string }) {
   const queryClient = useQueryClient();
-  const selectShot = useSelectionStore((s) => s.selectShot);
-  const setActiveShot = useWorkspaceStore((s) => s.setActiveShot);
+  const selectedShotId = useSelectionStore((state) => state.selection.shotIds[0]);
+  const selectShot = useSelectionStore((state) => state.selectShot);
+  const setActiveShot = useWorkspaceStore((state) => state.setActiveShot);
+  const setRightPanelTab = useWorkspaceStore((state) => state.setRightPanelTab);
   const [planOpId, setPlanOpId] = useState<string | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
 
@@ -26,15 +28,14 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
     onSuccess: (shot) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.storyboard(sceneId) });
       void queryClient.invalidateQueries({ queryKey: ["scenes"] });
-      selectShot(shot.id);
-      setActiveShot(shot.id);
+      handleSelect(shot.id);
     },
   });
 
   const generateShots = useMutation({
     mutationFn: () => api.post<{ operation_id: string; status: string }>(`/scenes/${sceneId}/generate-shots`),
-    onSuccess: (resp) => {
-      setPlanOpId(resp.operation_id);
+    onSuccess: (response) => {
+      setPlanOpId(response.operation_id);
       setPlanError(null);
     },
     onError: (error) => setPlanError(error instanceof Error ? error.message : String(error)),
@@ -47,8 +48,8 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
       void queryClient.invalidateQueries({ queryKey: ["scenes"] });
       setPlanOpId(null);
     },
-    (op) => {
-      setPlanError(op.error ?? "AI 分镜生成失败");
+    (operation) => {
+      setPlanError(operation.error ?? "AI 分镜生成失败");
       setPlanOpId(null);
     },
   );
@@ -56,67 +57,81 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
   const handleSelect = (shotId: string) => {
     selectShot(shotId);
     setActiveShot(shotId);
+    setRightPanelTab("inspector");
   };
+
+  const totalDuration = storyboard?.shots.reduce((sum, shot) => sum + (shot.duration ?? 0), 0) ?? 0;
+  const readyCount = storyboard?.shots.filter((shot) => shot.status === "image_ready" || shot.status === "approved").length ?? 0;
 
   return (
     <div className="storyboard">
-      <div className="storyboard-head">
-        <h2>{storyboard?.scene.name ?? "分镜"} · Scene {storyboard?.scene.scene_number}</h2>
+      <header className="storyboard-head">
+        <div>
+          <span className="eyebrow">STORYBOARD</span>
+          <h1>第 {storyboard?.scene.scene_number ?? "—"} 场 · {storyboard?.scene.name ?? "分镜"}</h1>
+          <p>{storyboard?.shots.length ?? 0} 个镜头 · {totalDuration.toFixed(1)}s</p>
+        </div>
+        <div className="storyboard-summary">
+          <span><CheckCircle size={16} /> 已出图 {readyCount}/{storyboard?.shots.length ?? 0}</span>
+          <div className="view-toggle"><button><ListBullets size={17} /></button><button className="active"><SquaresFour size={17} /></button></div>
+        </div>
+      </header>
+
+      <div className="storyboard-toolbar">
+        <div className="continuity-score"><i style={{ width: `${storyboard?.shots.length ? Math.max(28, Math.round((readyCount / storyboard.shots.length) * 100)) : 0}%` }} /><span>制作进度</span></div>
         <div className="row gap">
-          <button
-            className="btn primary"
-            disabled={generateShots.isPending || !!planOpId}
-            onClick={() => generateShots.mutate()}
-            title="AI 根据场景生成分镜镜头"
-          >
-            {generateShots.isPending || planOpId ? "AI 生成分镜中…" : "AI 生成分镜"}
-          </button>
-          <button className="btn" onClick={() => createShot.mutate()} disabled={createShot.isPending}>
-            + 镜头
+          <button className="btn secondary" onClick={() => createShot.mutate()} disabled={createShot.isPending}><Plus size={15} /> 镜头</button>
+          <button className="btn primary" disabled={generateShots.isPending || Boolean(planOpId)} onClick={() => generateShots.mutate()}>
+            <MagicWand size={16} weight="fill" /> {generateShots.isPending || planOpId ? "AI 生成中…" : "AI 生成分镜"}
           </button>
         </div>
       </div>
 
-      {planError && <p className="error-text">{planError}</p>}
-
-      {isLoading && <p className="muted">加载中…</p>}
+      {planError && <div className="error-banner"><WarningCircle size={17} /> {planError}</div>}
+      {isLoading && <div className="workspace-loading">正在读取 Storyboard…</div>}
 
       {!isLoading && (!storyboard || storyboard.shots.length === 0) && (
-        <div className="empty-state">
-          <p>还没有分镜</p>
-          <p className="muted">用 AI 根据场景生成镜头，或手动添加</p>
+        <div className="empty-state storyboard-empty">
+          <ImageSquare size={38} />
+          <h2>这一场还没有镜头</h2>
+          <p>让 AI 根据场景生成镜头计划，或先手动添加一个镜头。</p>
           <div className="row gap">
-            <button className="btn primary" onClick={() => generateShots.mutate()}>
-              AI 生成 Storyboard
-            </button>
-            <button className="btn" onClick={() => createShot.mutate()}>
-              手动添加
-            </button>
+            <button className="btn primary" onClick={() => generateShots.mutate()}><MagicWand size={16} /> AI 生成 Storyboard</button>
+            <button className="btn secondary" onClick={() => createShot.mutate()}><Plus size={16} /> 手动添加</button>
           </div>
         </div>
       )}
 
       <div className="shot-grid">
-        {storyboard?.shots.map((shot) => (
-          <button key={shot.id} className="shot-card" onClick={() => handleSelect(shot.id)}>
-            <div className="shot-thumb">
-              {shot.thumbnail_url ? (
-                <img src={shot.thumbnail_url} alt={`Shot ${shot.shot_number}`} />
-              ) : (
-                <span className="shot-placeholder">No Image</span>
-              )}
-            </div>
-            <div className="shot-meta">
-              <span className="shot-number">Shot {String(shot.shot_number).padStart(3, "0")}</span>
-              <span className={`badge ${shot.status}`}>{SHOT_TYPE_LABELS[shot.shot_type] ?? shot.shot_type}</span>
-            </div>
-            <div className="shot-meta small">
-              <span className="muted">{shot.duration != null ? `${shot.duration.toFixed(1)}s` : "—"}</span>
-              {shot.dirty_state !== "clean" && <span className="badge warn">Dirty</span>}
-            </div>
-          </button>
-        ))}
+        {storyboard?.shots.map((shot) => {
+          const isSelected = selectedShotId === shot.id;
+          const isGenerating = shot.active_generation && typeof shot.active_generation === "object";
+          return (
+            <button key={shot.id} className={`shot-card ${isSelected ? "selected" : ""} ${shot.status === "failed" ? "failed" : ""}`} onClick={() => handleSelect(shot.id)}>
+              <div className="shot-thumb">
+                {shot.thumbnail_url ? <img src={shot.thumbnail_url} alt={`Shot ${shot.shot_number}`} /> : <img src="/assets/manga-shot.png" alt="镜头占位参考" className="reference-fallback" />}
+                {isGenerating && <div className="shot-generating"><MagicWand size={18} /> GENERATING</div>}
+                <span className="shot-index">SH{String(shot.shot_number).padStart(2, "0")}</span>
+              </div>
+              <div className="shot-card-body">
+                <div className="shot-meta">
+                  <span className="shot-number">Shot {String(shot.shot_number).padStart(3, "0")}</span>
+                  <span className="shot-duration">{shot.duration != null ? `${shot.duration.toFixed(1)}s` : "—"}</span>
+                </div>
+                <p>{SHOT_TYPE_LABELS[shot.shot_type] ?? shot.shot_type}{shot.character_names.length ? ` · ${shot.character_names.join("、")}` : " · 待编辑"}</p>
+                <div className="shot-state-row">
+                  <span className={`badge ${shot.status}`}>{statusText(shot.status)}</span>
+                  {shot.dirty_state !== "clean" && <span className="badge warn">需重生成</span>}
+                </div>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
+}
+
+function statusText(status: string): string {
+  return ({ draft: "草稿", image_ready: "已出图", approved: "已确认", failed: "失败" } as Record<string, string>)[status] ?? status;
 }
