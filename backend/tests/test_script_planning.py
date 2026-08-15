@@ -171,9 +171,10 @@ def test_analyze_replaces_ai_scenes_keeps_manual(client: TestClient) -> None:
     assert manual["name"] == "手动补充场景"
 
     # changing the source produces a different analysis key → replace policy
+    _ep_rev = client.get(f"/api/v1/episodes/{episode_id}").json()["revision"]
     resp = client.patch(
         f"/api/v1/episodes/{episode_id}",
-        json={"source_text": NOVEL_TEXT + "\n追加的新章节：暗流涌动，旧敌归来。\n"},
+        json={"revision": _ep_rev, "patch": {"source_text": NOVEL_TEXT + "\n追加的新章节：暗流涌动，旧敌归来。\n"}},
     )
     assert resp.status_code == 200
 
@@ -220,7 +221,11 @@ def test_generate_shots_replaces_ai_shots_keeps_manual(client: TestClient) -> No
     manual = client.post(f"/api/v1/scenes/{scene_id}/shots", json={"shot_type": "wide"}).json()
 
     # changing the scene context produces a different storyboard key → replace policy
-    resp = client.patch(f"/api/v1/scenes/{scene_id}", json={"name": "改名后的场景"})
+    _rev = client.get(f"/api/v1/scenes/{scene_id}").json()["revision"]
+    resp = client.patch(
+        f"/api/v1/scenes/{scene_id}",
+        json={"revision": _rev, "patch": {"name": "改名后的场景"}},
+    )
     assert resp.status_code == 200
 
     done2 = _generate_shots(client, scene_id)

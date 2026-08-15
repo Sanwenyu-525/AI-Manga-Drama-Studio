@@ -33,8 +33,13 @@ def test_project_crud(client: TestClient) -> None:
     fetched = client.get(f"/api/v1/projects/{created['id']}")
     assert fetched.status_code == 200
 
-    updated = client.patch(f"/api/v1/projects/{created['id']}", json={"name": "Renamed"}).json()
+    assert created["revision"] == 1
+    updated = client.patch(
+        f"/api/v1/projects/{created['id']}",
+        json={"revision": 1, "patch": {"name": "Renamed"}},
+    ).json()
     assert updated["name"] == "Renamed"
+    assert updated["revision"] == 2
 
     missing = client.get("/api/v1/projects/does-not-exist")
     assert missing.status_code == 404

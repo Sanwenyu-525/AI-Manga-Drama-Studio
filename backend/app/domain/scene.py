@@ -17,6 +17,8 @@ class SceneCreate(BaseModel):
 
 
 class SceneUpdate(BaseModel):
+    """Patch payload — every field optional; None means 'leave unchanged'."""
+
     name: str | None = None
     location_id: str | None = None
     time_of_day: str | None = None
@@ -25,6 +27,13 @@ class SceneUpdate(BaseModel):
     mood: str | None = None
     description: str | None = None
     status: SceneStatus | None = None
+
+
+class SceneUpdateRequest(BaseModel):
+    """Optimistic concurrency (api-event-contract §21/§88): {revision, patch}; 409 on mismatch."""
+
+    revision: int = Field(ge=1)
+    patch: SceneUpdate
 
 
 class SceneSummary(BaseModel):
@@ -44,5 +53,6 @@ class SceneRead(SceneSummary):
     scene_order: int | None
     status: str
     shot_count: int = 0
+    revision: int
     created_at: str
     updated_at: str

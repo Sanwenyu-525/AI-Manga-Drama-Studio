@@ -5,6 +5,7 @@ from app.db.models.character import Character, ShotCharacter
 from app.db.models.episode import Episode
 from app.db.models.generation import Generation
 from app.db.models.project import Project
+from app.db.models.project_setting import ProjectSetting
 from app.db.models.prompt import Prompt, PromptVersion
 from app.db.models.scene import Scene
 from app.db.models.shot import Shot
@@ -15,6 +16,7 @@ __all__ = [
     "Episode",
     "Generation",
     "Project",
+    "ProjectSetting",
     "Prompt",
     "PromptVersion",
     "Scene",
