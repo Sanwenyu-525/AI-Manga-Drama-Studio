@@ -1072,14 +1072,17 @@ Request：
 ```json
 {
   "type": "image",
-
   "provider": "comfyui",
-
   "workflow_id": "wf_image_001",
-
   "parameters": {}
 }
 ```
+
+> workflow_id **可选**（P4-T007）：省略时由 WorkflowResolver 按优先级链解析并写入
+> `generation.workflow_id` —— **request override → project default → system default**
+> （project default 取 `project_settings.default_image_workflow_id` / `default_video_workflow_id`，
+> 按 `type` 选择；system default = `default_image_api`）。显式传入保持原有 422 前检；
+> 未知的解析结果一律 422（绝不静默回退）。
 
 ---
 
@@ -1344,26 +1347,30 @@ GET /api/v1/assets/{id}/content
 GET /api/v1/providers
 ```
 
-Response：
-
 ```json
 [
   {
     "id": "comfyui_local",
-
     "name": "Local ComfyUI",
-
     "type": "image",
-
-    "status": "connected",
-
+    "status": "active",
     "capabilities": {
       "image_generation": true,
       "reference_image": true
+    },
+    "base_url": "http://127.0.0.1:8188",
+    "health": {
+      "status": "available",
+      "last_checked_at": "...",
+      "latency_ms": 12
     }
   }
 ]
 ```
+
+> P4-T003：每个 provider 附带 `health` 块（向后兼容——保留 id/name/type/status/
+> capabilities/base_url 旧字段）。`health.status` ∈ available | unavailable | degraded；
+> Mock 恒 available；ComfyUI 为最近一次探测缓存（未探测时为 unavailable）。
 
 ---
 
@@ -1390,17 +1397,26 @@ Response：
 ```json
 {
   "connected": true,
-
-  "latency_ms": 12
+  "latency_ms": 12,
+  "health": {
+    "status": "available",
+    "last_checked_at": "...",
+    "latency_ms": 12
+  },
+  "workflow": { "id": "default_image_api", "status": "ok", "output_node": "14" }
 }
 ```
 
+> P4-T003：该端点探测 ComfyUI 并同时刷新健康缓存，GET /providers 的 health 块随之更新。
+
 ---
 
-# 48.1 Workflow Catalog API（只读）
+# 48.1 Workflow Catalog API（只读，P4-T004）
 
-工作流模板以 API 格式 JSON 入库（workflows/*.json，受 WORKFLOW_CATALOG 约束，
-见 backend-architecture §21 / §42）。前端只读展示目录与预检元数据，不做编辑。
+工作流模板以 API 格式 JSON 入库（workflows/*.json）。P4-T004 起，目录内容被幂等扫描
+为只读注册表 workflow_templates + workflow_versions（SHA-256 哈希快照，见 database §24），
+GET /workflows 返回的是已注册模板的目录（保持原有字段，兼容旧调用方）。
+前端只读展示目录与预检元数据，不做编辑（YAGNI）。
 
 ```http
 GET /api/v1/workflows
@@ -1412,23 +1428,18 @@ Response：
 [
   {
     "id": "default_image_api",
-
     "file": "default_image_api.json",
-
     "is_default": true,
-
+    "workflow_type": "image",
+    "template_id": "XXXX",
+    "active_version_number": 1,
+    "file_hash": "<sha256>",
     "output_node_class": "SaveImage",
-
     "required_placeholders": ["$PROMPT", "$SEED", "$WIDTH", "$HEIGHT"],
-
     "exists": true,
-
     "valid_json": true,
-
     "node_count": 7,
-
     "node_types": ["CLIPTextEncode", "KSampler", "SaveImage", "VAEDecode"],
-
     "placeholder_tokens": ["$HEIGHT", "$NEGATIVE_PROMPT", "$PROMPT", "$SEED", "$WIDTH"]
   }
 ]
@@ -1438,9 +1449,34 @@ Response：
 
 - `id` / `file`：workflow_id 与模板文件名（WORKFLOW_CATALOG 约束）
 - `is_default`：默认生成使用的模板
+- `workflow_type`：image | video（按文件名/约定推断，默认 image）
+- `template_id` / `active_version_number` / `file_hash`：P4-T004 注册表元数据
 - `output_node_class`：preflight 要求恰好一个输出节点（SaveImage）
 - `required_placeholders`：preflight 必需的占位符；缺失时生成前失败
 - `node_types` / `placeholder_tokens`：模板结构清单（只读展示用）
+
+版本快照（不可变哈希历史）：
+
+```http
+GET /api/v1/workflows/{workflow_id}/versions
+```
+
+```json
+[
+  {
+    "id": "XXXX",
+    "template_id": "XXXX",
+    "workflow_id": "default_image_api",
+    "version_number": 1,
+    "file_hash": "<sha256>",
+    "file_path": "default_image_api.json",
+    "status": "active",
+    "created_at": "..."
+  }
+]
+```
+
+未知 workflow_id → 422（VALIDATION_ERROR）；已注册但无版本 → 404。
 
 ---
 
