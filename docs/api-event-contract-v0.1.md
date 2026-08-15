@@ -1593,9 +1593,9 @@ shot.deleted
 
 shot.reordered
 
-shot.version.created
+shot.version.created   （兼容保留：语义同 Asset 版本创建，payload 指向 asset_id）
 
-shot.active_version.changed
+shot.active_version.changed   （ADR-001：payload = {media_type, asset_id, version_number}，active 指针指向 Asset）
 
 shot.dirty_state.changed
 ```
