@@ -100,7 +100,8 @@ class ShotService:
                 project_id=self._project_id_of(shot),
             )
         )
-        return _to_read(shot, data.character_ids)
+        ids, _ = self._character_data([shot.id])
+        return _to_read(shot, ids.get(shot.id, []))
 
     def create_shots(
         self,
@@ -153,9 +154,9 @@ class ShotService:
                     generated_by="user",
                     commit=False,
                 )
-            if data.character_ids:
-                self._validate_characters(data.character_ids, scene)
-                self._replace_characters(shot, data.character_ids)
+            assignments = self._resolve_assignments(data, scene)
+            if assignments:
+                self._replace_characters(shot, assignments)
             created.append(shot)
         return created
 
@@ -262,10 +263,11 @@ class ShotService:
             if value is not None:
                 values[field] = value
                 changed.append(field)
-        character_change = patch.character_ids is not None
+        character_change = patch.character_ids is not None or patch.characters is not None
+        assignments: list[dict] = []
         if character_change:
             scene = self.session.get(Scene, shot.scene_id)
-            self._validate_characters(patch.character_ids, scene)
+            assignments = self._resolve_assignments(patch, scene)
             changed.append("character_ids")
 
         if not values and not character_change and not prompt_change:
@@ -297,7 +299,7 @@ class ShotService:
                 },
             )
         if character_change:
-            self._replace_characters(shot, patch.character_ids)
+            self._replace_characters(shot, assignments)
         self.session.commit()
         self.session.refresh(shot)
 
@@ -420,16 +422,79 @@ class ShotService:
                 {"character_ids": foreign, "project_id": project_id},
             )
 
-    def _replace_characters(self, shot: Shot, character_ids: list[str]) -> None:
+    def _resolve_assignments(
+        self, data, scene: Scene | None
+    ) -> list[dict]:
+        """Backward-compatible resolution of shot character assignment.
+
+        If the P2-T010 'characters' list (character_id + optional costume_id) is present
+        it supersedes the plain 'character_ids' list. Returns a list of dicts
+        {character_id, costume_id}. Character projection ownership is validated; any
+        referenced costume is validated for existence + same-project membership.
+        """
+        from app.core.errors import ValidationError
+
+        characters = getattr(data, "characters", None)
+        character_ids = getattr(data, "character_ids", None) or []
+        if characters is not None:
+            character_ids = [a.character_id for a in characters]
+        self._validate_characters(character_ids, scene)
+
+        project_id = self._project_id_of(scene) if scene else None
+        costume_ids = [a.costume_id for a in characters if a.costume_id] if characters else []
+        if costume_ids:
+            from app.db.models import Costume
+
+            costumes = {
+                c.id: c
+                for c in self.session.scalars(
+                    select(Costume).where(Costume.id.in_(costume_ids), Costume.deleted_at.is_(None))
+                )
+            }
+            unknown_costumes = [cid for cid in costume_ids if cid not in costumes]
+            if unknown_costumes:
+                raise NotFoundError("Costume does not exist.", {"costume_ids": unknown_costumes})
+            foreign = [cid for cid in costume_ids if costumes[cid].project_id != project_id]
+            if foreign:
+                raise ValidationError(
+                    "Costume belongs to another project.",
+                    {"costume_ids": foreign, "project_id": project_id},
+                )
+
+        if characters is not None:
+            # duplicate character_id would violate the (shot_id, character_id) unique index
+            seen: set[str] = set()
+            for a in characters:
+                if a.character_id in seen:
+                    raise ValidationError(
+                        "Character ids must be unique.",
+                        {"character_ids": [a.character_id]},
+                    )
+                seen.add(a.character_id)
+            # honor explicit costume order (matches characters order)
+            return [
+                {"character_id": a.character_id, "costume_id": a.costume_id}
+                for a in characters
+            ]
+        return [{"character_id": cid, "costume_id": None} for cid in character_ids]
+
+    def _replace_characters(self, shot: Shot, assignments: list[dict]) -> None:
         """Replace the shot's character links (ephemeral link rows, no version history).
 
-        P1-E1-T02: old links are hard-deleted and flushed BEFORE inserting new ones —
-        the (shot_id, character_id) unique index would otherwise reject same-pair re-adds
-        in the same flush (SQLAlchemy emits INSERTs before DELETEs)."""
+        assignments: list of {character_id, costume_id}. P1-E1-T02: old links are
+        hard-deleted and flushed BEFORE inserting new ones — the (shot_id, character_id)
+        unique index would otherwise reject same-pair re-adds in the same flush
+        (SQLAlchemy emits INSERTs before DELETEs). P2-T010 records optional costume_id."""
         self.links.delete_for_shot(shot.id)
         self.session.flush()
-        for character_id in character_ids:
-            self.session.add(ShotCharacter(shot_id=shot.id, character_id=character_id))
+        for assignment in assignments:
+            self.session.add(
+                ShotCharacter(
+                    shot_id=shot.id,
+                    character_id=assignment["character_id"],
+                    costume_id=assignment.get("costume_id"),
+                )
+            )
 
     def _character_data(self, shot_ids: list[str]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
         """(shot_id → character_ids, shot_id → character_names) — soft-deleted characters

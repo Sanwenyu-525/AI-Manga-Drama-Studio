@@ -38,6 +38,7 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
         "prompts", "prompt_versions",  # ADR-002
         "generation_inputs", "generation_outputs",  # P3-T012/T013
         "character_versions",  # P2-T007/T008
+        "locations", "location_versions", "costumes",  # P2-T009/T010
         "alembic_version",
     ):
         assert expected in tables, f"missing table {expected}"
@@ -67,6 +68,16 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
     assert {"id", "character_id", "version_number", "asset_id", "name", "description", "status", "checksum", "created_at", "updated_at"} <= char_version_cols
     assert "master_version_id" in _table_columns(engine, "characters")
 
+    # P2-T009 location versioning + P2-T010 costumes
+    loc_cols = _table_columns(engine, "locations")
+    assert {"id", "project_id", "name", "description", "visual_prompt", "status", "revision", "deleted_at", "master_version_id", "created_at", "updated_at"} <= loc_cols
+    loc_version_cols = _table_columns(engine, "location_versions")
+    assert {"id", "location_id", "version_number", "asset_id", "name", "description", "status", "checksum", "deleted_at", "created_at", "updated_at"} <= loc_version_cols
+    costume_cols = _table_columns(engine, "costumes")
+    assert {"id", "project_id", "character_id", "name", "description", "visual_prompt", "reference_asset_id", "revision", "deleted_at"} <= costume_cols
+    # P2-T010 costume_id weak ref already present on shot_characters from P1 + character_ids fixed
+    assert "costume_id" in _table_columns(engine, "shot_characters")
+
     # P1 columns present (P1-E1-T01 migration e1f2a3b4c5d6)
     assert "analysis_key" in _table_columns(engine, "episodes")
     assert {"analysis_key", "storyboard_key"} <= _table_columns(engine, "scenes")
@@ -86,8 +97,11 @@ def test_downgrade_and_upgrade_round_trip(tmp_path: Path) -> None:
     engine = create_engine(f"sqlite:///{db.as_posix()}")
     assert "analysis_key" in _table_columns(engine, "episodes")
     # P2 tables survive the round trip
-    assert "character_versions" in set(inspect(engine).get_table_names())
+    table_names = set(inspect(engine).get_table_names())
+    assert "character_versions" in table_names
     assert "master_version_id" in _table_columns(engine, "characters")
+    assert {"locations", "location_versions", "costumes"} <= table_names
+    assert "master_version_id" in _table_columns(engine, "locations")
     engine.dispose()
 
 

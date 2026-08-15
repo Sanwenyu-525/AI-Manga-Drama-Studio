@@ -2,7 +2,9 @@
 
 from app.db.models.asset import Asset
 from app.db.models.character import Character, CharacterVersion, ShotCharacter
+from app.db.models.costume import Costume
 from app.db.models.episode import Episode
+from app.db.models.location import Location, LocationVersion
 from app.db.models.generation import Generation
 from app.db.models.generation_io import GenerationInput, GenerationOutput
 from app.db.models.project import Project
@@ -16,7 +18,10 @@ __all__ = [
     "Asset",
     "Character",
     "CharacterVersion",
+    "Costume",
     "Episode",
+    "Location",
+    "LocationVersion",
     "Generation",
     "GenerationInput",
     "GenerationOutput",

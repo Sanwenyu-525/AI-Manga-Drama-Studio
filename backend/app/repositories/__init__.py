@@ -5,7 +5,10 @@ from sqlalchemy import select
 from app.db.models import (
     Character,
     CharacterVersion,
+    Costume,
     Episode,
+    Location,
+    LocationVersion,
     Project,
     Scene,
     Shot,
@@ -74,6 +77,44 @@ class CharacterVersionRepository(SQLAlchemyRepository[CharacterVersion]):
 
     def next_version_number(self, character_id: str) -> int:
         return self.next_sequence("character_id", character_id, "version_number")
+
+
+class LocationRepository(SQLAlchemyRepository[Location]):
+    model = Location
+
+    def list_for_project(self, project_id: str) -> list[Location]:
+        return self.list_ordered(order_by="created_at", project_id=project_id)
+
+
+class LocationVersionRepository(SQLAlchemyRepository[LocationVersion]):
+    """Location visual versions (P2-T009) — immutable chain, soft-delete aware.
+
+    Mirrors CharacterVersionRepository: soft-deleted rows are excluded from
+    listing and from version_number computation (a deleted v2 frees the slot).
+    """
+
+    model = LocationVersion
+
+    def list_for_location(self, location_id: str) -> list[LocationVersion]:
+        stmt = (
+            select(LocationVersion)
+            .where(
+                LocationVersion.location_id == location_id,
+                LocationVersion.deleted_at.is_(None),
+            )
+            .order_by(LocationVersion.version_number.asc())
+        )
+        return list(self.session.scalars(stmt))
+
+    def next_version_number(self, location_id: str) -> int:
+        return self.next_sequence("location_id", location_id, "version_number")
+
+
+class CostumeRepository(SQLAlchemyRepository[Costume]):
+    model = Costume
+
+    def list_for_project(self, project_id: str) -> list[Costume]:
+        return self.list_ordered(order_by="created_at", project_id=project_id)
 
 
 class ShotCharacterRepository(SQLAlchemyRepository[ShotCharacter]):

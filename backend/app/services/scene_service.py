@@ -1,5 +1,6 @@
 """SceneService (backend-architecture §13, mvp-spec §25)."""
 
+import re
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select, update
@@ -10,6 +11,17 @@ from app.db.models import Episode, Scene, Shot
 from app.domain.scene import SceneCreate, SceneRead, SceneUpdate
 from app.events.bus import EVENT_SCENE_CREATED, EVENT_SCENE_DELETED, EVENT_SCENE_UPDATED, StudioEvent, bus
 from app.repositories import EpisodeRepository, SceneRepository
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_uuid(value: str) -> bool:
+    """True when value is a canonical UUID hex form (a real Location reference),
+    False for legacy free-text location names like "体育馆" / "L1"."""
+    return bool(_UUID_RE.match(value or ""))
 
 SCENE_UPDATE_FIELDS = (
     "name",
@@ -81,6 +93,10 @@ class SceneService:
             raise NotFoundError("Episode does not exist.", {"episode_id": episode_id})
         created: list[Scene] = []
         for data in datas:
+            # P2-T009: validate a Location UUID reference on scenes.location_id — legacy
+            # free-text passes through; real references are checked for existence + project.
+            if data.location_id is not None:
+                self._validate_location(data.location_id, episode.project_id)
             scene_number = data.scene_number or self.repo.next_scene_number(episode_id)
             scene = Scene(
                 episode_id=episode_id,
@@ -143,6 +159,9 @@ class SceneService:
             if value is not None:
                 values[field] = value
                 changed.append(field)
+        # P2-T009: weak location ref validated service-side (existence + project).
+        if patch.location_id is not None and project_id is not None:
+            self._validate_location(patch.location_id, project_id)
         if not changed:
             return _to_read(scene, shot_count=self._count_shots(scene_id))
 
@@ -198,6 +217,34 @@ class SceneService:
                 project_id=episode.project_id if episode else None,
             )
         )
+
+    def _validate_location(self, location_id: str, project_id: str | None) -> None:
+        """P2-T009: validate a Location REFERENCE on scenes.location_id.
+
+        scenes.location_id is a weak Text ref, so legacy free-text values (e.g. "体育馆",
+        "L1") must keep working untouched. Validation only kicks in when the value looks
+        like a real Location UUID (the new reference form): then it must exist (404) and
+        belong to the same project (422)."""
+
+        # legacy free-text location — not a UUID reference; pass through unvalidated
+        if not _looks_like_uuid(location_id):
+            return
+        if project_id is None:
+            raise NotFoundError("Location does not exist.", {"location_id": location_id})
+        from app.core.errors import NotFoundError as NF  # shadowing safe
+        from app.core.errors import ValidationError
+        from app.db.models import Location
+
+        location = self.session.scalar(
+            select(Location).where(Location.id == location_id, Location.deleted_at.is_(None))
+        )
+        if location is None:
+            raise NF("Location does not exist.", {"location_id": location_id})
+        if location.project_id != project_id:
+            raise ValidationError(
+                "Location belongs to another project.",
+                {"location_id": location_id, "project_id": project_id, "location_project_id": location.project_id},
+            )
 
     def _count_shots(self, scene_id: str) -> int:
         return self.session.scalar(

@@ -92,8 +92,10 @@ class ShotCharacter(Base):
     shot_id: Mapped[str] = mapped_column(ForeignKey("shots.id"), nullable=False, index=True)
     character_id: Mapped[str] = mapped_column(ForeignKey("characters.id"), nullable=False, index=True)
 
-    # continuity fields (future Stage: filled by AI Director / continuity checks)
+    # P2-T010: costume_id weak ref into costumes (no hard FK on link rows so shot
+    # assignment stays optional — validated service-side, consistent with scenes.location_id).
     costume_id: Mapped[str | None] = mapped_column(Text)
+    # continuity fields (future Stage: filled by AI Director / continuity checks)
     role: Mapped[str | None] = mapped_column(Text)
     position: Mapped[str | None] = mapped_column(Text)
     pose: Mapped[str | None] = mapped_column(Text)
