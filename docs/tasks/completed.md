@@ -11,7 +11,7 @@
 | P1-E1-T01 | 修复 AI 计划映射与批量写入事务 | 2026-08-20 | 07eff18 |
 | P1-E4-T01 | 修复路由冲突并统一错误/请求契约 | 2026-08-20 | 3ab41c8 |
 | P1-E3-T01 | 强制 Agent Project Ownership 与 Run-local Context | 2026-08-20 | a1f7155 |
-| P1-E2-T01 | 修复真实 ComfyUI workflow 与 Provider 选择 | 2026-08-20 | 待提交 | 显式映射 Scene/Shot Plan（location_id 落库）；批量写入事务化（all-or-nothing + 失败注入测试）；analysis_key/storyboard_key 幂等 no-op 与显式 replace 策略；Scene DTO 新增 location_id；文档与迁移 e1f2a3b4c5d6 同步 |
+| P1-E2-T01 | 修复真实 ComfyUI workflow 与 Provider 选择 | 2026-08-20 | e4b435a | 显式映射 Scene/Shot Plan（location_id 落库）；批量写入事务化（all-or-nothing + 失败注入测试）；analysis_key/storyboard_key 幂等 no-op 与显式 replace 策略；Scene DTO 新增 location_id；文档与迁移 e1f2a3b4c5d6 同步 |
 
 ## 历史 MVP 里程碑（基线，不占用 Post-MVP Task ID）
 
