@@ -20,20 +20,32 @@ GENERATION_STATUSES = (
     "failed",
     "cancelled",
     "retrying",
+    # P5-T016: abnormal-task detection — a running row whose lease expired and whose
+    # attempt budget is exhausted becomes 'interrupted' (system interruption, not a
+    # user failure).
+    "interrupted",
+    # P5-T015: a running row the user cancelled is flagged 'cancelling' (durable), so
+    # the cancel survives a restart; the worker finalizes it to 'cancelled'.
+    "cancelling",
 )
 
 ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "created": frozenset({"queued"}),
     "queued": frozenset({"running", "cancelled"}),
     # running → queued happens ONLY through lease-expiry recovery (crash).
-    "running": frozenset({"completed", "failed", "cancelled", "retrying", "queued"}),
+    "running": frozenset(
+        {"completed", "failed", "cancelled", "retrying", "queued", "interrupted", "cancelling"}
+    ),
     "retrying": frozenset({"running", "cancelled", "failed"}),
+    # A cancelling row is finalized by the worker; it never resumes or retries.
+    "cancelling": frozenset({"cancelled", "failed"}),
     "completed": frozenset(),
     "failed": frozenset(),
     "cancelled": frozenset(),
+    "interrupted": frozenset(),
 }
 
-TERMINAL = ("completed", "failed", "cancelled")
+TERMINAL = ("completed", "failed", "cancelled", "interrupted")
 
 
 def validate_transition(current: str, new: str) -> None:

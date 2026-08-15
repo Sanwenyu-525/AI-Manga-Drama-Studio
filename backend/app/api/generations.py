@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.core.errors import NotFoundError
 from app.domain.generation import AssetVersionRead, GenerationCreate, GenerationRead
-from app.generations.worker import cancel_running
+from app.generations.worker import cancel_running, pause_queue, queue_status, resume_queue
 from app.services import GenerationService, VersionService
 
 router = APIRouter(tags=["generations"])
@@ -46,6 +46,30 @@ def recent_generations(db: Session = Depends(get_db)) -> list[GenerationRead]:
     NOTE: registered BEFORE /generations/{generation_id} — static route must win
     (P1-E4-T01 route conflict regression)."""
     return [_to_read(g) for g in GenerationService(db).list_recent()]
+
+
+# --- queue-level control (P5-T013/T014), registered before the {generation_id}
+# param route so the static paths win (same rule as /generations/recent). These are
+# thin routers — all logic lives in the worker module. ---
+
+@router.post("/generations/pause")
+def pause_queue_endpoint() -> dict:
+    """Pause scheduling of NEW generation tasks; running ones continue."""
+    pause_queue()
+    return {"paused": True}
+
+
+@router.post("/generations/resume")
+def resume_queue_endpoint() -> dict:
+    """Resume scheduling of new generation tasks."""
+    resume_queue()
+    return {"paused": False}
+
+
+@router.get("/generations/queue-status")
+def generations_queue_status() -> dict:
+    """Queue-level status (paused flag + pending/running counts)."""
+    return queue_status()
 
 
 @router.get("/generations/{generation_id}", response_model=GenerationRead)

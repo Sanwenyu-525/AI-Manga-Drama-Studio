@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
-from app.core.errors import ConflictError
+from app.core.errors import ConflictError, ProviderUnavailableError
 from app.db.models import Generation
 from app.domain.episode import EpisodeCreate
 from app.domain.generation import GenerationCreate
@@ -109,21 +109,29 @@ def test_lease_recovery_fails_when_attempt_budget_exhausted(session_factory) -> 
     worker_module.recover_expired_leases(factory=factory)
     with factory() as session:
         row = session.get(Generation, gen_id)
-        assert row.status == "failed"
-        assert "lease" in (row.error_message or "").lower()
+        # P5-T016: a crash where the attempt budget is exhausted is a SYSTEM
+        # interruption (abnormal-task detection), not a user failure.
+        assert row.status == "interrupted"
+        assert "interrupted" in (row.error_message or "").lower()
 
 
 def test_retry_backoff_gates_reclaim(session_factory) -> None:
     gen_id = _make_generation(session_factory)
     factory, _ = session_factory
 
-    # claim → provider fails once (attempts 1 < max 3) → retrying with backoff
+    # claim → provider fails once (attempts 1 < max 3) → retrying with backoff.
+    # P5-T009: a ProviderUnavailableError is Retryable, so it goes through backoff.
     with factory() as session:
         assert worker_module.claim_generation(session, gen_id)
         session.commit()
         row = session.get(Generation, gen_id)
         worker_module._handle_failure(
-            factory, gen_id, row.project_id, row.shot_id, "provider boom"
+            factory,
+            gen_id,
+            row.project_id,
+            row.shot_id,
+            "provider boom",
+            exc=ProviderUnavailableError("ComfyUI unreachable"),
         )
 
     with factory() as session:

@@ -47,6 +47,7 @@ EVENT_GENERATION_COMPLETED = "generation.completed"
 EVENT_GENERATION_FAILED = "generation.failed"
 EVENT_GENERATION_CANCELLED = "generation.cancelled"
 EVENT_GENERATION_RETRYING = "generation.retrying"
+EVENT_GENERATION_INTERRUPTED = "generation.interrupted"  # P5-T016
 
 EVENT_PROVIDER_CONNECTED = "provider.connected"
 EVENT_PROVIDER_DISCONNECTED = "provider.disconnected"

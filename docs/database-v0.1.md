@@ -842,7 +842,7 @@ order_index     INTEGER DEFAULT 1000
 
 ---
 
-# 16.5 Generation Claim / Lease / 退避字段（P1-E2-T02）
+# 16.5 Generation Claim / Lease / 退避字段（P1-E2-T02，已落地）
 
 generations 表（§16）追加 4 个 nullable 字段：
 
@@ -857,6 +857,17 @@ next_attempt_at  重试退避到期时间（未到期的 retrying 行不可认�
 ```
 
 状态迁移由 app/generations/state.py 集中校验（非法迁移 → 409）。
+
+**P5 补充语义（不新增列，复用 status 列）：**
+
+```text
+interrupted   P5-T016 异常任务检测：running 行 lease 过期且 attempts 达预算 → 系统中断（终态，区别于用户失败 failed）
+cancelling    P5-T015 Cancel 持久化：用户取消 running 行 → cancelling（持久标记，重启不丢）；worker 完成前检查 DB 并最终化为 cancelled
+```
+
+- `interrupted`、`cancelling` 均不新增 DB 列，status 列即可表达。
+- Cancel 持久化路径：`cancel_generation` 仅对 running 行写 `cancelling`；worker 在完成前检查 DB（而非仅进程内 `_cancelled` 集合）并最终化 cancelled。
+- 队列级 Pause/Resume（P5-T013/T014）为**进程内标志**，不落库（见 api-event-contract §142 的 /generations/pause|resume|queue-status 端点）。
 
 ---
 

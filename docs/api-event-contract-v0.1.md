@@ -1894,6 +1894,8 @@ generation.failed
 generation.cancelled
 
 generation.retrying
+
+generation.interrupted  (P5-T016 异常任务检测：系统中断，终态)
 ```
 
 ---
@@ -3832,6 +3834,14 @@ Generation 与 Agent 生命周期分离。
 
 /assets
 
+--- P5（P5-T013/T014 队列级暂停）---
+
+/generations/pause        （暂停调度新任务；运行中的继续跑完）
+
+/generations/resume       （恢复调度新任务）
+
+/generations/queue-status （队列状态：paused / pending / pending_total / running）
+
 /providers
 
 /providers/comfyui/test
@@ -3915,6 +3925,8 @@ generation.progress
 generation.completed
 
 generation.failed
+
+generation.interrupted
 
 asset.created
 
