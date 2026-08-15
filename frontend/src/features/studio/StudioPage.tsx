@@ -15,7 +15,6 @@ import { WorkspaceHost, SceneEmptyState } from "../../components/workspace/Works
 import { AIDirectorPanel } from "../director/AIDirectorPanel";
 import { GenerationQueue } from "../generation/GenerationQueue";
 import { ShotInspector } from "../storyboard/ShotInspector";
-import { StoryboardView } from "../storyboard/StoryboardView";
 import { AssetBrowserView } from "../assets/AssetBrowserView";
 import { ProjectExplorer } from "./ProjectExplorer";
 
