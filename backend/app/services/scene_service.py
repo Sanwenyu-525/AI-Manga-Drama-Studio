@@ -4,9 +4,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
-from app.db.models import Scene, Shot
+from app.db.models import Episode, Scene, Shot
 from app.domain.scene import SceneCreate, SceneRead, SceneUpdate
-from app.events.bus import EVENT_SCENE_CREATED, EVENT_SCENE_UPDATED, StudioEvent, bus
+from app.events.bus import EVENT_SCENE_CREATED, EVENT_SCENE_DELETED, EVENT_SCENE_UPDATED, StudioEvent, bus
 from app.repositories import EpisodeRepository, SceneRepository
 
 
@@ -136,6 +136,15 @@ class SceneService:
             raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
         self.repo.delete(scene)  # soft delete
         self.session.commit()
+        episode = self.session.get(Episode, scene.episode_id)
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_SCENE_DELETED,
+                entity_type="scene",
+                entity_id=scene.id,
+                project_id=episode.project_id if episode else None,
+            )
+        )
 
     def _count_shots(self, scene_id: str) -> int:
         return self.session.scalar(

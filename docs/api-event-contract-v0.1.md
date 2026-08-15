@@ -3758,6 +3758,14 @@ Generation 与 Agent 生命周期分离。
 ```text
 shot.updated
 
+episode.created
+
+episode.updated
+
+episode.deleted
+
+scene.deleted
+
 agent.run.started
 
 agent.plan.created

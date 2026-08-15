@@ -38,6 +38,13 @@ def update_episode(episode_id: str, data: EpisodeUpdate, db: Session = Depends(g
     return EpisodeService(db).update_episode(episode_id, data)
 
 
+@router.delete("/episodes/{episode_id}", status_code=status.HTTP_200_OK)
+def delete_episode(episode_id: str, db: Session = Depends(get_db)) -> dict:
+    """Soft-delete the episode and its scene/shot tree."""
+    EpisodeService(db).delete_episode(episode_id)
+    return {"id": episode_id, "deleted": True}
+
+
 @router.post("/episodes/{episode_id}/analyze/preview", response_model=list[ScenePlan])
 async def preview_analysis(
     episode_id: str,
