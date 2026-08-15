@@ -1,7 +1,14 @@
-"""ImageProvider protocol (backend-architecture §38).
+"""ImageProvider protocol — the ImageProviderAdapter of the adapter family (P4-T001).
 
+This is the Studio Domain Contract for image generation (backend-architecture §38).
 Business code (GenerationService) only ever sees this interface — never a concrete
 provider (red line: ShotService/GenerationService must not know specific models).
+
+Phase 4 names it the ImageProviderAdapter: alongside VideoProviderProtocol,
+WorkflowProviderAdapter and LlmProviderAdapter it makes every Media/LLM producer a
+registered adapter in ProviderRegistry, so the business layer stays model-agnostic.
+The existing Protocol / Mock / ComfyUI implementations are unchanged and remain the
+canonical image adapter.
 """
 
 from __future__ import annotations
