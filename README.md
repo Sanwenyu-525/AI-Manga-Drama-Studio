@@ -25,7 +25,7 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 17820 --reload
 ```bash
 cd frontend
 npm install
-npm run dev        # http://localhost:5173（/api 自动代理到 17820）
+npm run dev        # http://127.0.0.1:17821（/api 自动代理到 17820；5173 在 Windows 保留端口区间内）
 ```
 
 ### 桌面壳（Tauri，可选）
