@@ -27,7 +27,7 @@ from app.core.config import settings
 from app.core.errors import StudioError
 from app.core.logging import get_logger
 from app.db import session as db_session_module
-from app.db.models import Generation
+from app.db.models import Generation, GenerationOutput
 from app.events.bus import (
     EVENT_GENERATION_COMPLETED,
     EVENT_GENERATION_FAILED,
@@ -328,6 +328,15 @@ def _persist_output(factory: Callable, generation_id: str, project_id: str, shot
             media_type="image",
             make_active=True,
             commit=False,  # caller-owned transaction
+        )
+        # P3-T012: record the produced asset in generation_outputs (same TX).
+        session.add(
+            GenerationOutput(
+                generation_id=generation_id,
+                asset_id=asset.id,
+                role="primary",
+                order_index=1000,
+            )
         )
         validate_transition(generation.status, "completed")
         generation.status = "completed"

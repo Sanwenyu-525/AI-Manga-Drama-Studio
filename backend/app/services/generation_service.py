@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.logging import get_logger
-from app.db.models import Generation, Shot
+from app.db.models import Generation, GenerationInput, Shot
 from app.domain.generation import GenerationCreate
 from app.events.bus import (
     EVENT_GENERATION_CANCELLED,
@@ -111,6 +111,31 @@ class GenerationService:
             stage="queued",
         )
         self.session.add(generation)
+        self.session.flush()  # assign generation.id for input rows
+        # P3-T012: record what this generation consumed (sparse rows).
+        # PROMPT_VERSION -> the active shot image prompt when resolved (ADR-002).
+        if prompt_version_id:
+            self.session.add(
+                GenerationInput(
+                    generation_id=generation.id,
+                    input_type="prompt",
+                    reference_type="PROMPT_VERSION",
+                    reference_id=prompt_version_id,
+                    role="PROMPT_VERSION",
+                    order_index=1000.0,
+                )
+            )
+        # SHOT -> the shot the generation targets (identity/context reference).
+        self.session.add(
+            GenerationInput(
+                generation_id=generation.id,
+                input_type="reference",
+                reference_type="SHOT",
+                reference_id=shot_id,
+                role="SHOT",
+                order_index=2000.0,
+            )
+        )
         self.session.commit()
         bus.publish(
             StudioEvent(
