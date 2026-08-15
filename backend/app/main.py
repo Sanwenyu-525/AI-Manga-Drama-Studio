@@ -50,12 +50,15 @@ async def lifespan(app: FastAPI):
     # Generation worker (Stage C) + WebSocket event gateway (Stage C)
     from app.events.ws import start_gateway
     from app.generations.worker import worker_loop
+    from app.jobs.scheduler import scheduler_loop
 
     start_gateway()
     worker_task = asyncio.create_task(worker_loop())
-    logger.info("startup: generation worker + ws event gateway active")
+    scheduler_task = asyncio.create_task(scheduler_loop())
+    logger.info("startup: generation worker + job scheduler + ws event gateway active")
     yield
     worker_task.cancel()
+    scheduler_task.cancel()
 
 
 def create_app() -> FastAPI:

@@ -76,6 +76,16 @@ EVENT_AGENT_CHANGE_SET_CREATED = "agent.change_set.created"
 EVENT_AGENT_RUN_COMPLETED = "agent.run.completed"
 EVENT_AGENT_RUN_FAILED = "agent.run.failed"
 EVENT_AGENT_RUN_CANCELLED = "agent.run.cancelled"
+# P5-E2: job / task events (api-event-contract §143)
+EVENT_JOB_CREATED = "job.created"
+EVENT_JOB_UPDATED = "job.updated"
+EVENT_JOB_COMPLETED = "job.completed"
+EVENT_JOB_FAILED = "job.failed"
+EVENT_JOB_CANCELLED = "job.cancelled"
+EVENT_JOB_PAUSED = "job.paused"
+EVENT_JOB_RESUMED = "job.resumed"
+EVENT_JOB_TASK_UPDATED = "job.task.updated"
+
 
 
 @dataclass

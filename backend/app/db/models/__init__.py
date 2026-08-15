@@ -13,6 +13,7 @@ from app.db.models.prompt import Prompt, PromptVersion
 from app.db.models.scene import Scene
 from app.db.models.shot import Shot
 from app.db.models.shot_visual_spec import ShotVisualSpec
+from app.db.models.job import Job, JobTask, TaskDependency
 from app.db.models.workflow import WorkflowTemplate, WorkflowVersion
 
 __all__ = [
@@ -36,4 +37,7 @@ __all__ = [
     "ShotVisualSpec",
     "WorkflowTemplate",
     "WorkflowVersion",
+    "Job",
+    "JobTask",
+    "TaskDependency",
 ]

@@ -10,6 +10,7 @@ from app.api import (
     episodes,
     generations,
     health,
+    jobs,
     locations,
     operations,
     projects,
@@ -25,6 +26,7 @@ from app.events.ws import router as ws_router
 
 api_router = APIRouter()
 api_router.include_router(health.router)
+api_router.include_router(jobs.router)
 api_router.include_router(projects.router)
 api_router.include_router(episodes.router)
 api_router.include_router(scenes.router)

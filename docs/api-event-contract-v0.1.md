@@ -3919,6 +3919,22 @@ bootstrap 只返回顶层摘要、不返回全部 shot（§104）；tree/editor/
 /projects/{id}/assets/import         （P3-T003：multipart 导入外部文件 → 项目级 Asset，201 返回 AssetRead）
 
 /projects/{id}/assets/check-missing  （P3-T005：扫描项目资产，ready→missing，返回 {checked, missing}）
+
+--- P5（Job / JobTask，P5-E1/E2/E3）---
+
+POST /projects/{id}/jobs         （body {scene_id, name?} → 201 JobRead，含 tasks 摘要）
+GET  /projects/{id}/jobs         （Job 列表摘要，不含 tasks）
+GET  /jobs/{id}                  （JobRead + 完整 tasks 列表）
+POST /jobs/{id}/pause            （→ paused；调度跳过该 job，运行中 generation 继续）
+POST /jobs/{id}/resume           （→ queued）
+POST /jobs/{id}/cancel           （未完成任务 → cancelled；运行中 generation 走现有取消路径）
+POST /jobs/{id}/retry            （failed/dependency_failed/skipped 任务 → queued 并清 generation 引用；completed 保持）
+
+DTO：JobCreate{scene_id,name?} · JobRead{id,project_id,name,job_type,scene_id,status,progress,error_summary,_
+created_at,updated_at,task_count,task_status_counts,tasks[]} · JobTaskRead{id,job_id,task_type,target_type,_
+target_id(=shot_id),status,priority,progress,generation_id,error_message,created_at,updated_at} · JobSummaryRead
+
+（P5-T019 SSE：MVP 已有 WS 事件网关 /api/v1/events，SSE 需求由该 WS 网关满足，不重复实现。）
 ```
 
 ---
@@ -3993,6 +4009,17 @@ costume.deleted
 provider.connected
 
 provider.disconnected
+
+--- P5（Job / JobTask，P5-E2）---
+
+job.created        （payload: job_type/scene_id/task_count）
+job.updated        （payload: status/progress/reopened_tasks?）
+job.completed      （payload: status/progress/failed_count/error_summary?）
+job.failed         （保留；partial failure 依赖 job.completed+error_summary 表达）
+job.cancelled      （payload: cancelled_tasks）
+job.paused         （payload: previous_status）
+job.resumed
+job.task.updated   （payload: task_id/task_type/shot_id/status/generation_id）
 ```
 
 ---

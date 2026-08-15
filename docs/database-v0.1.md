@@ -1008,6 +1008,59 @@ cancelling    P5-T015 Cancel 持久化：用户取消 running 行 → cancelling
 - `interrupted`、`cancelling` 均不新增 DB 列，status 列即可表达。
 - Cancel 持久化路径：`cancel_generation` 仅对 running 行写 `cancelling`；worker 在完成前检查 DB（而非仅进程内 `_cancelled` 集合）并最终化 cancelled。
 - 队列级 Pause/Resume（P5-T013/T014）为**进程内标志**，不落库（见 api-event-contract §142 的 /generations/pause|resume|queue-status 端点）。
+---
+
+# 16.6 Job / JobTask / TaskDependency（P5-E1，已落地）
+
+P5 把「批量生成」升级为 Job 系统（roadmap §33-38）：一个 Job = 一个场景的全部图像任务；每个 JobTask 对应一个 Shot。执行由独立的 DB-poll **Job Scheduler**（app/jobs/scheduler.py）推进：它只为「依赖已满足且尚无 generation」的 task 调用 GenerationService 创建 generation，然后根据 generation 终态把任务状态回写——**真正的渲染仍由 Generation Worker 执行**（两者都以 DB 为唯一队列）。
+
+```text
+jobs
+  id              TEXT PK
+  project_id      TEXT FK → projects.id  (索引)
+  name            TEXT
+  job_type        TEXT         (SCENE_IMAGE；SCENE_VIDEO 预留)
+  scene_id        TEXT FK → scenes.id NULL  (索引)
+  status          TEXT         created|queued|running|paused|completed|failed|cancelled
+  progress        INTEGER 默认 0   (0-100)
+  error_summary   TEXT NULL      (有 task 失败时聚合摘要)
+  created_at      TEXT
+  updated_at      TEXT
+
+job_tasks
+  id              TEXT PK
+  job_id          TEXT FK → jobs.id ON DELETE CASCADE  (索引)
+  task_type       TEXT         image（MVP 只创建 image；video 结构预留）
+  target_type     TEXT         shot
+  target_id       TEXT FK → shots.id  (索引)
+  status          TEXT         queued|running|completed|failed|skipped|dependency_failed|cancelled
+  priority        INTEGER      按 shot_order（调度顺序）
+  progress        INTEGER
+  generation_id   TEXT FK → generations.id NULL  (该 task 驱动的 generation)
+  error_message   TEXT NULL
+  created_at      TEXT
+  updated_at      TEXT
+
+task_dependencies        (DAG 边：task 依赖 depends_on_task_id)
+  task_id               TEXT FK → job_tasks.id ON DELETE CASCADE  PK
+  depends_on_task_id    TEXT FK → job_tasks.id ON DELETE CASCADE  PK
+  created_at            TEXT
+```
+
+**状态/语义（P5-E1/E2/E3/E4）：**
+
+- `create_scene_job`：校验 scene → 每个 live shot 建一个 image task（priority=shot_order）→ MVP **无依赖**（扇出）。DAG 能力保留：`validate_dependencies` 用 DFS 检测 cycle / 未知引用 → 422（供单测覆盖）。
+- **推进规则（JobScheduler，幂等）**：task 全部依赖为 completed 且自身无 generation → 创建 generation 并回填 `generation_id`（task 保持 queued）；有 generation → 映射 `completed→task completed`、`failed|interrupted→task failed`、`cancelled→task cancelled`、`running→task running`、`queued|retrying→task queued`；某依赖为 `failed|skipped|dependency_failed|cancelled` → 该 task 直接 `dependency_failed`（**不创建 generation**）。
+- `job.progress = round(completed / total * 100)`；所有 task 终态 → `job.completed`（有失败也保持 **completed** 并写 `error_summary` 汇总——partial failure 不阻塞其它 task；终态后不再调度）。
+- **Pause**（job paused，scheduler 跳过该 job 的调度，运行中 generation 继续）/ **Resume**（→ queued）/ **Cancel**（未完成任务 → cancelled，运行中 generation 走现有取消路径）/ **Retry**（failed|dependency_failed|skipped 任务 → queued 并清 generation 引用，重新调度；completed 任务保持不变）。
+- 变化检测（P5-E2）：job.created/updated/completed/failed/cancelled/paused/resumed、job.task.updated（payload 含 task_id/task_type/shot_id/status/generation_id）。
+- Job/Task 状态迁移由 app/jobs/state.py 集中校验（非法迁移 → 409），与 generations/state.py 同规。
+
+**MVP 选择：**
+
+- `task_type` 仅落地 `image`；video 列与状态值结构预留，无创建路径。
+- Scene Job 无依赖（DAG 机器 + 校验保留并测试）。
+- 崩溃恢复免费：JobScheduler 与 Generation Worker 都以 DB 为队列；重启后 `advance_job` 天然续跑且幂等（不重复创建 generation）。
 
 ---
 

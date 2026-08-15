@@ -10,6 +10,7 @@ from app.services.costume_service import CostumeService
 from app.services.episode_service import EpisodeService
 from app.services.location_service import LocationService, LocationVersionService
 from app.services.generation_service import GenerationService
+from app.services.job_service import JobService
 from app.services.project_service import ProjectService
 from app.services.provenance_service import ProvenanceService
 from app.services.readmodel_service import ReadModelService
@@ -28,6 +29,7 @@ __all__ = [
     "LocationService",
     "LocationVersionService",
     "GenerationService",
+    "JobService",
     "ProjectService",
     "ProvenanceService",
     "ReadModelService",
