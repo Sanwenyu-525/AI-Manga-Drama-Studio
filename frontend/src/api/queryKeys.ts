@@ -10,6 +10,10 @@ export const queryKeys = {
   shot: (shotId: string) => ["shot", shotId] as const,
   shots: (sceneId: string) => ["shots", sceneId] as const,
   characters: (projectId: string) => ["characters", projectId] as const,
+  characterVersions: (characterId: string) => ["characterVersions", characterId] as const,
+  locations: (projectId: string) => ["locations", projectId] as const,
+  locationVersions: (locationId: string) => ["locationVersions", locationId] as const,
+  projectTree: (projectId: string) => ["projectTree", projectId] as const,
   projectSettings: (projectId: string) => ["projectSettings", projectId] as const,
   provenance: (assetId: string) => ["provenance", assetId] as const,
 };

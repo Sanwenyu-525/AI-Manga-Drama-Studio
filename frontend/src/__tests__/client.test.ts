@@ -50,3 +50,22 @@ describe("api client", () => {
     await expect(api.get("/slow", { timeoutMs: 10 })).rejects.toMatchObject({ code: "TIMEOUT" });
   });
 });
+describe("api.upload (multipart)", () => {
+  it("posts a FormData body without a Content-Type header", async () => {
+    let capturedInit: RequestInit | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+      capturedInit = init;
+      return Promise.resolve(new Response(JSON.stringify({ id: "ast_1", status: "ready" }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    });
+    const form = new FormData();
+    form.append("file", new File(["abc"], "ref.png", { type: "image/png" }));
+    form.append("asset_type", "image");
+    const out = await api.upload("/projects/proj_1/assets/import", form);
+    expect(out).toEqual({ id: "ast_1", status: "ready" });
+    expect(capturedInit?.method).toBe("POST");
+    expect(capturedInit?.body).toBeInstanceOf(FormData);
+    // request() must NOT set Content-Type for FormData so the browser adds the boundary.
+    expect(capturedInit?.headers).toBeUndefined();
+  });
+});
+
