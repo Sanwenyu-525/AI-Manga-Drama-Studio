@@ -4,6 +4,7 @@ import { ArrowLeft, Check, CheckCircle, ClockCounterClockwise, ImageSquare, Magi
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
+import { deriveVersionBadges, latestPerGroup } from "../versioning/VersionStrip";
 import type { AssetVersionRead, Project, Shot } from "../../api/types";
 
 export function VersionReviewPage() {
@@ -29,6 +30,7 @@ export function VersionReviewPage() {
 
   const selected = versions?.find((version) => version.id === selectedId);
   const active = versions?.find((version) => version.is_active);
+  const newestByGroup = latestPerGroup(versions ?? []);
   // Back to the shot's own storyboard scene (URL-driven), not just the project root.
   const backToStoryboard = shot?.scene_id
     ? `/projects/${projectId}/storyboard/${shot.scene_id}`
@@ -48,13 +50,19 @@ export function VersionReviewPage() {
           {isLoading && <p className="muted">正在读取版本…</p>}
           {!isLoading && versions?.length === 0 && <div className="version-empty"><ImageSquare size={30} /><p>这个镜头还没有生成版本。</p><Link to={backToStoryboard} className="btn primary">返回生成图片</Link></div>}
           <div className="version-card-list">
-            {versions?.map((version) => (
+            {versions?.map((version) => {
+              const badges = deriveVersionBadges(version, newestByGroup.get(version.media_type) === version.asset_id);
+              const fallback = badges[0];
+              return (
               <button key={version.id} className={`version-card ${selectedId === version.id ? "selected" : ""}`} onClick={() => setSelectedId(version.id)}>
                 <img src={`/api/v1/assets/${version.asset_id}/thumbnail`} alt={`V${version.version_number}`} />
                 <span><strong>V{version.version_number}</strong><small>{formatDate(version.created_at)}</small></span>
-                {version.is_active && <span className="badge ok"><Check size={12} /> 当前</span>}
+                {version.is_active
+                  ? <span className="badge ok"><Check size={12} /> 当前</span>
+                  : fallback && <span className={`badge ${fallback.tone}`}>{fallback.label}</span>}
               </button>
-            ))}
+              );
+            })}
           </div>
         </aside>
 

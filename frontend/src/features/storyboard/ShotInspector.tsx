@@ -7,6 +7,7 @@ import { queryKeys } from "../../api/queryKeys";
 import type { AssetVersionRead, Character, GenerationRead, Shot, ShotUpdatePatch } from "../../api/types";
 import { SHOT_TYPES, SHOT_TYPE_LABELS } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
+import { VersionStrip } from "../versioning/VersionStrip";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 // Shot Inspector (frontend-ux §12-13): edit the selected shot, PATCH with optimistic revision.
@@ -339,6 +340,7 @@ export function ShotInspector() {
 
 function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: string }) {
   const queryClient = useQueryClient();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data: generations } = useQuery({
     queryKey: ["generations", shotId],
@@ -355,8 +357,15 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
     refetchInterval: generating ? 800 : 3000, // poll faster while a generation runs
   });
 
+  // Keep selection in sync with the active version while versions refresh (no explicit pick).
+  useEffect(() => {
+    if (!versions || versions.length === 0) return;
+    const active = versions.find((v) => v.is_active);
+    setSelectedId((cur) => (cur && versions.some((v) => v.asset_id === cur) ? cur : (active?.asset_id ?? versions[0].asset_id)));
+  }, [versions]);
+
   const activate = useMutation({
-    mutationFn: (versionId: string) => api.post<AssetVersionRead>(`/media-versions/${versionId}/activate`),
+    mutationFn: (assetId: string) => api.post<AssetVersionRead>(`/media-versions/${assetId}/activate`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["versions", shotId] });
       void queryClient.invalidateQueries({ queryKey: ["storyboard"] });
@@ -373,6 +382,8 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
   }
 
   const active = versions.find((v) => v.is_active);
+  const selected = versions.find((v) => v.asset_id === selectedId) ?? active;
+  const selectedIsActive = !!selected?.is_active;
   return (
     <div className="versions-block">
       <div className="versions-title-row">
@@ -386,25 +397,20 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
           alt={`V${active.version_number}`}
         />
       )}
-      <div className="version-row-list">
-        {versions.map((v) => (
-          <div key={v.id} className={`version-row ${v.is_active ? "active" : ""}`}>
-            <img
-              className="version-thumb"
-              src={`/api/v1/assets/${v.asset_id}/thumbnail`}
-              alt={`V${v.version_number}`}
-            />
-            <span className="version-label">V{v.version_number}</span>
-            {v.is_active ? (
-              <span className="badge ok">Active</span>
-            ) : (
-              <button className="btn tiny" onClick={() => activate.mutate(v.id)} disabled={activate.isPending}>
-                设为当前
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
+      <VersionStrip
+        versions={versions}
+        selectedId={selectedId}
+        onSelect={setSelectedId}
+        title="版本条"
+      />
+      <button
+        className="btn tiny"
+        disabled={!selected || selectedIsActive || activate.isPending}
+        onClick={() => selected && activate.mutate(selected.asset_id)}
+        title="把选中的版本切换为当前生效版本"
+      >
+        {selectedIsActive ? "当前生效" : activate.isPending ? "切换中…" : "设为当前版本"}
+      </button>
     </div>
   );
 }
