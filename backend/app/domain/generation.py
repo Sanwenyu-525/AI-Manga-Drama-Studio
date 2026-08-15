@@ -25,6 +25,7 @@ class GenerationRead(BaseModel):
     provider: str
     model: str | None
     workflow_id: str | None
+    prompt_version_id: str | None = None  # ADR-002
     status: str
     progress: int
     stage: str | None

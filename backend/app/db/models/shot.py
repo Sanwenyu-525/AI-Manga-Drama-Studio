@@ -55,6 +55,9 @@ class Shot(Base):
     # ADR-001: active selection points at assets (media_versions merged into assets)
     active_image_asset_id: Mapped[str | None] = mapped_column(Text)
     active_video_asset_id: Mapped[str | None] = mapped_column(Text)
+    # ADR-002: convenience pointer to the active SHOT_IMAGE prompt version
+    # (authoritative active lives on prompts.active_version_id)
+    active_prompt_version_id: Mapped[str | None] = mapped_column(Text)
 
     status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
     dirty_state: Mapped[str] = mapped_column(Text, nullable=False, default="clean")

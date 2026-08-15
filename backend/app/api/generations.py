@@ -21,6 +21,7 @@ def _to_read(g) -> GenerationRead:
         provider=g.provider,
         model=g.model,
         workflow_id=g.workflow_id,
+        prompt_version_id=g.prompt_version_id,
         status=g.status,
         progress=g.progress,
         stage=g.stage,

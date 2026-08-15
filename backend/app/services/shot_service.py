@@ -139,6 +139,20 @@ class ShotService:
             )
             self.repo.add(shot)
             self.session.flush()  # assign shot.id before link rows reference it (autoflush=False)
+            if data.image_prompt:
+                # ADR-002: inline prompt at creation is backed by a v1 prompt version
+                from app.services.prompt_service import PromptService
+
+                PromptService(self.session).create_version(
+                    project_id=self._project_id_of(shot) or "",
+                    target_type="SHOT",
+                    target_id=shot.id,
+                    prompt_type="SHOT_IMAGE",
+                    positive=data.image_prompt,
+                    negative=shot.negative_prompt,
+                    generated_by="user",
+                    commit=False,
+                )
             if data.character_ids:
                 self._validate_characters(data.character_ids, scene)
                 self._replace_characters(shot, data.character_ids)
@@ -215,6 +229,23 @@ class ShotService:
 
         values: dict = {}
         changed: list[str] = []
+        # ADR-002: prompt edits create a new PromptVersion (write-through cache
+        # syncs shot.image_prompt/negative_prompt + active pointer inside the service).
+        prompt_change = patch.image_prompt is not None
+        if prompt_change:
+            from app.services.prompt_service import PromptService
+
+            PromptService(self.session).create_version(
+                project_id=self._project_id_of(shot) or "",
+                target_type="SHOT",
+                target_id=shot.id,
+                prompt_type="SHOT_IMAGE",
+                positive=patch.image_prompt,
+                negative=shot.negative_prompt,
+                generated_by=source,
+                commit=False,
+            )
+            changed.append("image_prompt")
         for field in (
             "shot_type",
             "camera_angle",
@@ -224,7 +255,6 @@ class ShotService:
             "action",
             "emotion",
             "dialogue",
-            "image_prompt",
             "status",
             "dirty_state",
         ):
@@ -238,7 +268,7 @@ class ShotService:
             self._validate_characters(patch.character_ids, scene)
             changed.append("character_ids")
 
-        if not values and not character_change:
+        if not values and not character_change and not prompt_change:
             ids, _ = self._character_data([shot_id])
             return _to_read(shot, ids.get(shot_id, []))
 
