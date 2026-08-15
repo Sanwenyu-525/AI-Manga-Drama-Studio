@@ -13,6 +13,7 @@ import { GenerationQueue } from "../generation/GenerationQueue";
 import { EpisodePanel } from "../script/EpisodePanel";
 import { ShotInspector } from "../storyboard/ShotInspector";
 import { StoryboardView } from "../storyboard/StoryboardView";
+import { AssetBrowserView } from "../assets/AssetBrowserView";
 import { ProjectExplorer } from "./ProjectExplorer";
 
 // Studio context handed to the workspace child routes (URL-driven views).
@@ -26,7 +27,6 @@ interface StudioContext {
 // workspace is swapped by the nested <Outlet/> (script / storyboard views).
 export function StudioPage() {
   const { projectId = "" } = useParams();
-  const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
   const setProject = useSelectionStore((state) => state.setProject);
@@ -126,11 +126,11 @@ export function StudioPage() {
           >
             <SquaresFour size={17} /> 分镜
           </Link>
+          <Link to={`/projects/${projectId}/assets`} className={location.pathname.includes("/assets") ? "active" : ""} title="项目资产库">
+            <ImageSquare size={17} /> 素材
+          </Link>
           <button className={rightPanelTab === "director" ? "active" : ""} onClick={() => setRightPanelTab("director")} title="打开 AI Director">
             <MagicWand size={17} /> 导演画布
-          </button>
-          <button onClick={() => navigate("/assets", { state: { fromProject: projectId } })} title="全局素材库">
-            <ImageSquare size={17} /> 素材
           </button>
         </nav>
         <div className="studio-statuses">
@@ -233,6 +233,12 @@ export function StoryboardWorkspace() {
   }
 
   return <StoryboardView sceneId={sceneId} />;
+}
+
+// ---------- Workspace: 资产浏览 (asset browser + inspector, P6-T016/T017) ----------
+export function AssetWorkspace() {
+  const { projectId = "" } = useParams();
+  return <AssetBrowserView projectId={projectId} />;
 }
 
 function useStudio(): StudioContext {
