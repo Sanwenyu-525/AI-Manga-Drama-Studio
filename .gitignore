@@ -35,6 +35,7 @@ studio.db-*
 data/
 projects/
 exports/
+.studio/
 
 # --- IDE / OS ---
 .idea/
@@ -43,6 +44,10 @@ exports/
 *.user
 .DS_Store
 Thumbs.db
+
+# --- Design scratch (never commit) ---
+.design-qa/
+stitch_ai_manga_drama_studio/
 
 # --- Logs ---
 *.log

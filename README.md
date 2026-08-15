@@ -8,24 +8,51 @@ AI 原生漫剧制作 Studio —— 以 AI Agent 为核心交互方式，以结�
 
 ## 快速启动
 
-### 后端（FastAPI + SQLite）
+根目录提供了管理脚本，一条命令即可管理前后端（支持交互菜单）：
+
+```bat
+studio.bat                 # 双击 / 交互菜单：启动 / 停止 / 重启 / 状态 / 日志 / 退出
+studio.bat start           # 启动前后端（自动执行数据库迁移）
+studio.bat stop            # 停止前后端
+studio.bat restart         # 重启前后端
+studio.bat status          # 查看运行状态
+studio.bat logs            # 查看前后端日志
+```
+
+PowerShell 下等价用法（`studio.bat` 内部即调用此脚本）：
+
+```powershell
+.\studio.ps1               # 交互菜单（同上）
+.\studio.ps1 start         # 或 stop / restart / status / logs
+```
+
+> `studio.bat` 与 `studio.ps1` 需放在一起使用（bat 是入口，ps1 是管理逻辑）；bat 已内置 `-ExecutionPolicy Bypass`，不受执行策略限制。
+
+首次安装依赖：
 
 ```bash
+cd backend && uv sync && uv run alembic upgrade head   # 后端依赖 + 数据库
+cd frontend && npm install                             # 前端依赖
+```
+
+- 前端：http://127.0.0.1:17821（`/api` 自动代理到 17820）
+- API 文档：http://127.0.0.1:17820/docs
+- 健康检查：http://127.0.0.1:17820/api/v1/health
+- 后端日志与 PID 记录在 `.studio/` 目录（已 gitignore）；端口被手动启动的旧进程占用时脚本会提示
+
+### 手动启动
+
+```bash
+# 后端（FastAPI + SQLite）
 cd backend
 uv sync            # 安装依赖（uv 0.11+）
 uv run alembic upgrade head   # 初始化数据库（backend/data/studio.db）
 uv run uvicorn app.main:app --host 127.0.0.1 --port 17820 --reload
-```
 
-- API 文档：http://127.0.0.1:17820/docs
-- 健康检查：http://127.0.0.1:17820/api/v1/health
-
-### 前端（React + Vite）
-
-```bash
+# 前端（React + Vite），另开终端
 cd frontend
 npm install
-npm run dev        # http://127.0.0.1:17821（/api 自动代理到 17820；5173 在 Windows 保留端口区间内）
+npm run dev        # 5173 在 Windows 保留端口区间内，故固定 17821
 ```
 
 ### 桌面壳（Tauri，可选）
