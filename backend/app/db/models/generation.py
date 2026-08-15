@@ -48,6 +48,12 @@ class Generation(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
+    # P1-E2-T02: atomic claim + lease (crash recovery) + retry backoff gate
+    claim_token: Mapped[str | None] = mapped_column(Text)
+    claimed_at: Mapped[str | None] = mapped_column(Text)
+    lease_expires_at: Mapped[str | None] = mapped_column(Text)
+    next_attempt_at: Mapped[str | None] = mapped_column(Text)
+
     cost: Mapped[float | None] = mapped_column()
     provider_ref: Mapped[str | None] = mapped_column(Text)  # provider-side ref (comfyui prompt_id)
 

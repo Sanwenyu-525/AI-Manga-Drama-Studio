@@ -175,12 +175,12 @@ class GenerationService:
         return retry
 
     def cancel_generation(self, generation_id: str) -> Generation:
+        """Cancel via the state machine (P1-E2-T02): illegal transitions are a
+        Domain Error (409), never a silent write."""
+        from app.generations.state import validate_transition
+
         generation = self.get_generation(generation_id)
-        if generation.status in TERMINAL:
-            raise ConflictError(
-                "Generation already finished.",
-                {"generation_id": generation_id, "status": generation.status},
-            )
+        validate_transition(generation.status, "cancelled")
         generation.status = "cancelled"
         generation.completed_at = generation.completed_at or self._now()
         self.session.commit()

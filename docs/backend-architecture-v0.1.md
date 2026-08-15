@@ -1648,6 +1648,24 @@ ComfyUI / External API
 
 ---
 
+# 37.1 Generation 状态机与 Worker 语义（P1-E2-T02）
+
+- 状态表集中定义（app/generations/state.py）：created→queued→running→
+  {completed|failed|cancelled|retrying→running}；running→queued 仅用于
+  lease 过期恢复（进程崩溃）。非法迁移返回 409 Domain Error，禁止直接写状态。
+- 原子认领：Worker 用条件 UPDATE 认领（status IN (queued,retrying) AND
+  backoff 到期 AND (无 claim 或 lease 过期)），rowcount=1 才算获得；两个执行器
+  竞争同一 Generation 只有一个成功。
+- lease 与崩溃恢复：认领写入 claim_token/claimed_at/lease_expires_at，
+  进度心跳续期；过期 lease 的行由恢复扫描重新排队（attempts+1），预算耗尽则
+  failed（"lease expired"）。
+- 重试退避：失败 → retrying + next_attempt_at = now + min(cap, base·2^(n-1))；
+  认领查询跳过未到期的行。
+- concurrency 校验：MVP 只支持单 Worker（settings.generation_concurrency=1，
+  启动时校验，不暴露虚假并行）；Worker 心跳进入 /health 的 worker 字段。
+
+---
+
 # 38. ImageProvider
 
 统一：

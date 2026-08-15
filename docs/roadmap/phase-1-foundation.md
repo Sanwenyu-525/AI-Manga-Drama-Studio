@@ -144,6 +144,15 @@
 - [ ] worker 活性进入 health 检查。
 - [ ] 故障注入与真实轮询 loop 测试通过。
 
+**Design Decision（P1-E2-T02，2026-08）**：
+
+- 状态机：`app/generations/state.py` 集中定义迁移表（非法迁移 → ConflictError 409，禁止直接写状态）；GenerationService.cancel 与 Worker 全部走校验。
+- 原子认领：Worker 条件 UPDATE（status IN (queued,retrying) AND 退避到期 AND（无 claim 或 lease 过期）），rowcount=1 即独占；SQLite 单写者 + WHERE 条件共同保证两个执行器不会同时执行同一 Generation。
+- Lease/恢复：`claim_token/claimed_at/lease_expires_at`（迁移 `c1d2e3f4a5b6`）；进度心跳续期；恢复扫描把过期 running 重排队（attempts+1），预算耗尽 → failed("lease expired")。
+- 退避：失败 → retrying + `next_attempt_at` = now + min(60s, base·2^(n-1))（settings.generation_retry_backoff_base/max）；认领查询跳过未到期行。
+- 单 Worker 校验：`generation_concurrency` != 1 在 Settings 构建时拒绝（不暴露虚假并行）；Worker 心跳进入 /health（worker 字段，15s 无心跳 → stopped）。
+- 测试：`test_generation_state.py` 8 项（独占认领、lease 恢复/预算耗尽、退避门控、非法迁移、完成后 cancel 409、health worker、concurrency 校验）+ 既有 worker loop 真实轮询测试。
+
 **Priority**：P0  
 **Complexity**：L  
 **Dependencies**：P1-E1-T02 的 schema/并发策略  

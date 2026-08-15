@@ -10,7 +10,6 @@
 
 | Order | Task ID | Task Name | Priority | Complexity | Dependencies | Status |
 |---:|---|---|---|---|---|---|
-| 1 | P1-E2-T02 | 实现 Generation 状态机、原子认领与崩溃恢复 | P0 | L | P1-E1-T02（已完成） | Ready |
 
 完整背景、实现建议与验收标准见 [Phase 1](../roadmap/phase-1-foundation.md)。
 
@@ -38,6 +37,7 @@ Wave C
 - `P1-E3-T02` 已完成（2026-08）：协作式取消（cancelling → 单次 cancelled 终态）、节点/工具边界取消检查、current_stage 实时报告、工具真实 changed_fields 与 shot.updated source/run_id；见 [P1-E3-T02 Design Decision](../roadmap/phase-1-foundation.md)。
 - `P1-E6-T01` 已完成（2026-08）：Alembic-from-zero/round-trip 迁移测试、真实 Worker loop 测试、ruff 门禁、前端 vitest（错误契约/Event reconcile/Store/组件）、GitHub Actions CI、secret 扫描与 docs/testing.md 本地命令；见 [P1-E6-T01 Design Decision](../roadmap/phase-1-foundation.md)。
 - `P1-E1-T02` 已完成（2026-08）：部分唯一索引不变量、原子条件更新 revision（Shot/Character）、安全重排（完整集合校验+两阶段编号）、父删子隐规则、迁移重复检测；见 [P1-E1-T02 Design Decision](../roadmap/phase-1-foundation.md)。
+- `P1-E2-T02` 已完成（2026-08）：集中状态机（非法迁移 409）、原子认领（条件 UPDATE）、lease 心跳与崩溃恢复、重试退避、单 Worker 校验、/health worker 字段；见 [P1-E2-T02 Design Decision](../roadmap/phase-1-foundation.md)。
 - `P1-E6-T01` 不是最后才做；每个 P0 修复必须同 PR/commit 带回归测试，CI 骨架可并行推进。
 - `P1-E2-T03`（完成链原子化）和 `P1-E4-T02`（Event Gateway）仍是 P0，但因复杂度和依赖未塞入本 Sprint，排在下一个 Stabilization Sprint 首位。
 - 本 Sprint 不开发 Timeline、Continuity、多 Agent、云端、插件或 UI 大改。

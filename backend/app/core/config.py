@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -53,8 +54,19 @@ class Settings(BaseSettings):
     # P1-E2-T01: Literal type → invalid provider values fail at startup/preflight.
     image_provider: Literal["mock", "comfyui"] = "mock"
     comfyui_url: str = "http://127.0.0.1:8188"
-    generation_concurrency: int = 1  # ComfyUI queue is serial; keep 1 for MVP
+    generation_concurrency: int = 1  # P1-E2-T02: MVP supports exactly ONE worker — see validator
     generation_max_attempts: int = 3
+    generation_lease_seconds: int = 120  # P1-E2-T02: claim lease (crash recovery window)
+    generation_retry_backoff_base: float = 1.0  # seconds; doubles per attempt
+    generation_retry_backoff_max: float = 60.0  # cap for the exponential backoff
+
+    @field_validator("generation_concurrency")
+    @classmethod
+    def _single_worker_only(cls, value: int) -> int:
+        """P1-E2-T02: we do not fake parallelism — concurrency>1 is rejected at startup."""
+        if value != 1:
+            raise ValueError("MVP supports exactly one generation worker (generation_concurrency=1).")
+        return value
 
     # ComfyUI workflow templates (P1-E2-T01): default = repo root workflows/;
     # override with STUDIO_WORKFLOWS_DIR for packaged/bundled layouts.

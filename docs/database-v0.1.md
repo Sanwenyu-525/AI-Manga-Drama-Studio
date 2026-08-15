@@ -814,6 +814,24 @@ retrying
 
 ---
 
+# 16.5 Generation Claim / Lease / 退避字段（P1-E2-T02）
+
+generations 表（§16）追加 4 个 nullable 字段：
+
+```text
+claim_token      认领令牌（谁在跑）
+
+claimed_at       认领时间
+
+lease_expires_at lease 到期时间（进度心跳续期；过期 → 崩溃恢复重排队）
+
+next_attempt_at  重试退避到期时间（未到期的 retrying 行不可认领）
+```
+
+状态迁移由 app/generations/state.py 集中校验（非法迁移 → 409）。
+
+---
+
 # 17. Generation Attempt
 
 建议不要覆盖失败请求。

@@ -14,7 +14,8 @@
 | P1-E2-T01 | 修复真实 ComfyUI workflow 与 Provider 选择 | 2026-08-20 | e4b435a |
 | P1-E3-T02 | 实现协作式 Agent Cancel 与真实执行报告 | 2026-08-20 | 8736fe2 |
 | P1-E6-T01 | 建立风险驱动测试基线与最小 CI | 2026-08-20 | c75615a |
-| P1-E1-T02 | 建立数据库不变量、原子 revision 与安全重排 | 2026-08-20 | 3cbca1e | 显式映射 Scene/Shot Plan（location_id 落库）；批量写入事务化（all-or-nothing + 失败注入测试）；analysis_key/storyboard_key 幂等 no-op 与显式 replace 策略；Scene DTO 新增 location_id；文档与迁移 e1f2a3b4c5d6 同步 |
+| P1-E1-T02 | 建立数据库不变量、原子 revision 与安全重排 | 2026-08-20 | 3cbca1e |
+| P1-E2-T02 | 实现 Generation 状态机、原子认领与崩溃恢复 | 2026-08-20 | 待提交 | 显式映射 Scene/Shot Plan（location_id 落库）；批量写入事务化（all-or-nothing + 失败注入测试）；analysis_key/storyboard_key 幂等 no-op 与显式 replace 策略；Scene DTO 新增 location_id；文档与迁移 e1f2a3b4c5d6 同步 |
 
 ## 历史 MVP 里程碑（基线，不占用 Post-MVP Task ID）
 
