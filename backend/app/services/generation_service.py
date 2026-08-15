@@ -54,13 +54,19 @@ class GenerationService:
                 "Only image generation is supported in MVP.",
                 {"type": data.type, "supported": ["image"]},
             )
-        from app.providers.comfyui.workflow_mapper import resolve_workflow_path
         from app.providers.registry import get_image_provider
 
         provider = data.provider or settings.image_provider
         get_image_provider(provider)  # unknown provider → ValidationError (422)
-        if data.workflow_id:
-            resolve_workflow_path(data.workflow_id)  # unknown workflow → ValidationError (422)
+        # P4-T007: explicit workflow_id keeps the strict 422 preflight; an omitted
+        # one is resolved by the priority chain (request → project default → system).
+        from app.services.workflow_resolver import WorkflowResolver
+
+        resolved_workflow_id = WorkflowResolver(self.session).resolve(
+            data.type,
+            request_workflow_id=data.workflow_id,
+            project_id=project_id,
+        )
 
         # ADR-002: resolve the authoritative SHOT_IMAGE prompt version; the
         # deprecated shot columns are the fallback (legacy rows / explicit API prompt).
@@ -93,7 +99,7 @@ class GenerationService:
             shot_id=shot_id,
             type=data.type,
             provider=provider,
-            workflow_id=data.workflow_id,
+            workflow_id=resolved_workflow_id,
             prompt_version_id=prompt_version_id,
             status="queued",
             parameters=json.dumps(
