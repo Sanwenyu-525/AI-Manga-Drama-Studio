@@ -1,6 +1,6 @@
 # ADR-002：Prompt 版本化 — Shot 内联 Prompt 迁移到 Prompt/PromptVersion
 
-> 状态：**Proposed**（待评审）
+> 状态：**Accepted**（2026-08 用户批准；实现进行中，随 P3-T017~T019 落地）
 > 日期：2026-08
 > 关联文档：《核心领域模型详细设计 v0.1》§45-48（Prompt Domain）；《数据库 Schema 与数据关系设计 v0.1》§44-46（prompts/prompt_versions）；《Asset/Generation/Version 系统详细设计 v0.1》§98-100（版本固定原则）；《AI Director Agent Alpha 架构设计 v0.2》§68-72（Prompt Agent 与版本化）
 > 关联任务：P3-T017~T019（Prompt/PromptVersion/History/Activate）、P7-T011（Prompt Agent）、前端 F037（PromptSection）

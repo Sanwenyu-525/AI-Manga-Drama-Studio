@@ -4,7 +4,7 @@ import { ArrowLeft, Check, CheckCircle, ClockCounterClockwise, ImageSquare, Magi
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { MediaVersionRead, Project, Shot } from "../../api/types";
+import type { AssetVersionRead, Project, Shot } from "../../api/types";
 
 export function VersionReviewPage() {
   const { projectId = "", shotId = "" } = useParams();
@@ -13,14 +13,14 @@ export function VersionReviewPage() {
 
   const { data: project } = useQuery({ queryKey: queryKeys.project(projectId), queryFn: () => api.get<Project>(`/projects/${projectId}`) });
   const { data: shot } = useQuery({ queryKey: queryKeys.shot(shotId), queryFn: () => api.get<Shot>(`/shots/${shotId}`) });
-  const { data: versions, isLoading } = useQuery({ queryKey: ["versions", shotId], queryFn: () => api.get<MediaVersionRead[]>(`/shots/${shotId}/versions`) });
+  const { data: versions, isLoading } = useQuery({ queryKey: ["versions", shotId], queryFn: () => api.get<AssetVersionRead[]>(`/shots/${shotId}/versions`) });
 
   useEffect(() => {
     if (!selectedId && versions?.length) setSelectedId((versions.find((version) => version.is_active) ?? versions[0]).id);
   }, [selectedId, versions]);
 
   const activate = useMutation({
-    mutationFn: (versionId: string) => api.post<MediaVersionRead>(`/media-versions/${versionId}/activate`),
+    mutationFn: (versionId: string) => api.post<AssetVersionRead>(`/media-versions/${versionId}/activate`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["versions", shotId] });
       void queryClient.invalidateQueries({ queryKey: ["storyboard"] });

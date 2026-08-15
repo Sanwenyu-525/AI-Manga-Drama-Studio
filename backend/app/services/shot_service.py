@@ -424,23 +424,16 @@ class ShotService:
         return ids_map, names_map
 
     def _thumbnail_urls(self, shots: list[Shot]) -> dict[str, str | None]:
-        """Map shot_id → thumbnail URL via the shot's active image version (Stage C)."""
-        from app.db.models import Asset, MediaVersion
+        """Map shot_id → thumbnail URL via the shot's active image asset (ADR-001)."""
+        from app.db.models import Asset
 
-        version_ids = [s.active_image_version_id for s in shots if s.active_image_version_id]
-        if not version_ids:
+        asset_ids = [s.active_image_asset_id for s in shots if s.active_image_asset_id]
+        if not asset_ids:
             return {s.id: None for s in shots}
-        versions = {
-            v.id: v
-            for v in self.session.scalars(
-                select(MediaVersion).where(MediaVersion.id.in_(version_ids))
-            )
-        }
-        asset_ids = [v.asset_id for v in versions.values()]
         self.session.scalars(select(Asset).where(Asset.id.in_(asset_ids)))  # warm identity map (P1-E2-T01 lint cleanup)
         return {
-            s.id: (f"/api/v1/assets/{versions[s.active_image_version_id].asset_id}/thumbnail"
-                   if s.active_image_version_id in versions else None)
+            s.id: (f"/api/v1/assets/{s.active_image_asset_id}/thumbnail"
+                   if s.active_image_asset_id else None)
             for s in shots
         }
 

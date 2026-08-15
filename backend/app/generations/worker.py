@@ -29,6 +29,7 @@ from app.core.logging import get_logger
 from app.db import session as db_session_module
 from app.db.models import Generation
 from app.events.bus import (
+    EVENT_GENERATION_COMPLETED,
     EVENT_GENERATION_FAILED,
     EVENT_GENERATION_PROGRESS,
     EVENT_GENERATION_RETRYING,
@@ -281,14 +282,18 @@ def _persist_progress(factory: Callable, generation_id: str, percent: int, stage
 
 
 def _persist_output(factory: Callable, generation_id: str, project_id: str, shot_id: str | None, output_path: str | None, result) -> None:
-    """Attach output: Asset → MediaVersion → shot.active_image_version (mvp-spec §71)."""
+    """Attach output in ONE transaction (ADR-001 2.4 / P1-E2-T03): Asset registration +
+    version assignment + shot active pointer + generation completion commit together.
+
+    Events are published after the commit (commit-then-publish red line).
+    """
     with factory() as session:
         generation = session.get(Generation, generation_id)
         if generation is None or generation.status == "cancelled":
             return
         generation.progress = 100
         generation.stage = "saving"
-        session.commit()
+        session.flush()
 
         if not output_path or not shot_id:
             validate_transition(generation.status, "failed")
@@ -313,15 +318,16 @@ def _persist_output(factory: Callable, generation_id: str, project_id: str, shot
             asset_type="image",
             source_path=output_path,
             shot_id=shot_id,
-            source_generation_id=generation_id,
-            meta={"provider": generation.provider, "params": json.loads(generation.parameters or "{}")},
-        )
-        version = VersionService(session).create_media_version(
-            shot_id=shot_id,
-            asset_id=asset.id,
-            media_type="image",
             generation_id=generation_id,
+            meta={"provider": generation.provider, "params": json.loads(generation.parameters or "{}")},
+            commit=False,  # caller-owned transaction
+        )
+        version = VersionService(session).assign_version(
+            shot_id=shot_id,
+            asset=asset,
+            media_type="image",
             make_active=True,
+            commit=False,  # caller-owned transaction
         )
         validate_transition(generation.status, "completed")
         generation.status = "completed"
@@ -329,16 +335,25 @@ def _persist_output(factory: Callable, generation_id: str, project_id: str, shot
         generation.completed_at = _now()
         generation.stage = "completed"
         session.commit()
+
         bus.publish(
             StudioEvent(
-                event_type="generation.completed",
+                event_type="asset.created",
+                entity_type="asset",
+                entity_id=asset.id,
+                project_id=project_id,
+                payload={"type": asset.type, "shot_id": shot_id},
+            )
+        )
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_GENERATION_COMPLETED,
                 entity_type="generation",
                 entity_id=generation_id,
                 project_id=project_id,
                 payload={
                     "shot_id": shot_id,
                     "asset_id": asset.id,
-                    "media_version_id": version.id,
                     "version_number": version.version_number,
                 },
             )

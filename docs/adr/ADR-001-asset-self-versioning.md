@@ -1,6 +1,6 @@
 # ADR-001：Asset 自版本化 — 合并 media_versions 进入 Asset 版本模型
 
-> 状态：**Proposed**（待评审）
+> 状态：**Accepted**（2026-08 用户批准；已实现：迁移 d3e4f5a6b7c8 + AssetVersionService + worker 单事务完成链，dev 库回填验证通过）
 > 日期：2026-08
 > 关联文档：《AI 漫剧 Studio 核心领域模型详细设计 v0.1》§28-44、§58-61；《数据库 Schema 与数据关系设计 v0.1》§39-43、§101；《Asset/Generation/Version 系统详细设计 v0.1》§28-37、§59-66
 > 关联任务：P3-T006~T009（Version Group / Version Number / Active / History API）、P3-E3（Generation）、P1-E2-T03（完成链原子化）

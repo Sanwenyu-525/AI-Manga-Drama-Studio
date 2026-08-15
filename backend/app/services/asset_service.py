@@ -7,6 +7,7 @@ DB stores ONLY relative paths — the whole project directory is portable.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from PIL import Image
@@ -42,11 +43,16 @@ class AssetService:
         source_path: str | Path,
         name: str | None = None,
         shot_id: str | None = None,
-        source_generation_id: str | None = None,
+        generation_id: str | None = None,
         meta: dict | None = None,
         make_thumbnail: bool = True,
+        commit: bool = True,
     ) -> Asset:
-        """Copy a file into the project tree and register it (mvp-spec §71: ComfyUI output → Asset)."""
+        """Copy a file into the project tree and register it (mvp-spec §71: ComfyUI output → Asset).
+
+        commit=False lets the caller own the transaction (ADR-001 2.4: single-commit
+        generation completion); events are only published after a commit by the caller.
+        """
         source = Path(source_path)
         if not source.exists():
             raise NotFoundError("Source file does not exist.", {"path": str(source)})
@@ -59,7 +65,9 @@ class AssetService:
         dest_dir = project_dir(project_id) / rel_dir
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / (name or source.name)
-        dest.write_bytes(source.read_bytes())
+        content = source.read_bytes()
+        dest.write_bytes(content)
+        checksum = hashlib.sha256(content).hexdigest()
 
         width = height = None
         if asset_type == "image":
@@ -84,19 +92,23 @@ class AssetService:
             height=height,
             file_size=dest.stat().st_size,
             meta_json=str(meta or {}),
-            source_generation_id=source_generation_id,
+            generation_id=generation_id,
+            status="ready",
+            source_type="generated",
+            checksum=checksum,
         )
         self.session.add(asset)
-        self.session.commit()
-        bus.publish(
-            StudioEvent(
-                event_type=EVENT_ASSET_CREATED,
-                entity_type="asset",
-                entity_id=asset.id,
-                project_id=project_id,
-                payload={"type": asset.type, "shot_id": shot_id},
+        if commit:
+            self.session.commit()
+            bus.publish(
+                StudioEvent(
+                    event_type=EVENT_ASSET_CREATED,
+                    entity_type="asset",
+                    entity_id=asset.id,
+                    project_id=project_id,
+                    payload={"type": asset.type, "shot_id": shot_id},
+                )
             )
-        )
         return asset
 
     def create_thumbnail(self, project_id: str, image_path: Path) -> str | None:
