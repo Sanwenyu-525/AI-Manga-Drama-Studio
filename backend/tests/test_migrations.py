@@ -36,6 +36,7 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
         "characters", "shot_characters",
         "assets", "generations",
         "prompts", "prompt_versions",  # ADR-002
+        "generation_inputs", "generation_outputs",  # P3-T012/T013
         "alembic_version",
     ):
         assert expected in tables, f"missing table {expected}"
@@ -55,6 +56,10 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
     # ADR-002 prompt versioning columns
     assert "active_prompt_version_id" in shot_cols
     assert "prompt_version_id" in _table_columns(engine, "generations")
+
+    # P3-T012/T013 provenance columns
+    assert {"generation_id", "input_type", "reference_type", "reference_id", "role", "order_index", "metadata_json"} <= _table_columns(engine, "generation_inputs")
+    assert {"generation_id", "asset_id", "role", "order_index"} <= _table_columns(engine, "generation_outputs")
 
     # P1 columns present (P1-E1-T01 migration e1f2a3b4c5d6)
     assert "analysis_key" in _table_columns(engine, "episodes")
