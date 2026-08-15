@@ -1,6 +1,6 @@
 """Shot model — the atomic production unit (database-v0.1 §10, mvp-spec §18)."""
 
-from sqlalchemy import ForeignKey, Text
+from sqlalchemy import ForeignKey, Index, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -25,6 +25,11 @@ SHOT_TYPES = ("extreme_wide", "wide", "full", "medium", "close_up", "extreme_clo
 
 class Shot(Base):
     __tablename__ = "shots"
+    __table_args__ = (
+        # P1-E1-T02: one live shot_number / shot_order per scene (soft-deleted rows excluded)
+        Index("uq_shots_scene_number", "scene_id", "shot_number", unique=True, sqlite_where=text("deleted_at IS NULL")),
+        Index("uq_shots_scene_order", "scene_id", "shot_order", unique=True, sqlite_where=text("deleted_at IS NULL")),
+    )
 
     id: Mapped[str] = uuid_pk()
     scene_id: Mapped[str] = mapped_column(ForeignKey("scenes.id"), nullable=False, index=True)

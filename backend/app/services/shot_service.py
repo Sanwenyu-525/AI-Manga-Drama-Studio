@@ -8,10 +8,10 @@ Rules:
   character_ids are validated against the owning project (cross-project refs are rejected).
 """
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.db.models import Character, Episode, Scene, Shot, ShotCharacter
 from app.domain.scene import SceneSummary
 from app.domain.shot import (
@@ -178,6 +178,7 @@ class ShotService:
         shot = self.repo.get(shot_id)
         if shot is None:
             raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
+        self._require_live_scene(shot)  # P1-E1-T02: hidden when the parent scene is soft-deleted
         ids, _ = self._character_data([shot_id])
         return _to_read(shot, ids.get(shot_id, []))
 
@@ -197,7 +198,12 @@ class ShotService:
         source: str = "user",
         run_id: str | None = None,
     ) -> ShotRead:
-        """Optimistic concurrency update: revision must match; every mutation bumps revision.
+        """Optimistic concurrency update (P1-E1-T02: ATOMIC conditional update).
+
+        The revision guard is enforced by the database:
+            UPDATE shots SET revision = revision + 1 WHERE id = ? AND revision = ?
+        Two writers that both read revision N cannot both win — the second one's
+        UPDATE matches 0 rows and gets a 409, instead of silently overwriting.
 
         P1-E3-T02: source ("user" | "agent") and run_id are recorded in the
         shot.updated event payload so the audit trail can distinguish origins.
@@ -205,11 +211,9 @@ class ShotService:
         shot = self.repo.get(shot_id)
         if shot is None:
             raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
-        if shot.revision != revision:
-            raise ConflictError(
-                "Shot was modified by another writer.",
-                {"shot_id": shot_id, "expected_revision": revision, "current_revision": shot.revision},
-            )
+        self._require_live_scene(shot)
+
+        values: dict = {}
         changed: list[str] = []
         for field in (
             "shot_type",
@@ -226,18 +230,47 @@ class ShotService:
         ):
             value = getattr(patch, field)
             if value is not None:
-                setattr(shot, field, value)
+                values[field] = value
                 changed.append(field)
-        if patch.character_ids is not None:
+        character_change = patch.character_ids is not None
+        if character_change:
             scene = self.session.get(Scene, shot.scene_id)
             self._validate_characters(patch.character_ids, scene)
-            self._replace_characters(shot, patch.character_ids)
             changed.append("character_ids")
-        if changed:
-            shot.revision += 1
-            if any(f in DIRTY_FIELDS for f in changed):
-                shot.dirty_state = "dirty_image"
+
+        if not values and not character_change:
+            ids, _ = self._character_data([shot_id])
+            return _to_read(shot, ids.get(shot_id, []))
+
+        if any(f in DIRTY_FIELDS for f in changed):
+            values["dirty_state"] = "dirty_image"
+        from datetime import UTC, datetime
+
+        values["updated_at"] = datetime.now(UTC).isoformat()
+
+        # P1-E1-T02: atomic revision guard — one conditional UPDATE, no read-check-write.
+        stmt = (
+            update(Shot)
+            .where(Shot.id == shot_id, Shot.revision == revision, Shot.deleted_at.is_(None))
+            .values(revision=Shot.revision + 1, **values)
+            .execution_options(synchronize_session=False)
+        )
+        result = self.session.execute(stmt)
+        if result.rowcount == 0:
+            current = self.session.scalar(select(Shot.revision).where(Shot.id == shot_id))
+            raise ConflictError(
+                "Shot was modified by another writer.",
+                {
+                    "shot_id": shot_id,
+                    "expected_revision": revision,
+                    "current_revision": current,
+                },
+            )
+        if character_change:
+            self._replace_characters(shot, patch.character_ids)
         self.session.commit()
+        self.session.refresh(shot)
+
         if changed:
             bus.publish(
                 StudioEvent(
@@ -260,6 +293,7 @@ class ShotService:
         shot = self.repo.get(shot_id)
         if shot is None:
             raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
+        self._require_live_scene(shot)
         self.repo.delete(shot)  # soft delete
         self.session.commit()
         bus.publish(
@@ -272,13 +306,32 @@ class ShotService:
         )
 
     def reorder_shots(self, scene_id: str, ordered_ids: list[str]) -> list[ShotRead]:
+        """Safe reorder (P1-E1-T02): the list must contain EXACTLY the scene's live
+        shots — partial, duplicate or cross-scene ids are rejected before any write;
+        numbering is two-phase inside one transaction to avoid unique-order conflicts."""
         scene = self.scenes.get(scene_id)
         if scene is None:
             raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
         shots = {s.id: s for s in self.repo.list_for_scene(scene_id)}
-        unknown = [sid for sid in ordered_ids if sid not in shots]
-        if unknown:
-            raise NotFoundError("Shot does not exist.", {"shot_ids": unknown})
+        if len(ordered_ids) != len(set(ordered_ids)):
+            raise ValidationError(
+                "Reorder list contains duplicate shot ids.",
+                {"scene_id": scene_id},
+            )
+        if set(ordered_ids) != set(shots):
+            missing = sorted(set(shots) - set(ordered_ids))
+            unknown = sorted(set(ordered_ids) - set(shots))
+            raise ValidationError(
+                "Reorder must contain exactly the scene's shots (no partial or cross-scene ids).",
+                {"scene_id": scene_id, "missing": missing, "unknown": unknown},
+            )
+        # phase 1: move every shot out of the way (unique shot_number AND shot_order
+        # indexes cover live rows); phase 2: assign the final order — one transaction.
+        offset = len(shots) + 1
+        for shot in shots.values():
+            shot.shot_order += offset
+            shot.shot_number += offset
+        self.session.flush()
         for index, shot_id in enumerate(ordered_ids, start=1):
             shot = shots[shot_id]
             shot.shot_order = index
@@ -313,6 +366,13 @@ class ShotService:
 
         if not character_ids:
             return
+        # P1-E1-T02: duplicates would violate the (shot_id, character_id) unique index
+        duplicate_ids = [cid for cid in set(character_ids) if character_ids.count(cid) > 1]
+        if duplicate_ids:
+            raise ValidationError(
+                "Character ids must be unique.",
+                {"character_ids": duplicate_ids},
+            )
         characters = {
             c.id: c
             for c in self.session.scalars(
@@ -331,8 +391,13 @@ class ShotService:
             )
 
     def _replace_characters(self, shot: Shot, character_ids: list[str]) -> None:
-        """Replace the shot's character links (ephemeral link rows, no version history)."""
+        """Replace the shot's character links (ephemeral link rows, no version history).
+
+        P1-E1-T02: old links are hard-deleted and flushed BEFORE inserting new ones —
+        the (shot_id, character_id) unique index would otherwise reject same-pair re-adds
+        in the same flush (SQLAlchemy emits INSERTs before DELETEs)."""
         self.links.delete_for_shot(shot.id)
+        self.session.flush()
         for character_id in character_ids:
             self.session.add(ShotCharacter(shot_id=shot.id, character_id=character_id))
 
@@ -378,6 +443,12 @@ class ShotService:
                    if s.active_image_version_id in versions else None)
             for s in shots
         }
+
+    def _require_live_scene(self, shot: Shot) -> None:
+        """P1-E1-T02: children of a soft-deleted parent are hidden (read AND write)."""
+        scene = self.scenes.get(shot.scene_id)
+        if scene is None:
+            raise NotFoundError("Shot does not exist.", {"shot_id": shot.id})
 
     def _project_id_of(self, obj: Shot | Scene) -> str | None:
         if isinstance(obj, Shot):

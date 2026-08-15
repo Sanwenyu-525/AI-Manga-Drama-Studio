@@ -1,6 +1,6 @@
 """Scene model (database-v0.1 §5)."""
 
-from sqlalchemy import ForeignKey, Text
+from sqlalchemy import ForeignKey, Index, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -9,6 +9,16 @@ from app.db.models.columns import ts_created, ts_updated, uuid_pk
 
 class Scene(Base):
     __tablename__ = "scenes"
+    __table_args__ = (
+        # P1-E1-T02: one live scene_number per episode (soft-deleted rows excluded)
+        Index(
+            "uq_scenes_episode_number",
+            "episode_id",
+            "scene_number",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     id: Mapped[str] = uuid_pk()
     episode_id: Mapped[str] = mapped_column(ForeignKey("episodes.id"), nullable=False, index=True)

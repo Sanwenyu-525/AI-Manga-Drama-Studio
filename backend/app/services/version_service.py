@@ -44,11 +44,14 @@ class VersionService:
             is_active=1 if make_active else 0,
             notes=notes,
         )
+        if make_active:
+            # P1-E1-T02: deactivate existing rows BEFORE inserting the new active row
+            # (partial unique index uq_media_versions_active allows one active per shot).
+            self._clear_active(shot_id, media_type)
+            self.session.flush()
         self.session.add(version)
         self.session.flush()  # generate version.id BEFORE wiring it onto the shot
         if make_active:
-            self._clear_active(shot_id, media_type)
-            version.is_active = 1
             setattr(shot, f"active_{media_type}_version_id", version.id)
         self.session.commit()
         if make_active:
@@ -71,6 +74,7 @@ class VersionService:
         if shot is None:
             raise NotFoundError("Shot does not exist.", {"shot_id": version.shot_id})
         self._clear_active(version.shot_id, version.media_type)
+        self.session.flush()  # P1-E1-T02: deactivate old rows before activating this one
         version.is_active = 1
         setattr(shot, f"active_{version.media_type}_version_id", version.id)
         self.session.commit()

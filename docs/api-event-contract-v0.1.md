@@ -549,6 +549,16 @@ Response：
 
 # 19. Shot API
 
+乐观并发（P1-E1-T02）：`PATCH /api/v1/shots/{shot_id}` 的 revision 校验在数据库层
+执行（条件更新）——两个基于同一旧 revision 的并发写入只有一个成功，另一个 409，
+不存在先读后写丢失更新。Character 更新（§88）同理。
+
+重排（P1-E1-T02）：`PATCH /api/v1/scenes/{scene_id}/shots/reorder` 必须提交该场景
+完整且无重复的镜头 ID 集合；部分/重复/跨场景集合返回 422，数据保持不变。
+
+Scene 乐观并发：本阶段**不纳入**（决策见 roadmap P1-E1-T02 Design Decision）；
+Scene 编辑保持无条件更新，Phase 2 随 ChangeSet/Undo 一并引入。
+
 列表：
 
 ```http

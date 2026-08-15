@@ -6,7 +6,7 @@ Rules (same as ShotService):
 - Soft delete only — never hard-delete characters (contract §89).
 """
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
@@ -125,38 +125,63 @@ class CharacterService:
         return _to_read(character)
 
     def update_character(self, character_id: str, revision: int, patch: CharacterUpdate) -> CharacterRead:
-        """Optimistic concurrency: revision must match; every mutation bumps revision."""
+        """Optimistic concurrency (P1-E1-T02: ATOMIC conditional update).
+
+        revision guard is enforced by the database (UPDATE ... WHERE revision = ?),
+        so two stale writers cannot both win with a lost update.
+        """
         character = self.repo.get(character_id)
         if character is None:
             raise NotFoundError("Character does not exist.", {"character_id": character_id})
-        if character.revision != revision:
+
+        values: dict = {}
+        changed: list[str] = []
+        for field in UPDATE_FIELDS:
+            value = getattr(patch, field)
+            if value is not None:
+                values[field] = value
+                changed.append(field)
+        if not changed:
+            counts = self._shot_counts([character_id])
+            return _to_read(character, counts.get(character_id, 0))
+
+        from datetime import UTC, datetime
+
+        values["updated_at"] = datetime.now(UTC).isoformat()
+        stmt = (
+            update(Character)
+            .where(
+                Character.id == character_id,
+                Character.revision == revision,
+                Character.deleted_at.is_(None),
+            )
+            .values(revision=Character.revision + 1, **values)
+            .execution_options(synchronize_session=False)
+        )
+        result = self.session.execute(stmt)
+        if result.rowcount == 0:
+            current = self.session.scalar(
+                select(Character.revision).where(Character.id == character_id)
+            )
             raise ConflictError(
                 "Character was modified by another writer.",
                 {
                     "character_id": character_id,
                     "expected_revision": revision,
-                    "current_revision": character.revision,
+                    "current_revision": current,
                 },
             )
-        changed: list[str] = []
-        for field in UPDATE_FIELDS:
-            value = getattr(patch, field)
-            if value is not None:
-                setattr(character, field, value)
-                changed.append(field)
-        if changed:
-            character.revision += 1
         self.session.commit()
-        if changed:
-            bus.publish(
-                StudioEvent(
-                    event_type=EVENT_CHARACTER_UPDATED,
-                    entity_type="character",
-                    entity_id=character.id,
-                    project_id=character.project_id,
-                    payload={"revision": character.revision, "changed_fields": changed},
-                )
+        self.session.refresh(character)
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_CHARACTER_UPDATED,
+                entity_type="character",
+                entity_id=character.id,
+                project_id=character.project_id,
+                payload={"revision": character.revision, "changed_fields": changed},
             )
+        )
         counts = self._shot_counts([character_id])
         return _to_read(character, counts.get(character_id, 0))
 

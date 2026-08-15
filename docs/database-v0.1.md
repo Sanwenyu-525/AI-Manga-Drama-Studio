@@ -469,6 +469,28 @@ failed
 
 ---
 
+# 10.5 数据库不变量（P1-E1-T02）
+
+业务不变量由 Service 与数据库共同保护（软删除行不参与唯一性，编号可复用）：
+
+```text
+scenes:          UNIQUE (episode_id, scene_number)  WHERE deleted_at IS NULL
+shots:           UNIQUE (scene_id, shot_number)     WHERE deleted_at IS NULL
+                 UNIQUE (scene_id, shot_order)      WHERE deleted_at IS NULL
+shot_characters: UNIQUE (shot_id, character_id)
+media_versions:  UNIQUE (shot_id, media_type, version_number)
+                 UNIQUE (shot_id)                   WHERE is_active = 1   （每镜头至多一个 active 版本）
+generations:     INDEX (status, created_at)                            （Worker DB-poll 查询）
+```
+
+- revision 乐观并发为**数据库级条件更新**：`UPDATE ... WHERE id = ? AND revision = ?`，
+  两个持有同一旧 revision 的写入者只有一个成功（另一个 409），杜绝先读后写丢失更新。
+- reorder 必须提交场景内完整且无重复的镜头 ID 集合（部分/重复/跨场景 → 422，数据不变）；
+  编号在两阶段事务内重排（先整体移开、再赋终值），避免唯一约束冲突。
+- 迁移先检测历史重复并**失败而非静默丢弃**（`b1e2f3a4c5d6`）。
+
+---
+
 # 11. Shot 与 Character 关系
 
 因为一个 Shot 可能有多个角色。

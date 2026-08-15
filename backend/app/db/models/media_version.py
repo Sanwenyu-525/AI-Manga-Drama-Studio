@@ -3,7 +3,7 @@
 Rows are never updated; "Set Active" only flips is_active on the new row (and clears others).
 """
 
-from sqlalchemy import ForeignKey, Integer, Text
+from sqlalchemy import ForeignKey, Index, Integer, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -14,6 +14,11 @@ MEDIA_TYPES = ("image", "video")
 
 class MediaVersion(Base):
     __tablename__ = "media_versions"
+    __table_args__ = (
+        # P1-E1-T02: immutable version numbers per shot + at most one active version
+        Index("uq_media_versions_shot_number", "shot_id", "media_type", "version_number", unique=True),
+        Index("uq_media_versions_active", "shot_id", unique=True, sqlite_where=text("is_active = 1")),
+    )
 
     id: Mapped[str] = uuid_pk()
     shot_id: Mapped[str] = mapped_column(ForeignKey("shots.id"), nullable=False, index=True)

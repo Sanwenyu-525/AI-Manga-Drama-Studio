@@ -71,6 +71,15 @@
 - [ ] Scene revision 是否纳入本阶段有明确契约决定并落实。
 - [ ] 软删除父实体后，子实体的可读写/恢复规则有测试。
 
+**Design Decision（P1-E1-T02，2026-08）**：
+
+- 不变量（Alembic `b1e2f3a4c5d6`，部分唯一索引排除软删除行）：scenes(episode_id, scene_number)、shots(scene_id, shot_number)、(scene_id, shot_order)、shot_characters(shot_id, character_id)、media_versions(shot_id, media_type, version_number) + (shot_id) WHERE is_active=1；generations(status, created_at) worker 索引。模型 `__table_args__` 同步声明（create_all 与迁移一致）。
+- 原子 revision：Shot/Character 更新改为 `UPDATE ... WHERE id=? AND revision=?` 条件更新（rowcount=0 → 409），杜绝旧快照丢失更新；脏数据写入前先 flush 删除旧 character 链接（唯一对索引）。
+- 安全重排：reorder 校验完整+无重复集合（部分/重复/跨场景 → 422，数据不变）；两阶段编号（shot_number 与 shot_order 一起整体移开再赋终值）单事务内完成。
+- 父删子隐：软删除场景后其镜头读/写/删一律 404（行保留，恢复场景即可见）。
+- Scene revision 决策：本阶段不纳入（Scene 编辑低频、Shot 才是原子生产单元；Phase 2 随 ChangeSet/Undo 引入），契约文档已注明。
+- 历史重复：迁移先检测后失败（不静默丢弃）；dev DB 中 episode dbc57a32 的重复 scene_number 已无损重编号为 7。
+
 **Priority**：P0  
 **Complexity**：L  
 **Dependencies**：P1-E1-T01 的事务边界决策  

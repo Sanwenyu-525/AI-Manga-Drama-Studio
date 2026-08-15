@@ -6,7 +6,7 @@ ShotCharacter is the many-to-many link table with continuity-relevant per-shot
 attributes (position/pose/emotion) — MVP only fills shot_id/character_id.
 """
 
-from sqlalchemy import ForeignKey, Text
+from sqlalchemy import ForeignKey, Index, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -43,6 +43,10 @@ class ShotCharacter(Base):
     """Shot ↔ Character link (database-v0.1 §11) — one shot can hold several characters."""
 
     __tablename__ = "shot_characters"
+    __table_args__ = (
+        # P1-E1-T02: a character appears at most once per shot
+        Index("uq_shot_characters_pair", "shot_id", "character_id", unique=True),
+    )
 
     id: Mapped[str] = uuid_pk()
     shot_id: Mapped[str] = mapped_column(ForeignKey("shots.id"), nullable=False, index=True)
