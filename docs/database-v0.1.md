@@ -1242,6 +1242,10 @@ parameter_schema 示例：
 > 上文 `workflows` / `comfyui_workflows` 的完整编辑器/上传/差异比对 **本期不做**。
 > 落地的是**只读目录注册表**：把本地 `workflows/*.json`（API 格式模板）幂等扫描并
 > 快照入库，供 Resolver 解析、目录 API 与版本列表使用（哈希快照，替换差异比对）。
+>
+> 占位符说明（**P4-T005**）：单个模板允许哪些 `$PLACEHOLDER` token、哪些是**必需**（preflight）、
+> 以及逻辑参数名 → token 的映射与类型/范围校验，由代码层声明式 `WorkflowSchema`
+> （`providers/comfyui/workflow_schema.py`，`workflow_templates`/`workflow_versions` 不重复存）。
 
 `workflow_templates`（每个 workflow_id 模板一行）：
 
@@ -1998,117 +2002,3 @@ Project State ≠ LLM Context
 ```text
 Shot 是生产原子单位
 ```
-
-### 第三
-
-```text
-Asset 与业务对象解耦
-```
-
-### 第四
-
-```text
-Generation 永不覆盖历史
-```
-
-### 第五
-
-```text
-Provider 与业务逻辑解耦
-```
-
-### 第六
-
-```text
-AI 修改必须可追踪
-```
-
-### 第七
-
-```text
-所有长任务必须有状态
-```
-
----
-
-# 44. 第一阶段真正需要实现的数据链路
-
-```text
-Create Project
-      ↓
-projects
-
-Import Script
-      ↓
-episodes
-
-AI Analyze
-      ↓
-scenes
-
-AI Storyboard
-      ↓
-shots
-
-Generate Image
-      ↓
-generations
-
-ComfyUI Result
-      ↓
-assets
-
-Create Version（Asset 自版本化，ADR-001）
-      ↓
-assets.version_group_id + version_number
-
-Update Shot
-      ↓
-active_image_asset_id
-```
-
-到这里，数据库 MVP 就形成完整闭环。
-
----
-
-# 45. 数据库之后的开发顺序
-
-数据库领域模型确定后，下一阶段应该依次实现：
-
-```text
-1. Domain Entity
-
-2. Repository Layer
-
-3. Service Layer
-
-4. REST API
-
-5. Project CRUD
-
-6. Scene CRUD
-
-7. Shot CRUD
-
-8. Asset Service
-
-9. Generation Service
-
-10. ComfyUI Adapter
-```
-
-然后再进入：
-
-```text
-Studio 前端
-```
-
-最后才加入：
-
-```text
-AI Director
-```
-
-原因非常简单：
-
-**先让软件本身会管理漫剧，再让 AI 学会操作这个软件。**
