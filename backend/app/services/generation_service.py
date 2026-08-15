@@ -62,8 +62,27 @@ class GenerationService:
         if data.workflow_id:
             resolve_workflow_path(data.workflow_id)  # unknown workflow → ValidationError (422)
 
-        prompt = data.prompt or shot.image_prompt
-        if not prompt:
+        # ADR-002: resolve the authoritative SHOT_IMAGE prompt version; the
+        # deprecated shot columns are the fallback (legacy rows / explicit API prompt).
+        prompt_version_id: str | None = None
+        from app.services.prompt_service import PromptService
+
+        prompt_service = PromptService(self.session)
+        prompt_row = prompt_service.get_prompt("SHOT", shot_id, "SHOT_IMAGE")
+        active_version = prompt_service.get_active_version(prompt_row) if prompt_row else None
+        if active_version is not None:
+            prompt_version_id = active_version.id
+        resolved_prompt = (
+            data.prompt
+            or (active_version.positive_prompt if active_version else None)
+            or shot.image_prompt
+        )
+        resolved_negative = (
+            data.negative_prompt
+            or (active_version.negative_prompt if active_version else None)
+            or shot.negative_prompt
+        )
+        if not resolved_prompt:
             raise ValidationError(
                 "Shot has no image_prompt. Set a prompt before generating.",
                 {"shot_id": shot_id},
@@ -75,11 +94,12 @@ class GenerationService:
             type=data.type,
             provider=provider,
             workflow_id=data.workflow_id,
+            prompt_version_id=prompt_version_id,
             status="queued",
             parameters=json.dumps(
                 {
-                    "prompt": prompt,
-                    "negative_prompt": data.negative_prompt or shot.negative_prompt,
+                    "prompt": resolved_prompt,
+                    "negative_prompt": resolved_negative,
                     "seed": data.seed,
                     "width": data.width,
                     "height": data.height,

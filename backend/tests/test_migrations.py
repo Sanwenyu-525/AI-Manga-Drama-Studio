@@ -35,6 +35,7 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
         "projects", "episodes", "scenes", "shots",
         "characters", "shot_characters",
         "assets", "generations",
+        "prompts", "prompt_versions",  # ADR-002
         "alembic_version",
     ):
         assert expected in tables, f"missing table {expected}"
@@ -50,6 +51,10 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
     assert "active_image_asset_id" in shot_cols
     assert "active_video_asset_id" in shot_cols
     assert "active_image_version_id" not in shot_cols
+
+    # ADR-002 prompt versioning columns
+    assert "active_prompt_version_id" in shot_cols
+    assert "prompt_version_id" in _table_columns(engine, "generations")
 
     # P1 columns present (P1-E1-T01 migration e1f2a3b4c5d6)
     assert "analysis_key" in _table_columns(engine, "episodes")

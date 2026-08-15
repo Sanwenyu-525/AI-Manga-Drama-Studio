@@ -247,6 +247,7 @@ export interface GenerationRead {
   provider: string;
   model: string | null;
   workflow_id: string | null;
+  prompt_version_id: string | null; // ADR-002
   status: string;
   progress: number;
   stage: string | null;
