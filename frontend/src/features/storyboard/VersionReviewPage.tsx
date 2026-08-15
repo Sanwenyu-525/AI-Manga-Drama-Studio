@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, CheckCircle, ClockCounterClockwise, ImageSquare, MagicWand, SlidersHorizontal, TreeStructure } from "@phosphor-icons/react";
+import { ArrowLeft, Check, CheckCircle, ClockCounterClockwise, Columns, ImageSquare, MagicWand, SlidersHorizontal, TreeStructure } from "@phosphor-icons/react";
 import { ProvenancePanel } from "../provenance/ProvenancePanel";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../api/client";
@@ -13,6 +13,9 @@ export function VersionReviewPage() {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [provenanceOpen, setProvenanceOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareAId, setCompareAId] = useState<string | null>(null);
+  const [compareBId, setCompareBId] = useState<string | null>(null);
 
   const { data: project } = useQuery({ queryKey: queryKeys.project(projectId), queryFn: () => api.get<Project>(`/projects/${projectId}`) });
   const { data: shot } = useQuery({ queryKey: queryKeys.shot(shotId), queryFn: () => api.get<Shot>(`/shots/${shotId}`) });
@@ -43,7 +46,7 @@ export function VersionReviewPage() {
       <header className="review-topbar">
         <Link to={backToStoryboard} className="icon-button" aria-label="返回分镜"><ArrowLeft size={19} /></Link>
         <div><span className="eyebrow">VERSION REVIEW</span><strong>{project?.name ?? "项目"} · Shot {String(shot?.shot_number ?? 0).padStart(3, "0")}</strong></div>
-        <div className="review-top-actions"><span><ClockCounterClockwise size={16} /> 版本不可变</span><button type="button" className="btn secondary compact" disabled={!selected} onClick={() => setProvenanceOpen((open) => !open)}><TreeStructure size={15} /> 溯源</button><Link className="btn secondary compact" to={backToStoryboard}>返回分镜</Link></div>
+        <div className="review-top-actions"><span><ClockCounterClockwise size={16} /> 版本不可变</span><button type="button" className={"btn secondary compact" + (compareOpen ? " active-toggle" : "")} disabled={!versions} onClick={() => setCompareOpen((open) => !open)}><Columns size={15} /> A/B 对比</button><button type="button" className="btn secondary compact" disabled={!selected} onClick={() => setProvenanceOpen((open) => !open)}><TreeStructure size={15} /> 溯源</button><Link className="btn secondary compact" to={backToStoryboard}>返回分镜</Link></div>
       </header>
 
       <main className="version-review-layout">
@@ -69,7 +72,17 @@ export function VersionReviewPage() {
         </aside>
 
         <section className="review-canvas">
-          {selected ? (
+          {compareOpen ? (
+            <VersionCompareBoard
+              versions={versions ?? []}
+              aId={compareAId}
+              bId={compareBId}
+              onSetA={setCompareAId}
+              onSetB={setCompareBId}
+              activeId={active?.id ?? null}
+              activate={activate}
+            />
+          ) : selected ? (
             <>
               <div className="review-image-stage"><img src={`/api/v1/assets/${selected.asset_id}/content`} alt={`Shot 版本 V${selected.version_number}`} /></div>
               <div className="review-caption"><span>V{selected.version_number}</span><p>{selected.notes || "生成版本 · 原始资产保持不可变"}</p></div>
@@ -105,6 +118,113 @@ export function VersionReviewPage() {
           onClose={() => setProvenanceOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+
+// P6-T012 — A/B compare board: pick two versions and review them side by side,
+// each with a large image, version label/badge and an explicit activate button.
+interface CompareBoardProps {
+  versions: AssetVersionRead[];
+  aId: string | null;
+  bId: string | null;
+  onSetA: (id: string) => void;
+  onSetB: (id: string) => void;
+  activeId: string | null;
+  activate: { mutate: (versionId: string) => void; isPending: boolean };
+}
+
+function VersionCompareBoard({ versions, aId, bId, onSetA, onSetB, activeId, activate }: CompareBoardProps) {
+  const a = versions.find((v) => v.id === aId) ?? versions.find((v) => v.is_active) ?? versions[0];
+  const b = versions.find((v) => v.id === bId) ?? versions.find((v) => v.id !== a?.id) ?? versions[1];
+
+  if (versions.length < 2) {
+    return <div className="review-canvas-empty"><Columns size={36} /><p>需要至少两个版本才能进行 A/B 对比。</p></div>;
+  }
+  if (!a || !b) return null;
+
+  return (
+    <div className="compare-board">
+      <div className="compare-board-head">
+        <span className="eyebrow">A/B COMPARE</span>
+        <p className="muted">左右各选一个版本，即可直接激活其一。</p>
+      </div>
+      <div className="compare-split">
+        <CompareSide
+          title="A"
+          version={a}
+          versions={versions}
+          excludeId={b?.id}
+          onSelect={onSetA}
+          activeId={activeId}
+          activate={activate}
+        />
+        <CompareSide
+          title="B"
+          version={b}
+          versions={versions}
+          excludeId={a?.id}
+          onSelect={onSetB}
+          activeId={activeId}
+          activate={activate}
+        />
+      </div>
+    </div>
+  );
+}
+
+function CompareSide({
+  title,
+  version,
+  versions,
+  excludeId,
+  onSelect,
+  activeId,
+  activate,
+}: {
+  title: string;
+  version: AssetVersionRead;
+  versions: AssetVersionRead[];
+  excludeId?: string | null;
+  onSelect: (id: string) => void;
+  activeId: string | null;
+  activate: { mutate: (versionId: string) => void; isPending: boolean };
+}) {
+  const isActiveThis = activeId === version.id;
+  return (
+    <div className={`compare-side ${isActiveThis ? "is-active" : ""}`}>
+      <div className="compare-side-select">
+        <label>对比 {title}：</label>
+        <select
+          value={version.id}
+          onChange={(e) => onSelect(e.target.value)}
+          aria-label={`选择对比版本 ${title}`}
+        >
+          {versions
+            .filter((v) => !excludeId || v.id !== excludeId)
+            .map((v) => (
+              <option key={v.id} value={v.id}>V{v.version_number}{v.is_active ? "（当前）" : ""}</option>
+            ))}
+        </select>
+      </div>
+      <div className="compare-image-stage">
+        <img src={`/api/v1/assets/${version.asset_id}/content`} alt={`对比版本 V${version.version_number}`} />
+        <span className="compare-side-tag">{title}</span>
+        {isActiveThis && <span className="badge ok compare-active-badge"><Check size={12} /> 当前</span>}
+      </div>
+      <div className="compare-side-caption">
+        <span className="compare-version-label">V{version.version_number}</span>
+        <span className="badge ok">{isActiveThis ? "★ 当前生效" : "候选"}</span>
+      </div>
+      <button
+        type="button"
+        className="btn primary full"
+        disabled={isActiveThis || activate.isPending}
+        onClick={() => activate.mutate(version.id)}
+      >
+        {isActiveThis ? <><Check size={15} /> 已设为当前</> : activate.isPending ? "正在切换…" : "激活此版本"}
+      </button>
     </div>
   );
 }
