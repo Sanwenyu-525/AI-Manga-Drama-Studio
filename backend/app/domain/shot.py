@@ -6,10 +6,24 @@ from app.domain.common import DirtyState, ShotStatus, ShotType
 from app.domain.scene import SceneSummary
 
 
+class ShotCharacterAssignment(BaseModel):
+    """P2-T010: per-character costume mapping on a shot.
+
+    When the optional 'characters' list is provided it supersedes character_ids and
+    records the optional costume_id on each shot_characters link row (validated
+    service-side; weak ref with no DB FK on link rows).
+    """
+
+    character_id: str
+    costume_id: str | None = None
+
+
 class ShotCreate(BaseModel):
     shot_number: int | None = Field(default=None, ge=1)  # auto-assigned if omitted
     shot_type: ShotType = "medium"
     character_ids: list[str] = Field(default_factory=list)
+    # P2-T010 optional costume mapping (supersedes character_ids when present)
+    characters: list[ShotCharacterAssignment] | None = None
     camera_angle: str | None = None
     camera_movement: str | None = None
     lens: str | None = None
@@ -33,6 +47,8 @@ class ShotUpdate(BaseModel):
     dialogue: str | None = None
     image_prompt: str | None = None
     character_ids: list[str] | None = None  # None = keep; list = replace all
+    # P2-T010 optional costume mapping (supersedes character_ids when present)
+    characters: list[ShotCharacterAssignment] | None = None
     status: ShotStatus | None = None
     dirty_state: DirtyState | None = None
 

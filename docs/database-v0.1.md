@@ -254,6 +254,49 @@ updated_at
 
 这样多个 Scene 可以复用同一个 Location。
 
+P2-T009（地点视觉版本 + MASTER 指针，domain-model-design §35/§36，完全参照 Character 版本模式）：
+
+```text
+location_versions 表
+```
+字段：
+
+```text
+id
+
+location_id         -- FK → locations.id，ON DELETE CASCADE，索引
+
+version_number      -- 组内自增（v1/v2...），UNIQUE(location_id, version_number)，软删不参与
+
+asset_id            -- FK → assets.id，该版本的代表视觉资产
+
+name                -- 可选，本版本名称
+
+description         -- 可选，本版本说明
+
+status              -- active | stale | archived；新建默认 stale，激活后才为 active
+
+checksum            -- 可选，代表资产的 SHA-256
+
+created_at
+
+updated_at
+
+deleted_at          -- 软删（草稿版本）
+```
+`locations` 表新增字段（另含 project_id FK→projects.id、revision 乐观锁、deleted_at 软删、created_at/updated_at）：
+
+```text
+master_version_id   -- FK → location_versions.id（可空，ADR-002 指针模式，与 characters.master_version_id 同模式）
+```
+
+语义：
+
+- MASTER 指针（`locations.master_version_id`）指向项目正式认可的标准地点形象。
+- 新版本默认 `stale`，激活（active）时：旧 active 置 stale → 新版本置 active → master_version_id 指向新版本（单事务，commit-then-publish）。
+- 重复激活当前 MASTER 幂等（无写入、无事件）。
+- `scenes.location_id` 为弱引用（无 DB FK）：手动创建/更新 Scene 时服务层校验地点存在性且属同项目（404/422）；AI 分析路径的 free-text location 保持不变。
+
 ---
 
 # 7. Character 表
@@ -354,7 +397,9 @@ costumes
 ```text
 id
 
-character_id
+project_id            -- FK → projects.id，索引
+
+character_id          -- FK → characters.id，可空（可选归属角色）
 
 name
 
@@ -362,11 +407,20 @@ description
 
 visual_prompt
 
-reference_asset_id
+reference_asset_id    -- FK → assets.id，可空（可选参考图）
+
+revision              -- 乐观锁（默认 1）
 
 created_at
 updated_at
+
+deleted_at            -- 软删
 ```
+
+P2-T010：基础 CRUD，**不做版本系统**（CostumeVersion 属未来任务，参照 Character/CharacterVersion 模式）。
+- create/update 时，`character_id` / `reference_asset_id` 若给定，服务层校验存在性且属同项目（404/422）。
+- focus_update 使用 `{revision, patch}` 乐观并发（409 conflict）。
+- `shot_characters.costume_id` 为弱引用（无 DB FK）：Shot 的 `characters: [{character_id, costume_id}]` 扩展写入，服务层校验。
 
 例如：
 
@@ -558,7 +612,7 @@ shot_id
 
 character_id
 
-costume_id
+costume_id        -- P2-T010：弱引用（无 DB FK）→ costumes.id，Shot 的 characters 扩展写入
 
 role
 
@@ -572,6 +626,10 @@ emotion
 
 screen_direction
 ```
+
+P2-T010：Shot 创建/更新可选用 `characters: [{character_id, costume_id}]`（向后兼容扩展，
+缺省 `characters` 时退化为纯 `character_ids` 列表）。提供 `characters` 时覆盖 `character_ids`
+并记录可选的 `costume_id` 到 link 行；costume 在服务层校验存在性且属同项目（404/422）。
 
 例如：
 

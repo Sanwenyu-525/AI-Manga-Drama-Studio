@@ -3824,6 +3824,25 @@ Generation 与 Agent 生命周期分离。
 
 /characters/{id} 响应新增 master_version_id（MASTER 指针，可空）
 
+--- P2（Location / LocationVersion，P2-T009）---
+
+/projects/{id}/locations                            （GET：按 project 列出；POST：201 创建）
+/locations/{id}                                    （GET / PATCH{revision,patch} / DELETE 软删）
+/locations/{id}/versions                           （GET：按 version_number 升序；POST：{asset_id,name?,description?}，201，默认 stale）
+/locations/{id}/versions/{versionId}/activate      （POST：置 active + master_version_id 指向它）
+
+/locations/{id} 响应新增 master_version_id（MASTER 指针，可空）
+
+--- P2（Costume，P2-T010）---
+
+/projects/{id}/costumes                            （GET：按 project 列出；POST：201 创建）
+/costumes/{id}                                     （GET / PATCH{revision,patch} / DELETE 软删）
+
+--- P2（Shot costume 扩展）---
+
+POST /scenes/{id}/shots   与 PATCH /shots/{id} 之 patch 可选 `characters: [{character_id, costume_id}]`
+（向后兼容：缺省退化为 `character_ids` 列表；提供 `characters` 时覆盖 `character_ids`）
+
 --- P2 之后的核心线 ---
 
 /agent/director/runs
@@ -3945,6 +3964,22 @@ character.deleted
 character.version.created      （新建角色视觉版本，payload: character_id/version_id/version_number/asset_id）
 
 character.version.activated    （激活为 MASTER，payload: character_id/version_id/version_number/asset_id）
+
+location.created
+
+location.updated
+
+location.deleted
+
+location.version.created      （新建地点视觉版本，payload: location_id/version_id/version_number/asset_id）
+
+location.version.activated    （激活为 MASTER，payload: location_id/version_id/version_number/asset_id）
+
+costume.created
+
+costume.updated
+
+costume.deleted
 
 provider.connected
 
