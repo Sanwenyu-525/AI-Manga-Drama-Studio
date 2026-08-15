@@ -300,6 +300,47 @@ Character 保存的是"身份"。
 
 服装单独管理。
 
+P2-T007/T008（角色视觉版本 + MASTER 指针）：
+
+```text
+character_versions 表
+```
+字段：
+
+```text
+id
+
+character_id        -- FK → characters.id，ON DELETE CASCADE，索引
+
+version_number      -- 组内自增（v1/v2...），UNIQUE(character_id, version_number)
+
+asset_id            -- FK → assets.id，该版本的代表视觉资产（MVP 用 Asset Import 导入的角色参考图）
+
+name                -- 可选，本版本名称
+
+description         -- 可选，本版本说明
+
+status              -- active | stale | archived；新建默认 stale，激活后才为 active
+
+checksum            -- 可选，代表资产的 SHA-256
+
+created_at
+
+updated_at
+```
+`characters` 表新增字段：
+
+```text
+master_version_id   -- FK → character_versions.id（可空，ADR-002 指针模式）
+```
+
+语义：
+
+- MASTER 指针（`characters.master_version_id`）指向项目正式认可的标准角色形象（domain-model-design §32/§39-41）。
+- 新 Shot 默认绑定 Character.master_version_id；已生成 Shot 不自动更新，只标记 STALE。
+- 版本激活（active）时：旧 active 置 stale → 新版本置 active → master_version_id 指向新版本（单事务）。
+- 多个参考图（Front / Side / Full Body）属于同一版本内部，因此指针落在"版本"而非"资产"（§39）。
+
 ---
 
 # 8. Costume 表

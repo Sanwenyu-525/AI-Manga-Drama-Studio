@@ -59,6 +59,7 @@ def _to_read(c: Character, shot_count: int = 0) -> CharacterRead:
         status=c.status,
         revision=c.revision,
         shot_count=shot_count,
+        master_version_id=c.master_version_id,
         created_at=c.created_at,
         updated_at=c.updated_at,
     )

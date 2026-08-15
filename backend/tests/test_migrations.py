@@ -37,6 +37,7 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
         "assets", "generations",
         "prompts", "prompt_versions",  # ADR-002
         "generation_inputs", "generation_outputs",  # P3-T012/T013
+        "character_versions",  # P2-T007/T008
         "alembic_version",
     ):
         assert expected in tables, f"missing table {expected}"
@@ -61,6 +62,11 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
     assert {"generation_id", "input_type", "reference_type", "reference_id", "role", "order_index", "metadata_json"} <= _table_columns(engine, "generation_inputs")
     assert {"generation_id", "asset_id", "role", "order_index"} <= _table_columns(engine, "generation_outputs")
 
+    # P2-T007/T008 character versioning
+    char_version_cols = _table_columns(engine, "character_versions")
+    assert {"id", "character_id", "version_number", "asset_id", "name", "description", "status", "checksum", "created_at", "updated_at"} <= char_version_cols
+    assert "master_version_id" in _table_columns(engine, "characters")
+
     # P1 columns present (P1-E1-T01 migration e1f2a3b4c5d6)
     assert "analysis_key" in _table_columns(engine, "episodes")
     assert {"analysis_key", "storyboard_key"} <= _table_columns(engine, "scenes")
@@ -79,6 +85,9 @@ def test_downgrade_and_upgrade_round_trip(tmp_path: Path) -> None:
 
     engine = create_engine(f"sqlite:///{db.as_posix()}")
     assert "analysis_key" in _table_columns(engine, "episodes")
+    # P2 tables survive the round trip
+    assert "character_versions" in set(inspect(engine).get_table_names())
+    assert "master_version_id" in _table_columns(engine, "characters")
     engine.dispose()
 
 

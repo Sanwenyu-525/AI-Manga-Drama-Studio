@@ -3816,9 +3816,15 @@ Generation 与 Agent 生命周期分离。
 
 /shots/{id}
 
-/characters
+--- P2（CharacterVersion，P2-T007/T008）---
 
-/characters/{id}
+/characters/{id}/versions                  （视觉版本列表，按 version_number 升序）
+/characters/{id}/versions                  （POST：{asset_id, name?, description?}，新建默认 stale，201）
+/characters/{id}/versions/{versionId}/activate   （POST：置 active + master_version_id 指向它）
+
+/characters/{id} 响应新增 master_version_id（MASTER 指针，可空）
+
+--- P2 之后的核心线 ---
 
 /agent/director/runs
 
@@ -3935,6 +3941,10 @@ character.created
 character.updated
 
 character.deleted
+
+character.version.created      （新建角色视觉版本，payload: character_id/version_id/version_number/asset_id）
+
+character.version.activated    （激活为 MASTER，payload: character_id/version_id/version_number/asset_id）
 
 provider.connected
 
