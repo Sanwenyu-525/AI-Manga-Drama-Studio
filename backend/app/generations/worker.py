@@ -21,7 +21,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from collections.abc import Callable
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 
 from app.core.config import settings
 from app.core.errors import StudioError
@@ -31,12 +31,14 @@ from app.db.models import Generation, GenerationOutput
 from app.events.bus import (
     EVENT_GENERATION_COMPLETED,
     EVENT_GENERATION_FAILED,
+    EVENT_GENERATION_INTERRUPTED,
     EVENT_GENERATION_PROGRESS,
     EVENT_GENERATION_RETRYING,
     EVENT_GENERATION_STARTED,
     StudioEvent,
     bus,
 )
+from app.generations.retry_policy import RetryOutcome, classify_failure
 from app.generations.state import validate_transition
 from app.providers.image.base import ImageRequest
 from app.providers.registry import get_image_provider
@@ -52,6 +54,10 @@ logger = get_logger("generations.worker")
 POLL_INTERVAL_SECONDS = 0.5
 
 _cancelled: set[str] = set()
+
+# P5-T013/T014: queue-level pause — only stops *scheduling new tasks*; running jobs
+# finish, and lease recovery keeps running while paused.
+_paused: bool = False
 
 # Worker liveness for the health check (P1-E2-T02): updated every loop iteration.
 last_heartbeat: float = 0.0
@@ -85,8 +91,90 @@ def enqueue_generation(generation_id: str) -> None:
 
 
 async def cancel_running(generation_id: str) -> None:
-    """Best-effort cancel: mark cancelled; worker checks the flag before persisting output."""
+    """Best-effort cancel of a RUNNING generation.
+
+    - Adds the id to the in-memory hint set (worker checks it before persisting).
+    - Asks the provider to interrupt its ComfyUI job (best-effort; never raises).
+    Note: the durable 'cancelling' state is set by GenerationService.cancel_generation —
+    this function only orchestrates the provider interrupt + memory hint.
+    """
     _cancelled.add(generation_id)
+    try:
+        factory = db_session_module.session_factory_provider()
+        with factory() as session:
+            generation = session.get(Generation, generation_id)
+            provider_ref = generation.provider_ref if generation else None
+        if provider_ref:
+            provider = get_image_provider()
+            await provider.cancel(provider_ref)
+    except Exception:  # noqa: BLE001 — provider cancel is best-effort
+        logger.exception("best-effort provider cancel failed for generation %s", generation_id)
+
+
+# --- queue pause / resume / status (P5-T013/T014) ---
+
+def pause_queue() -> None:
+    """Pause scheduling of NEW tasks; running generations continue to completion."""
+    global _paused
+    _paused = True
+    logger.info("generation queue paused")
+
+
+def resume_queue() -> None:
+    """Resume scheduling of new tasks."""
+    global _paused
+    _paused = False
+    logger.info("generation queue resumed")
+
+
+def is_paused() -> bool:
+    """Whether new-task scheduling is paused."""
+    return _paused
+
+
+def queue_status(factory=None) -> dict:
+    """Queue-level status for GET /generations/queue-status.
+
+    paused        — are new tasks being scheduled?
+    pending       — claimable rows (queued/retrying, backoff due)
+    pending_total — all queued/retrying rows (including those held by backoff)
+    running       — rows the worker currently claims (lease not expired)
+    """
+    f = factory or db_session_module.session_factory_provider()
+    now = _now()
+    with f() as session:
+        pending_total = session.scalar(
+            select(func.count()).select_from(Generation).where(
+                Generation.deleted_at.is_(None),
+                Generation.status.in_(("queued", "retrying")),
+            )
+        ) or 0
+        pending = session.scalar(
+            select(func.count()).select_from(Generation).where(
+                Generation.deleted_at.is_(None),
+                Generation.status.in_(("queued", "retrying")),
+                or_(Generation.next_attempt_at.is_(None), Generation.next_attempt_at <= now),
+            )
+        ) or 0
+        running = session.scalar(
+            select(func.count()).select_from(Generation).where(
+                Generation.deleted_at.is_(None),
+                Generation.status == "running",
+            )
+        ) or 0
+    return {
+        "paused": _paused,
+        "pending": pending,
+        "pending_total": pending_total,
+        "running": running,
+    }
+
+
+def reset_worker_state() -> None:
+    """Test hook: clear process-level pause/cancel state between tests."""
+    global _paused
+    _paused = False
+    _cancelled.clear()
 
 
 # --- atomic claim & lease recovery (P1-E2-T02) ---
@@ -138,19 +226,38 @@ def recover_expired_leases(factory=None) -> int:
             session.scalars(
                 select(Generation).where(
                     Generation.deleted_at.is_(None),
-                    Generation.status == "running",
+                    Generation.status.in_(("running", "cancelling")),
                     Generation.lease_expires_at.is_not(None),
                     Generation.lease_expires_at < _now(),
                 )
             )
         )
+        interrupted_ids: list[tuple[str, str, str | None]] = []
+        cancelled_ids: list[tuple[str, str, str | None]] = []
         for generation in stale:
+            if generation.status == "cancelling":
+                # The cancelling process died before it could finalize — conclude the
+                # user's cancel now (durable across restart).
+                validate_transition(generation.status, "cancelled")
+                generation.status = "cancelled"
+                generation.completed_at = _now()
+                generation.error_message = "Cancelled by user (finalized after restart)."
+                generation.stage = "cancelled"
+                cancelled_ids.append((generation.id, generation.project_id, generation.shot_id))
+                recovered += 1
+                continue
             generation.attempts += 1
             if generation.attempts >= generation.max_attempts:
-                validate_transition(generation.status, "failed")
-                generation.status = "failed"
-                generation.error_message = "Worker lease expired (crash recovery); attempt budget exhausted."
+                # P5-T016: exhausted attempt budget after a crash is a SYSTEM
+                # interruption (abnormal-task detection), not a user failure → 'interrupted'
+                # (a terminal state distinct from 'failed').
+                validate_transition(generation.status, "interrupted")
+                generation.status = "interrupted"
+                generation.error_message = (
+                    "Worker lease expired (crash recovery); attempt budget exhausted (interrupted)."
+                )
                 generation.completed_at = _now()
+                interrupted_ids.append((generation.id, generation.project_id, generation.shot_id))
             else:
                 validate_transition(generation.status, "queued")
                 generation.status = "queued"
@@ -159,8 +266,31 @@ def recover_expired_leases(factory=None) -> int:
             recovered += 1
         if stale:
             session.commit()
+        # commit-then-publish (red line): emit events only after commit.
+        for gen_id, project_id, shot_id in interrupted_ids:
+            bus.publish(
+                StudioEvent(
+                    event_type=EVENT_GENERATION_INTERRUPTED,
+                    entity_type="generation",
+                    entity_id=gen_id,
+                    project_id=project_id,
+                    payload={"shot_id": shot_id},
+                )
+            )
+            logger.warning("generation %s interrupted (lease expired, budget exhausted)", gen_id)
+        for gen_id, project_id, shot_id in cancelled_ids:
+            bus.publish(
+                StudioEvent(
+                    event_type="generation.cancelled",
+                    entity_type="generation",
+                    entity_id=gen_id,
+                    project_id=project_id,
+                    payload={"shot_id": shot_id},
+                )
+            )
+            logger.info("generation %s cancelled (finalized after restart)", gen_id)
     if recovered:
-        logger.warning("lease recovery: handled %d stale running generations", recovered)
+        logger.warning("lease recovery: handled %d stale generations", recovered)
     return recovered
 
 
@@ -173,6 +303,12 @@ async def worker_loop() -> None:
         last_heartbeat = time.monotonic()
         try:
             recover_expired_leases()
+            # P5-T013: while paused we still poll + recover leases, but we do NOT
+            # schedule new tasks. The worker never sleeps waiting for resume — it
+            # keeps polling so resume is picked up on the next iteration.
+            if _paused:
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                continue
             factory = db_session_module.session_factory_provider()
             with factory() as session:
                 now = _now()
@@ -252,18 +388,21 @@ async def run_generation(generation_id: str) -> None:
     try:
         result = await provider.generate(request, _on_progress)
     except StudioError as exc:
-        _handle_failure(factory, gen_id, project_id, shot_id, str(exc))
+        _handle_failure(factory, gen_id, project_id, shot_id, str(exc), exc=exc)
         return
     except Exception as exc:  # noqa: BLE001
         logger.exception("generation %s provider error", gen_id)
-        _handle_failure(factory, gen_id, project_id, shot_id, f"Provider error: {exc}")
+        _handle_failure(factory, gen_id, project_id, shot_id, f"Provider error: {exc}", exc=exc)
         return
 
-    if gen_id in _cancelled:
+    if gen_id in _cancelled or _db_status(factory, gen_id) == "cancelling":
+        # P5-T015: cancel is durable — check the persisted 'cancelling' marker (survives
+        # restart) in addition to the in-memory hint set.
         _handle_cancelled(factory, gen_id, project_id, shot_id)
         return
 
     if not result.success:
+        # An unsuccessful result is deterministic — NonRetryable (P5-T009), fail fast.
         _handle_failure(factory, gen_id, project_id, shot_id, result.error or "Provider returned failure.")
         return
 
@@ -289,7 +428,13 @@ def _persist_output(factory: Callable, generation_id: str, project_id: str, shot
     """
     with factory() as session:
         generation = session.get(Generation, generation_id)
+        # P5-T015: if the user cancelled (durable 'cancelling' or in-memory hint) while
+        # we were finishing, do NOT persist output — finalize as cancelled instead.
         if generation is None or generation.status == "cancelled":
+            return
+        if generation.status == "cancelling" or generation.id in _cancelled:
+            session.commit()
+            _handle_cancelled(factory, generation_id, project_id, shot_id)
             return
         generation.progress = 100
         generation.stage = "saving"
@@ -370,16 +515,45 @@ def _persist_output(factory: Callable, generation_id: str, project_id: str, shot
         logger.info("generation %s completed -> asset %s (V%d)", generation_id, asset.id, version.version_number)
 
 
-def _handle_failure(factory: Callable, generation_id: str, project_id: str, shot_id: str | None, message: str) -> None:
+def _db_status(factory: Callable, generation_id: str) -> str | None:
+    """Read a generation's current status (used to make cancel durable across restarts)."""
     with factory() as session:
         generation = session.get(Generation, generation_id)
-        if generation is None or generation.status == "cancelled":
+        return generation.status if generation else None
+
+
+def _handle_failure(
+    factory: Callable,
+    generation_id: str,
+    project_id: str,
+    shot_id: str | None,
+    message: str,
+    exc: BaseException | None = None,
+) -> None:
+    """Route a failure by retry classification (P5-T009):
+
+    - Retryable    → existing retrying + exponential backoff path.
+    - NonRetryable → immediate 'failed' — we do NOT burn the attempt budget.
+    - UserActionRequired is treated as NonRetryable (clear failed message; no new state).
+    A generation the user is cancelling ('cancelling' / in the hint set) is finalized
+    to 'cancelled' instead of being retried or failed.
+    """
+    with factory() as session:
+        generation = session.get(Generation, generation_id)
+        if generation is None:
             return
-        generation.attempts += 1
-        if generation.attempts >= generation.max_attempts:
+        if generation.status == "cancelling" or generation.id in _cancelled:
+            return  # cancel in flight — run_generation finalizes to 'cancelled'
+        if generation.status == "cancelled":
+            return
+        outcome = classify_failure(exc, message)
+        retryable = outcome is RetryOutcome.RETRYABLE
+        generation.error_message = message[:2000]
+
+        if not retryable:
+            # NonRetryable → fail fast, no attempt-budget churn.
             validate_transition(generation.status, "failed")
             generation.status = "failed"
-            generation.error_message = message[:2000]
             generation.completed_at = _now()
             session.commit()
             bus.publish(
@@ -388,14 +562,39 @@ def _handle_failure(factory: Callable, generation_id: str, project_id: str, shot
                     entity_type="generation",
                     entity_id=generation_id,
                     project_id=project_id,
-                    payload={"shot_id": shot_id, "error": {"code": "GENERATION_FAILED", "message": message}},
+                    payload={
+                        "shot_id": shot_id,
+                        "retryable": False,
+                        "error": {"code": "GENERATION_FAILED", "message": message},
+                    },
                 )
             )
-            logger.error("generation %s failed: %s", generation_id, message)
+            logger.error("generation %s failed (non-retryable): %s", generation_id, message)
+            return
+
+        generation.attempts += 1
+        if generation.attempts >= generation.max_attempts:
+            validate_transition(generation.status, "failed")
+            generation.status = "failed"
+            generation.completed_at = _now()
+            session.commit()
+            bus.publish(
+                StudioEvent(
+                    event_type=EVENT_GENERATION_FAILED,
+                    entity_type="generation",
+                    entity_id=generation_id,
+                    project_id=project_id,
+                    payload={
+                        "shot_id": shot_id,
+                        "retryable": True,
+                        "error": {"code": "GENERATION_FAILED", "message": message},
+                    },
+                )
+            )
+            logger.error("generation %s failed after %d attempts: %s", generation_id, generation.attempts, message)
         else:
             validate_transition(generation.status, "retrying")
             generation.status = "retrying"
-            generation.error_message = message[:2000]
             generation.claim_token = None  # release the claim
             generation.next_attempt_at = (
                 datetime.now(UTC) + timedelta(seconds=_backoff_seconds(generation.attempts))
@@ -417,12 +616,16 @@ def _handle_failure(factory: Callable, generation_id: str, project_id: str, shot
 def _handle_cancelled(factory: Callable, generation_id: str, project_id: str, shot_id: str | None) -> None:
     with factory() as session:
         generation = session.get(Generation, generation_id)
-        if generation is None:
+        if generation is None or generation.status in ("cancelled", "completed"):
             return
+        # P5-T015: the row may already be durably 'cancelling' (set by the API while the
+        # job was running) → cancelling→cancelled; or still 'running' (memory-hint path)
+        # → running→cancelled. Both are legal transitions.
         validate_transition(generation.status, "cancelled")
         generation.status = "cancelled"
         generation.completed_at = _now()
         generation.error_message = "Cancelled by user."
+        generation.stage = "cancelled"
         session.commit()
         bus.publish(
             StudioEvent(
@@ -433,3 +636,4 @@ def _handle_cancelled(factory: Callable, generation_id: str, project_id: str, sh
                 payload={"shot_id": shot_id},
             )
         )
+        _cancelled.discard(generation_id)

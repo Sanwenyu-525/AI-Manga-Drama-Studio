@@ -227,23 +227,39 @@ class GenerationService:
 
     def cancel_generation(self, generation_id: str) -> Generation:
         """Cancel via the state machine (P1-E2-T02): illegal transitions are a
-        Domain Error (409), never a silent write."""
+        Domain Error (409), never a silent write.
+
+        P5-T015: a queued/retrying row is cancelled immediately (durable). A RUNNING
+        row is moved to the durable 'cancelling' state so the cancel survives a restart;
+        the worker finalizes it to 'cancelled' once it notices. The final
+        generation.cancelled event is emitted by the worker on finalize.
+        """
         from app.generations.state import validate_transition
 
         generation = self.get_generation(generation_id)
-        validate_transition(generation.status, "cancelled")
-        generation.status = "cancelled"
-        generation.completed_at = generation.completed_at or self._now()
-        self.session.commit()
-        bus.publish(
-            StudioEvent(
-                event_type=EVENT_GENERATION_CANCELLED,
-                entity_type="generation",
-                entity_id=generation.id,
-                project_id=generation.project_id,
-                payload={"shot_id": generation.shot_id},
+        if generation.status in ("queued", "retrying"):
+            validate_transition(generation.status, "cancelled")
+            generation.status = "cancelled"
+            generation.completed_at = generation.completed_at or self._now()
+            self.session.commit()
+            bus.publish(
+                StudioEvent(
+                    event_type=EVENT_GENERATION_CANCELLED,
+                    entity_type="generation",
+                    entity_id=generation.id,
+                    project_id=generation.project_id,
+                    payload={"shot_id": generation.shot_id},
+                )
             )
-        )
+        elif generation.status == "running":
+            # Durable cancel marker for an actively running job.
+            validate_transition(generation.status, "cancelling")
+            generation.status = "cancelling"
+            self.session.commit()
+            # The worker finalizes running→cancelled and emits generation.cancelled.
+        else:
+            # completed / failed / cancelled / interrupted / cancelling → 409.
+            validate_transition(generation.status, "cancelled")  # raises ConflictError
         return generation
 
     @staticmethod
