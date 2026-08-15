@@ -97,6 +97,8 @@ fps               INTEGER
 created_at        DATETIME
 
 updated_at        DATETIME
+
+revision          INTEGER NOT NULL DEFAULT 1  （乐观锁 P1：PATCH 需提交 revision，冲突 409）
 ```
 
 status 建议：
@@ -140,6 +142,8 @@ status
 created_at
 
 updated_at
+
+revision        INTEGER NOT NULL DEFAULT 1  （乐观锁 P1）
 ```
 
 关系：
@@ -194,6 +198,8 @@ status
 created_at
 
 updated_at
+
+revision        INTEGER NOT NULL DEFAULT 1  （乐观锁 P1）
 ```
 
 analysis_key（P1-E1-T01）：所属剧集分析的幂等键；NOT NULL 表示 AI 创建的场景
@@ -806,6 +812,32 @@ failed
 cancelled
 
 retrying
+```
+
+---
+
+# 16.3 Generation Input / Output（P3-T012/T013，已落地）
+
+generation_inputs（生成请求的输入引用，随 Generation 创建事务写入）：
+
+```text
+id              TEXT PK
+generation_id   TEXT FK → generations.id（索引）
+input_type      TEXT（当前：prompt_version / shot）
+reference_type  TEXT（当前：prompt_version / shot）
+reference_id    TEXT
+role            TEXT（当前默认 primary）
+order_index     INTEGER DEFAULT 1000
+metadata_json   TEXT
+```
+
+generation_outputs（生成结果的资产映射，随完成事务写入）：
+
+```text
+generation_id   TEXT PK（复合）
+asset_id        TEXT PK（复合）→ assets.id（索引）
+role            TEXT（当前：primary）
+order_index     INTEGER DEFAULT 1000
 ```
 
 ---
@@ -1541,24 +1573,28 @@ music
 project_settings
 ```
 
-字段：
+字段（P1 已落地，与实现一致）：
 
 ```text
-project_id
-
-default_llm
-
-default_image_provider
-
-default_video_provider
-
-default_vision_provider
-
-default_image_workflow
-
-default_video_workflow
-
-settings
+project_id                    TEXT PK → projects.id（ON DELETE CASCADE）
+language                      TEXT DEFAULT 'zh-CN'
+default_llm_provider          TEXT
+default_llm_model             TEXT
+default_image_provider        TEXT
+default_image_model           TEXT
+default_video_provider        TEXT
+default_video_model           TEXT
+default_voice_provider        TEXT
+default_voice_model           TEXT
+default_image_workflow_id     TEXT
+default_video_workflow_id     TEXT
+auto_retry                    INTEGER DEFAULT 1
+max_retry_count               INTEGER DEFAULT 3
+auto_save                     INTEGER DEFAULT 1
+continuity_enabled            INTEGER DEFAULT 1
+auto_activate_new_generation  INTEGER DEFAULT 0
+settings_json                 TEXT（未知键合并存储）
+updated_at                    DATETIME
 ```
 
 这样不同项目可以用不同模型。

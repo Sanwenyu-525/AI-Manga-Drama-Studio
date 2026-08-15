@@ -382,13 +382,18 @@ GET /api/v1/projects/{project_id}
 PATCH /api/v1/projects/{project_id}
 ```
 
-只发送修改字段：
+乐观并发（P1 已落地）：提交 `{revision, patch}`，revision 为读取时返回的当前版本号（缺失 → 422）；
+patch 只发送修改字段：
 
 ```json
 {
-  "name": "新的项目名"
+  "revision": 3,
+  "patch": { "name": "新的项目名" }
 }
 ```
+
+数据库级条件更新（`WHERE id = ? AND revision = ?`）失败 → **409 Conflict**（payload 携带
+expected/current revision），与 Shot 的 P1-E1-T02 语义一致。
 
 ---
 
@@ -437,6 +442,19 @@ Request：
 {
   "title": "第一集",
   "source_text": "..."
+}
+```
+
+更新（乐观并发，同 §12 语义：`{revision, patch}`，冲突 409）：
+
+```http
+PATCH /api/v1/episodes/{episode_id}
+```
+
+```json
+{
+  "revision": 2,
+  "patch": { "title": "第一集（修订）" }
 }
 ```
 
@@ -518,6 +536,8 @@ POST /api/v1/episodes/{episode_id}/scenes
 ```http
 PATCH /api/v1/scenes/{scene_id}
 ```
+
+乐观并发（P1 已落地）：`{revision, patch}`（缺失 revision → 422，冲突 → 409），同 §12。
 
 删除：
 
@@ -3769,6 +3789,18 @@ Generation 与 Agent 生命周期分离。
 /prompts/{id}/versions              （列表/创建 vN+1）
 
 /prompts/{id}/versions/{versionId}/activate
+
+--- P1（ProjectSetting）---
+
+/projects/{id}/settings             （GET / PUT，P1：项目级生成/配置默认值）
+
+--- P3（Provenance）---
+
+/assets/{id}/provenance             （P3：asset + generation 块 + inputs + retry 链）
+
+/generations/{id}/inputs            （P3：生成请求输入引用）
+
+/generations/{id}/outputs           （P3：生成结果资产）
 ```
 
 ---
