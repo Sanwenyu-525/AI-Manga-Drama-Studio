@@ -258,14 +258,15 @@ export interface GenerationRead {
   completed_at: string | null;
 }
 
-export interface MediaVersionRead {
-  id: string;
+export interface AssetVersionRead {
+  id: string; // asset id (ADR-001: id == asset_id)
   shot_id: string;
   asset_id: string;
   media_type: string;
   version_number: number;
   generation_id: string | null;
   is_active: boolean;
+  status: string;
   notes: string | null;
   created_at: string;
 }

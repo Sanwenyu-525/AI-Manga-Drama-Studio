@@ -1,8 +1,12 @@
-"""VersionService (backend-architecture §24, mvp-spec §28).
+"""VersionService (backend-architecture §24, mvp-spec §28; ADR-001).
 
-Media versions are IMMUTABLE snapshots (database-v0.1 §19):
-- create_media_version: new row, version_number = max+1, never overwrite V1.
-- set_active_version: flips is_active and updates shot.active_image_version_id.
+Asset-backed versions (ADR-001): media_versions merged into assets.
+- assign_version: sets version_group_id (vg:shot:{shot_id}:{PURPOSE}) +
+  version_number (max+1, unique index backstop) on the asset; when make_active,
+  writes shots.active_{media_type}_asset_id.
+- set_active_asset: explicit activation — flips the shot pointer only
+  (versions stay immutable; nothing is deleted or overwritten).
+- commit=False supports caller-owned transactions (worker single-commit completion).
 """
 
 from __future__ import annotations
@@ -11,9 +15,26 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
-from app.db.models import MediaVersion, Shot
+from app.db.models import Asset, Episode, Scene, Shot
 from app.events.bus import EVENT_SHOT_ACTIVE_VERSION_CHANGED, StudioEvent, bus
 from app.repositories import ShotRepository
+
+MEDIA_TYPES = ("image", "video")
+GROUP_PURPOSES = {"image": "SHOT_IMAGE", "video": "SHOT_VIDEO"}
+PURPOSE_MEDIA = {"SHOT_IMAGE": "image", "SHOT_VIDEO": "video"}
+
+
+def version_group_id(shot_id: str, media_type: str) -> str:
+    """Deterministic group id (ADR-001 2.2): vg:shot:{shot_id}:{PURPOSE}."""
+    return f"vg:shot:{shot_id}:{GROUP_PURPOSES[media_type]}"
+
+
+def parse_version_group(group_id: str) -> tuple[str, str, str] | None:
+    """Parse vg:shot:{shot_id}:{PURPOSE} -> (owner_type, owner_id, purpose)."""
+    parts = (group_id or "").split(":")
+    if len(parts) == 4 and parts[0] == "vg" and parts[2]:
+        return parts[1], parts[2], parts[3]
+    return None
 
 
 class VersionService:
@@ -21,104 +42,96 @@ class VersionService:
         self.session = session
         self.shots = ShotRepository(session)
 
-    def create_media_version(
+    def assign_version(
         self,
         *,
         shot_id: str,
-        asset_id: str,
+        asset: Asset,
         media_type: str = "image",
-        generation_id: str | None = None,
-        notes: str | None = None,
         make_active: bool = True,
-    ) -> MediaVersion:
+        commit: bool = True,
+    ) -> Asset:
+        """Assign version_group_id + version_number to a freshly registered asset.
+
+        The caller passes the ORM object (it may still be pending in the session
+        when the caller owns the transaction — asset.id is only valid after flush).
+        """
         shot = self.shots.get(shot_id)
         if shot is None:
             raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
-        version_number = self._next_version_number(shot_id, media_type)
-        version = MediaVersion(
-            shot_id=shot_id,
-            asset_id=asset_id,
-            media_type=media_type,
-            version_number=version_number,
-            generation_id=generation_id,
-            is_active=1 if make_active else 0,
-            notes=notes,
-        )
+        if media_type not in GROUP_PURPOSES:
+            raise NotFoundError("Unsupported media type.", {"media_type": media_type})
+        self.session.flush()  # assign asset.id before wiring group/version
+        group = version_group_id(shot_id, media_type)
+        asset.version_group_id = group
+        asset.version_number = self._next_version_number(group)
+        asset.status = "ready"
         if make_active:
-            # P1-E1-T02: deactivate existing rows BEFORE inserting the new active row
-            # (partial unique index uq_media_versions_active allows one active per shot).
-            self._clear_active(shot_id, media_type)
-            self.session.flush()
-        self.session.add(version)
-        self.session.flush()  # generate version.id BEFORE wiring it onto the shot
-        if make_active:
-            setattr(shot, f"active_{media_type}_version_id", version.id)
-        self.session.commit()
-        if make_active:
-            bus.publish(
-                StudioEvent(
-                    event_type=EVENT_SHOT_ACTIVE_VERSION_CHANGED,
-                    entity_type="shot",
-                    entity_id=shot_id,
-                    project_id=self._project_id(shot),
-                    payload={"media_type": media_type, "version_id": version.id, "version_number": version_number},
-                )
-            )
-        return version
+            setattr(shot, f"active_{media_type}_asset_id", asset.id)
+        if commit:
+            self.session.commit()
+            self._publish_active_changed(shot, media_type, asset)
+        return asset
 
-    def set_active_version(self, version_id: str) -> MediaVersion:
-        version = self.session.get(MediaVersion, version_id)
-        if version is None:
-            raise NotFoundError("Media version does not exist.", {"version_id": version_id})
-        shot = self.shots.get(version.shot_id)
+    def set_active_asset(self, asset_id: str, commit: bool = True) -> Asset:
+        """Explicit activation: point the owning shot's active pointer at this asset."""
+        asset = self.session.get(Asset, asset_id)
+        if asset is None:
+            raise NotFoundError("Asset does not exist.", {"asset_id": asset_id})
+        parsed = parse_version_group(asset.version_group_id)
+        if parsed is None or parsed[0] != "shot":
+            raise NotFoundError("Asset is not a versioned shot asset.", {"asset_id": asset_id})
+        _, shot_id, purpose = parsed
+        media_type = PURPOSE_MEDIA.get(purpose)
+        if media_type is None:
+            raise NotFoundError("Asset has an unknown version purpose.", {"asset_id": asset_id, "purpose": purpose})
+        shot = self.shots.get(shot_id)
         if shot is None:
-            raise NotFoundError("Shot does not exist.", {"shot_id": version.shot_id})
-        self._clear_active(version.shot_id, version.media_type)
-        self.session.flush()  # P1-E1-T02: deactivate old rows before activating this one
-        version.is_active = 1
-        setattr(shot, f"active_{version.media_type}_version_id", version.id)
-        self.session.commit()
-        bus.publish(
-            StudioEvent(
-                event_type=EVENT_SHOT_ACTIVE_VERSION_CHANGED,
-                entity_type="shot",
-                entity_id=version.shot_id,
-                project_id=self._project_id(shot),
-                payload={"media_type": version.media_type, "version_id": version.id, "version_number": version.version_number},
-            )
-        )
-        return version
+            raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
+        setattr(shot, f"active_{media_type}_asset_id", asset.id)
+        if commit:
+            self.session.commit()
+            self._publish_active_changed(shot, media_type, asset)
+        return asset
 
-    def list_shot_versions(self, shot_id: str, media_type: str = "image") -> list[MediaVersion]:
+    def list_shot_versions(self, shot_id: str, media_type: str = "image") -> list[Asset]:
+        """All live assets of one shot/type, newest version first."""
         stmt = (
-            select(MediaVersion)
-            .where(MediaVersion.shot_id == shot_id, MediaVersion.media_type == media_type)
-            .order_by(MediaVersion.version_number.desc())
+            select(Asset)
+            .where(
+                Asset.version_group_id == version_group_id(shot_id, media_type),
+                Asset.deleted_at.is_(None),
+            )
+            .order_by(Asset.version_number.desc())
         )
         return list(self.session.scalars(stmt))
 
-    def _next_version_number(self, shot_id: str, media_type: str) -> int:
+    def _next_version_number(self, group: str) -> int:
         current = self.session.scalar(
-            select(func.max(MediaVersion.version_number)).where(
-                MediaVersion.shot_id == shot_id, MediaVersion.media_type == media_type
+            select(func.max(Asset.version_number)).where(
+                Asset.version_group_id == group, Asset.deleted_at.is_(None)
             )
         )
         return (current or 0) + 1
 
-    def _clear_active(self, shot_id: str, media_type: str) -> None:
-        """Deactivate all versions of a shot/media_type via ORM (keeps identity map in sync).
-
-        NOTE: a Core bulk UPDATE would NOT update ORM objects, so a later `version.is_active = 1`
-        would compare equal to the stale in-memory value and never flush.
-        """
-        rows = self.session.scalars(
-            select(MediaVersion).where(
-                MediaVersion.shot_id == shot_id, MediaVersion.media_type == media_type
+    def _publish_active_changed(self, shot: Shot, media_type: str, asset: Asset) -> None:
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_SHOT_ACTIVE_VERSION_CHANGED,
+                entity_type="shot",
+                entity_id=shot.id,
+                project_id=self._project_id(shot),
+                payload={
+                    "media_type": media_type,
+                    "asset_id": asset.id,
+                    "version_number": asset.version_number,
+                },
             )
-        ).all()
-        for version in rows:
-            version.is_active = 0
+        )
 
-    @staticmethod
-    def _project_id(shot: Shot) -> str | None:
-        return None  # resolved by caller if needed; kept minimal for MVP
+    def _project_id(self, shot: Shot) -> str | None:
+        scene = self.session.get(Scene, shot.scene_id) if shot else None
+        if scene is None:
+            return None
+        episode = self.session.get(Episode, scene.episode_id)
+        return episode.project_id if episode else None

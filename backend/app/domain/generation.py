@@ -36,13 +36,16 @@ class GenerationRead(BaseModel):
     completed_at: str | None
 
 
-class MediaVersionRead(BaseModel):
-    id: str
+class AssetVersionRead(BaseModel):
+    """Asset-backed version row (ADR-001): id == asset_id for back-compat."""
+
+    id: str  # asset id (activate endpoints accept it)
     shot_id: str
     asset_id: str
-    media_type: str
+    media_type: str  # image | video (derived from version group purpose)
     version_number: int
     generation_id: str | None
     is_active: bool
-    notes: str | None
+    status: str
+    notes: str | None = None  # legacy field kept for frontend compat
     created_at: str
