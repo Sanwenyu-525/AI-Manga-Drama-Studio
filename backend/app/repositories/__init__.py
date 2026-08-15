@@ -1,8 +1,17 @@
-"""Concrete repositories (Stage A: Project / Episode / Scene / Shot; P1: Character)."""
+"""Concrete repositories (Stage A: Project / Episode / Scene / Shot; P1: Character; P4: Workflow)."""
 
 from sqlalchemy import select
 
-from app.db.models import Character, Episode, Project, Scene, Shot, ShotCharacter
+from app.db.models import (
+    Character,
+    Episode,
+    Project,
+    Scene,
+    Shot,
+    ShotCharacter,
+    WorkflowTemplate,
+    WorkflowVersion,
+)
 from app.repositories.base import SQLAlchemyRepository
 
 
@@ -70,3 +79,39 @@ class ShotCharacterRepository(SQLAlchemyRepository[ShotCharacter]):
         links = self.list_for_shot(shot_id)
         for link in links:
             self.session.delete(link)
+
+
+class WorkflowTemplateRepository(SQLAlchemyRepository[WorkflowTemplate]):
+    model = WorkflowTemplate
+
+    def by_workflow_id(self, workflow_id: str, workflow_type: str) -> WorkflowTemplate | None:
+        stmt = select(WorkflowTemplate).where(
+            WorkflowTemplate.workflow_id == workflow_id,
+            WorkflowTemplate.workflow_type == workflow_type,
+        )
+        return self.session.scalars(stmt).first()
+
+    def list_all(self) -> list[WorkflowTemplate]:
+        stmt = select(WorkflowTemplate).order_by(WorkflowTemplate.created_at)
+        return list(self.session.scalars(stmt))
+
+
+class WorkflowVersionRepository(SQLAlchemyRepository[WorkflowVersion]):
+    model = WorkflowVersion
+
+    def list_for_template(self, template_id: str) -> list[WorkflowVersion]:
+        stmt = (
+            select(WorkflowVersion)
+            .where(WorkflowVersion.template_id == template_id)
+            .order_by(WorkflowVersion.created_at.desc())
+        )
+        return list(self.session.scalars(stmt))
+
+    def latest_for_template(self, template_id: str) -> WorkflowVersion | None:
+        stmt = (
+            select(WorkflowVersion)
+            .where(WorkflowVersion.template_id == template_id)
+            .order_by(WorkflowVersion.version_number.desc())
+            .limit(1)
+        )
+        return self.session.scalars(stmt).first()
