@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, CheckCircle, ClockCounterClockwise, ImageSquare, MagicWand, SlidersHorizontal } from "@phosphor-icons/react";
+import { ArrowLeft, Check, CheckCircle, ClockCounterClockwise, ImageSquare, MagicWand, SlidersHorizontal, TreeStructure } from "@phosphor-icons/react";
+import { ProvenancePanel } from "../provenance/ProvenancePanel";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
@@ -11,6 +12,7 @@ export function VersionReviewPage() {
   const { projectId = "", shotId = "" } = useParams();
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [provenanceOpen, setProvenanceOpen] = useState(false);
 
   const { data: project } = useQuery({ queryKey: queryKeys.project(projectId), queryFn: () => api.get<Project>(`/projects/${projectId}`) });
   const { data: shot } = useQuery({ queryKey: queryKeys.shot(shotId), queryFn: () => api.get<Shot>(`/shots/${shotId}`) });
@@ -41,7 +43,7 @@ export function VersionReviewPage() {
       <header className="review-topbar">
         <Link to={backToStoryboard} className="icon-button" aria-label="返回分镜"><ArrowLeft size={19} /></Link>
         <div><span className="eyebrow">VERSION REVIEW</span><strong>{project?.name ?? "项目"} · Shot {String(shot?.shot_number ?? 0).padStart(3, "0")}</strong></div>
-        <div className="review-top-actions"><span><ClockCounterClockwise size={16} /> 版本不可变</span><Link className="btn secondary compact" to={backToStoryboard}>返回分镜</Link></div>
+        <div className="review-top-actions"><span><ClockCounterClockwise size={16} /> 版本不可变</span><button type="button" className="btn secondary compact" disabled={!selected} onClick={() => setProvenanceOpen((open) => !open)}><TreeStructure size={15} /> 溯源</button><Link className="btn secondary compact" to={backToStoryboard}>返回分镜</Link></div>
       </header>
 
       <main className="version-review-layout">
@@ -95,6 +97,14 @@ export function VersionReviewPage() {
           {active && selected && active.id !== selected.id && <p className="review-note">当前为 V{active.version_number}。切换不会删除或覆盖任何历史版本。</p>}
         </aside>
       </main>
+      {selected && (
+        <ProvenancePanel
+          assetId={selected.asset_id}
+          label={`V${selected.version_number}`}
+          open={provenanceOpen}
+          onClose={() => setProvenanceOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CaretDown, CaretLineLeft, CaretRight, Check, FilmStrip, FolderOpen, ImageSquare, MapPin, PencilSimple, Plus, Trash, UsersThree, X } from "@phosphor-icons/react";
+import { CaretDown, CaretLineLeft, CaretRight, Check, FilmStrip, FolderOpen, ImageSquare, MapPin, PencilSimple, Plus, SlidersHorizontal, Trash, UsersThree, X } from "@phosphor-icons/react";
+import { ProjectSettingsModal } from "../settings/ProjectSettingsModal";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type {
@@ -26,6 +27,7 @@ export function ProjectExplorer({ projectId, onCollapse }: { projectId: string; 
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<string | null>(null);
   const [renamingEpisodeId, setRenamingEpisodeId] = useState<string | null>(null);
   const [episodeNameValue, setEpisodeNameValue] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const openScript = (episodeId: string) => {
     setEpisode(episodeId); // keep selection context for the AI Director
@@ -105,9 +107,14 @@ export function ProjectExplorer({ projectId, onCollapse }: { projectId: string; 
     <div className="explorer-tree">
       <div className="explorer-head">
         <span>资源树</span>
-        <button type="button" className="panel-collapse-btn" title="收起资源树" aria-label="收起资源树" onClick={() => { setExplorerCollapsed(true); onCollapse(); }}>
-          <CaretLineLeft size={15} />
-        </button>
+        <span className="explorer-head-actions">
+          <button type="button" className="icon-button" title="项目设置" aria-label="项目设置" onClick={() => setSettingsOpen(true)}>
+            <SlidersHorizontal size={15} />
+          </button>
+          <button type="button" className="panel-collapse-btn" title="收起资源树" aria-label="收起资源树" onClick={() => { setExplorerCollapsed(true); onCollapse(); }}>
+            <CaretLineLeft size={15} />
+          </button>
+        </span>
       </div>
 
       <div className="tree-section">
@@ -183,6 +190,8 @@ export function ProjectExplorer({ projectId, onCollapse }: { projectId: string; 
         <div className="tree-section-title"><MapPin size={18} /> 场景资产</div>
         <span className="tree-muted-item">镜头生成后自动归档</span>
       </div>
+
+      <ProjectSettingsModal projectId={projectId} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
