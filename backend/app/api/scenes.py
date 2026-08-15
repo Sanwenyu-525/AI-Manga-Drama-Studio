@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_llm
-from app.domain.scene import SceneCreate, SceneRead, SceneUpdate
+from app.domain.scene import SceneCreate, SceneRead, SceneUpdateRequest
 from app.domain.shot import StoryboardRead
 from app.llm.gateway import LLMGateway
 from app.operations.store import operation_store
@@ -34,8 +34,12 @@ def get_scene(scene_id: str, db: Session = Depends(get_db)) -> SceneRead:
 
 
 @router.patch("/scenes/{scene_id}", response_model=SceneRead)
-def update_scene(scene_id: str, data: SceneUpdate, db: Session = Depends(get_db)) -> SceneRead:
-    return SceneService(db).update_scene(scene_id, data)
+def update_scene(
+    scene_id: str,
+    data: SceneUpdateRequest,
+    db: Session = Depends(get_db),
+) -> SceneRead:
+    return SceneService(db).update_scene(scene_id, data.revision, data.patch)
 
 
 @router.delete("/scenes/{scene_id}", status_code=status.HTTP_200_OK)

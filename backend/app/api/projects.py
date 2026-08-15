@@ -10,7 +10,9 @@ from app.domain.project import (
     ProjectBootstrapRead,
     ProjectCreate,
     ProjectRead,
-    ProjectUpdate,
+    ProjectSettingRead,
+    ProjectSettingUpdate,
+    ProjectUpdateRequest,
 )
 from app.services import ProjectService
 
@@ -33,8 +35,29 @@ def get_project(project_id: str, db: Session = Depends(get_db)) -> ProjectRead:
 
 
 @router.patch("/{project_id}", response_model=ProjectRead)
-def update_project(project_id: str, data: ProjectUpdate, db: Session = Depends(get_db)) -> ProjectRead:
-    return ProjectService(db).update_project(project_id, data)
+def update_project(
+    project_id: str,
+    data: ProjectUpdateRequest,
+    db: Session = Depends(get_db),
+) -> ProjectRead:
+    return ProjectService(db).update_project(project_id, data.revision, data.patch)
+
+
+@router.get("/{project_id}/settings", response_model=ProjectSettingRead)
+def get_settings(project_id: str, db: Session = Depends(get_db)) -> ProjectSettingRead:
+    """Project generation/config defaults (database-schema-design §15)."""
+    return ProjectService(db).get_settings(project_id)
+
+
+@router.put("/{project_id}/settings", response_model=ProjectSettingRead)
+def update_settings(
+    project_id: str,
+    data: ProjectSettingUpdate,
+    db: Session = Depends(get_db),
+) -> ProjectSettingRead:
+    """Partial settings update — unprovided fields keep their current value;
+    unknown keys are forwarded into settings_json."""
+    return ProjectService(db).update_settings(project_id, data)
 
 
 @router.get("/{project_id}/bootstrap", response_model=ProjectBootstrapRead)

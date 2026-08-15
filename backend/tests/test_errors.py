@@ -49,7 +49,10 @@ def test_validation_error_uses_envelope_without_echoing_body(client: TestClient)
 
 def test_bad_enum_validation_uses_envelope(client: TestClient) -> None:
     project = client.post("/api/v1/projects", json={"name": "X"}).json()
-    resp = client.patch(f"/api/v1/projects/{project['id']}", json={"status": "not-a-status"})
+    resp = client.patch(
+        f"/api/v1/projects/{project['id']}",
+        json={"revision": 1, "patch": {"status": "not-a-status"}},
+    )
     assert resp.status_code == 422
     err = _envelope(resp)
     assert err["code"] == "VALIDATION_ERROR"

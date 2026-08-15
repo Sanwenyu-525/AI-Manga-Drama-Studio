@@ -13,9 +13,14 @@ def _chain(client: TestClient) -> dict:
 
 def test_episode_rename(client: TestClient) -> None:
     c = _chain(client)
-    resp = client.patch(f"/api/v1/episodes/{c['episode']['id']}", json={"title": "改名集"})
+    rev = c["episode"]["revision"]
+    resp = client.patch(
+        f"/api/v1/episodes/{c['episode']['id']}",
+        json={"revision": rev, "patch": {"title": "改名集"}},
+    )
     assert resp.status_code == 200
     assert resp.json()["title"] == "改名集"
+    assert resp.json()["revision"] == rev + 1
 
 
 def test_episode_delete_cascade(client: TestClient) -> None:
@@ -31,9 +36,14 @@ def test_episode_delete_cascade(client: TestClient) -> None:
 
 def test_scene_rename(client: TestClient) -> None:
     c = _chain(client)
-    resp = client.patch(f"/api/v1/scenes/{c['scene']['id']}", json={"name": "改名场景"})
+    rev = c["scene"]["revision"]
+    resp = client.patch(
+        f"/api/v1/scenes/{c['scene']['id']}",
+        json={"revision": rev, "patch": {"name": "改名场景"}},
+    )
     assert resp.status_code == 200
     assert resp.json()["name"] == "改名场景"
+    assert resp.json()["revision"] == rev + 1
 
 
 def test_scene_delete(client: TestClient) -> None:

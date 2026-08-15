@@ -1,13 +1,26 @@
 """SceneService (backend-architecture §13, mvp-spec §25)."""
 
-from sqlalchemy import func, select
+from datetime import UTC, datetime
+
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError
 from app.db.models import Episode, Scene, Shot
 from app.domain.scene import SceneCreate, SceneRead, SceneUpdate
 from app.events.bus import EVENT_SCENE_CREATED, EVENT_SCENE_DELETED, EVENT_SCENE_UPDATED, StudioEvent, bus
 from app.repositories import EpisodeRepository, SceneRepository
+
+SCENE_UPDATE_FIELDS = (
+    "name",
+    "location_id",
+    "time_of_day",
+    "lighting",
+    "weather",
+    "mood",
+    "description",
+    "status",
+)
 
 
 def _to_read(scene: Scene, shot_count: int = 0) -> SceneRead:
@@ -25,6 +38,7 @@ def _to_read(scene: Scene, shot_count: int = 0) -> SceneRead:
         scene_order=scene.scene_order,
         status=scene.status,
         shot_count=shot_count,
+        revision=scene.revision,
         created_at=scene.created_at,
         updated_at=scene.updated_at,
     )
@@ -81,6 +95,7 @@ class SceneService:
                 description=data.description,
                 analysis_key=analysis_key,
                 status="draft",
+                revision=1,
             )
             self.repo.add(scene)
             created.append(scene)
@@ -110,22 +125,60 @@ class SceneService:
         counts = self._shot_counts([s.id for s in scenes])
         return [_to_read(s, counts.get(s.id, 0)) for s in scenes]
 
-    def update_scene(self, scene_id: str, data: SceneUpdate) -> SceneRead:
+    def update_scene(self, scene_id: str, revision: int, patch: SceneUpdate) -> SceneRead:
+        """Optimistic concurrency (AGENTS.md §3.10): atomic conditional UPDATE.
+
+        UPDATE scenes SET revision = revision + 1 WHERE id = ? AND revision = ?
+        """
         scene = self.repo.get(scene_id)
         if scene is None:
             raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
         episode = self.episodes.get(scene.episode_id)
-        for field in ("name", "location_id", "time_of_day", "lighting", "weather", "mood", "description", "status"):
-            value = getattr(data, field)
+        project_id = episode.project_id if episode else None
+
+        values: dict = {}
+        changed: list[str] = []
+        for field in SCENE_UPDATE_FIELDS:
+            value = getattr(patch, field)
             if value is not None:
-                setattr(scene, field, value)
+                values[field] = value
+                changed.append(field)
+        if not changed:
+            return _to_read(scene, shot_count=self._count_shots(scene_id))
+
+        values["updated_at"] = datetime.now(UTC).isoformat()
+        stmt = (
+            update(Scene)
+            .where(
+                Scene.id == scene_id,
+                Scene.revision == revision,
+                Scene.deleted_at.is_(None),
+            )
+            .values(revision=Scene.revision + 1, **values)
+            .execution_options(synchronize_session=False)
+        )
+        result = self.session.execute(stmt)
+        if result.rowcount == 0:
+            current = self.session.scalar(
+                select(Scene.revision).where(Scene.id == scene_id)
+            )
+            raise ConflictError(
+                "Scene was modified by another writer.",
+                {
+                    "scene_id": scene_id,
+                    "expected_revision": revision,
+                    "current_revision": current,
+                },
+            )
         self.session.commit()
+        self.session.refresh(scene)
         bus.publish(
             StudioEvent(
                 event_type=EVENT_SCENE_UPDATED,
                 entity_type="scene",
                 entity_id=scene.id,
-                project_id=episode.project_id if episode else None,
+                project_id=project_id,
+                payload={"revision": scene.revision, "changed_fields": changed},
             )
         )
         return _to_read(scene, shot_count=self._count_shots(scene_id))

@@ -22,5 +22,6 @@ class Project(Base):
     fps: Mapped[int | None] = mapped_column()
     cover_path: Mapped[str | None] = mapped_column(Text)  # relative path under projects/{id}/
     deleted_at: Mapped[str | None] = mapped_column(Text)  # soft delete (database-v0.1 §41)
+    revision: Mapped[int] = mapped_column(nullable=False, default=1)  # optimistic concurrency
     created_at: Mapped[str] = ts_created()
     updated_at: Mapped[str] = ts_updated()

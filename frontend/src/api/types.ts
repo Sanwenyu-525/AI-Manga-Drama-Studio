@@ -8,6 +8,7 @@ export interface Project {
   aspect_ratio: string | null;
   fps: number | null;
   cover_url: string | null;
+  revision: number;
   created_at: string;
   updated_at: string;
 }
@@ -21,6 +22,7 @@ export interface Episode {
   script_text: string | null;
   summary: string | null;
   status: string;
+  revision: number;
   created_at: string;
   updated_at: string;
 }
@@ -39,6 +41,7 @@ export interface Scene {
   scene_order: number | null;
   status: string;
   shot_count: number;
+  revision: number;
   created_at: string;
   updated_at: string;
 }
@@ -105,6 +108,76 @@ export interface ShotUpdatePatch {
   character_ids?: string[];
   status: string;
   dirty_state: string;
+}
+
+// --- Optimistic-concurrency update requests (api-event-contract §21/§88):
+//     {revision, patch}; 409 CONFLICT when the caller's revision is stale. ---
+
+export interface EpisodeUpdatePatch {
+  title?: string | null;
+  source_text?: string | null;
+  script_text?: string | null;
+  summary?: string | null;
+  status?: string;
+}
+
+export interface EpisodeUpdateRequest {
+  revision: number;
+  patch: EpisodeUpdatePatch;
+}
+
+export interface SceneUpdatePatch {
+  name?: string | null;
+  location_id?: string | null;
+  time_of_day?: string | null;
+  lighting?: string | null;
+  weather?: string | null;
+  mood?: string | null;
+  description?: string | null;
+  status?: string;
+}
+
+export interface SceneUpdateRequest {
+  revision: number;
+  patch: SceneUpdatePatch;
+}
+
+export interface ProjectUpdatePatch {
+  name?: string | null;
+  description?: string | null;
+  status?: string;
+  aspect_ratio?: string | null;
+  fps?: number | null;
+  default_language?: string | null;
+}
+
+export interface ProjectUpdateRequest {
+  revision: number;
+  patch: ProjectUpdatePatch;
+}
+
+// --- ProjectSettings (database-schema-design §15) ---
+
+export interface ProjectSettings {
+  project_id: string;
+  language: string;
+  default_llm_provider: string | null;
+  default_llm_model: string | null;
+  default_image_provider: string | null;
+  default_image_model: string | null;
+  default_video_provider: string | null;
+  default_video_model: string | null;
+  default_voice_provider: string | null;
+  default_voice_model: string | null;
+  default_image_workflow_id: string | null;
+  default_video_workflow_id: string | null;
+  auto_retry: number;
+  max_retry_count: number;
+  auto_save: number;
+  continuity_enabled: number;
+  auto_activate_new_generation: number;
+  settings_json: Record<string, unknown> | null;
+  updated_at: string;
 }
 
 export interface Health {
