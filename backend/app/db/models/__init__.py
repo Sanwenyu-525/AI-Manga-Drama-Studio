@@ -10,6 +10,7 @@ from app.db.models.project_setting import ProjectSetting
 from app.db.models.prompt import Prompt, PromptVersion
 from app.db.models.scene import Scene
 from app.db.models.shot import Shot
+from app.db.models.shot_visual_spec import ShotVisualSpec
 from app.db.models.workflow import WorkflowTemplate, WorkflowVersion
 
 __all__ = [
@@ -27,6 +28,7 @@ __all__ = [
     "Scene",
     "Shot",
     "ShotCharacter",
+    "ShotVisualSpec",
     "WorkflowTemplate",
     "WorkflowVersion",
 ]

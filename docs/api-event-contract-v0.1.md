@@ -3824,6 +3824,15 @@ Generation 与 Agent 生命周期分离。
 
 /characters/{id} 响应新增 master_version_id（MASTER 指针，可空）
 
+--- P2（Read Models，P2-T011/T012/T013）---
+
+/projects/{id}/tree              （GET：Project + Episodes(scene_count) + Scenes(shot_count) + Shot 摘要：shot_number/shot_type/status/active 版本摘要，一次返回）
+/scenes/{id}/editor              （GET：Scene + Shots（视觉 spec 摘要 + active_image/video 版本号 + characters 名））
+/shots/{id}/inspector            （GET：Shot 完整详情 + visual spec + active 版本 + prompt 版本摘要 + 出场角色含 costume）
+
+说明：这些 Read Model 与 bootstrap（§103 工作区启动摘要）和 storyboard（§101 单场景网格）互补——
+bootstrap 只返回顶层摘要、不返回全部 shot（§104）；tree/editor/inspector 提供完整导航与明细形状。
+
 --- P2 之后的核心线 ---
 
 /agent/director/runs

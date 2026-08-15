@@ -10,6 +10,7 @@ from app.services.episode_service import EpisodeService
 from app.services.generation_service import GenerationService
 from app.services.project_service import ProjectService
 from app.services.provenance_service import ProvenanceService
+from app.services.readmodel_service import ReadModelService
 from app.services.scene_service import SceneService
 from app.services.script_service import ScriptService
 from app.services.shot_service import ShotService
@@ -24,6 +25,7 @@ __all__ = [
     "GenerationService",
     "ProjectService",
     "ProvenanceService",
+    "ReadModelService",
     "SceneService",
     "ScriptService",
     "ShotService",
