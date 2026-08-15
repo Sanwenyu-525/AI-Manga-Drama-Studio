@@ -12,6 +12,7 @@ from app.api import (
     operations,
     projects,
     prompts,
+    provenance,
     providers,
     scenes,
     shots,
@@ -32,5 +33,6 @@ api_router.include_router(assets.router)
 api_router.include_router(providers.router)
 api_router.include_router(agents.router)
 api_router.include_router(prompts.router)
+api_router.include_router(provenance.router)
 api_router.include_router(workflows.router)
 api_router.include_router(ws_router)
