@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle, ImageSquare, ListBullets, MagicWand, Plus, SquaresFour, WarningCircle } from "@phosphor-icons/react";
+import { CheckCircle, ImageSquare, ListBullets, MagicWand, Plus, SquaresFour } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
+import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import type { Shot, Storyboard } from "../../api/types";
 import { SHOT_TYPE_LABELS } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
@@ -16,7 +17,7 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
   const setActiveShot = useWorkspaceStore((state) => state.setActiveShot);
   const setRightPanelTab = useWorkspaceStore((state) => state.setRightPanelTab);
   const [planOpId, setPlanOpId] = useState<string | null>(null);
-  const [planError, setPlanError] = useState<string | null>(null);
+  const [planError, setPlanError] = useState<Error | null>(null);
 
   const { data: storyboard, isLoading } = useQuery({
     queryKey: queryKeys.storyboard(sceneId),
@@ -38,7 +39,7 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
       setPlanOpId(response.operation_id);
       setPlanError(null);
     },
-    onError: (error) => setPlanError(error instanceof Error ? error.message : String(error)),
+    onError: (error) => setPlanError(error instanceof Error ? error : new Error(String(error))),
   });
 
   useOperationPolling(
@@ -49,7 +50,7 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
       setPlanOpId(null);
     },
     (operation) => {
-      setPlanError(operation.error ?? "AI 分镜生成失败");
+      setPlanError(new Error(operation.error ?? "AI 分镜生成失败"));
       setPlanOpId(null);
     },
   );
@@ -87,7 +88,7 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
         </div>
       </div>
 
-      {planError && <div className="error-banner"><WarningCircle size={17} /> {planError}</div>}
+      {planError && <ApiErrorPanel error={planError} />}
       {isLoading && <div className="workspace-loading">正在读取 Storyboard…</div>}
 
       {!isLoading && (!storyboard || storyboard.shots.length === 0) && (

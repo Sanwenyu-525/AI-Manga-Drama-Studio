@@ -37,25 +37,18 @@ def create_generation(shot_id: str, data: GenerationCreate, db: Session = Depend
     return _to_read(GenerationService(db).create_generation(shot_id, data))
 
 
+@router.get("/generations/recent", response_model=list[GenerationRead])
+def recent_generations(db: Session = Depends(get_db)) -> list[GenerationRead]:
+    """Recent generations across all shots (bottom dock history).
+
+    NOTE: registered BEFORE /generations/{generation_id} — static route must win
+    (P1-E4-T01 route conflict regression)."""
+    return [_to_read(g) for g in GenerationService(db).list_recent()]
+
+
 @router.get("/generations/{generation_id}", response_model=GenerationRead)
 def get_generation(generation_id: str, db: Session = Depends(get_db)) -> GenerationRead:
     return _to_read(GenerationService(db).get_generation(generation_id))
-
-
-@router.get("/generations/recent", response_model=list[GenerationRead])
-def recent_generations(db: Session = Depends(get_db)) -> list[GenerationRead]:
-    """Recent generations across all shots (bottom dock history)."""
-    from sqlalchemy import select
-
-    from app.db.models import Generation
-
-    rows = db.scalars(
-        select(Generation)
-        .where(Generation.deleted_at.is_(None))
-        .order_by(Generation.created_at.desc())
-        .limit(20)
-    ).all()
-    return [_to_read(g) for g in rows]
 
 
 @router.get("/shots/{shot_id}/generations", response_model=list[GenerationRead])

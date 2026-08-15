@@ -220,6 +220,19 @@ State Change
 }
 ```
 
+覆盖范围（P1-E4-T01）：所有失败路径使用同一 Envelope —— 领域错误
+（404/409/422 StudioError）、请求校验失败（422）、未知路由（404）、
+方法不允许（405）、未捕获异常（500）。Envelope 必须包含 request_id。
+
+request_id 规则（P1-E4-T01）：
+
+- 客户端可传 `X-Request-ID` 请求头；后端缺失时自动生成。
+- 响应头 `X-Request-ID` 始终回传同一值（成功与失败一致）。
+- `request_id` 出现在所有错误 Envelope 中；前端应展示并支持复制，
+  便于按日志关联排查。
+- 500 响应不包含堆栈、绝对路径、API key 或原始 Provider 响应；
+  完整异常仅写入服务端日志。
+
 ---
 
 # 7. Error Code 分类
@@ -250,6 +263,16 @@ COMFYUI_*
 VALIDATION_*
 
 SYSTEM_*
+
+NOT_FOUND（未知路由）
+
+METHOD_NOT_ALLOWED
+
+BAD_REQUEST
+
+INTERNAL_ERROR（未捕获异常 500）
+
+TIMEOUT（前端本地超时）
 ```
 
 ---
@@ -1043,6 +1066,16 @@ retrying
 ```http
 GET /api/v1/generations/{generation_id}
 ```
+
+最近生成（底部队列历史）：
+
+```http
+GET /api/v1/generations/recent
+```
+
+返回 `Generation[]`（按 created_at 倒序，最多 20 条）。
+静态路由 `/generations/recent` 必须先于 `/generations/{generation_id}`
+注册，避免被参数路由吞掉（P1-E4-T01 路由冲突回归）。
 
 ---
 

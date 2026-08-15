@@ -2358,6 +2358,15 @@ OpenAI Timeout
 ModelProviderUnavailable
 ```
 
+错误响应契约（P1-E4-T01）：
+
+- 所有失败（领域错误、422 校验、未知路由 404、405、未捕获异常 500）统一输出
+  `{"error": {code, message, details, request_id}}` Envelope。
+- `request_id` 由 HTTP 中间件生成（优先 `X-Request-ID` 请求头），回传响应头，
+  并贯穿所有错误响应；前端 ApiError 携带 request_id 供复制排查。
+- 校验错误详情只含 loc/type/msg，不回显请求体（防 secrets/整段原文泄露）。
+- 未捕获异常只记录服务端日志（含堆栈），响应为通用 INTERNAL_ERROR。
+
 ---
 
 # 58. 第一阶段开发顺序

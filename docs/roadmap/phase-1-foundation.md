@@ -237,6 +237,14 @@
 - [ ] 前端错误状态可显示 message 与可复制 request_id。
 - [ ] OpenAPI/API Event 契约同步。
 
+**Design Decision（P1-E4-T01，2026-08）**：
+
+- 路由：`/generations/recent` 先于 `/generations/{generation_id}` 注册（FastAPI 按注册顺序匹配）；recent/assets 查询移入 GenerationService/AssetService，Router 不再直接执行业务 SQL/db.get。
+- 错误：main.py 注册 4 个 handler —— StudioError、RequestValidationError（422，详情仅 loc/type/msg 不回显请求体）、StarletteHTTPException（404/405 等）、Exception（500 通用 INTERNAL_ERROR，完整异常仅服务端日志）。request_id 由 HTTP 中间件生成并回传响应头。
+- 注意：新版 Starlette 的 ServerErrorMiddleware 发送 500 响应后仍会 re-raise，TestClient 需 raise_server_exceptions=False 才能观察 500 Envelope（见 test_errors.py）。
+- 前端：ApiError 携带 requestId；request() 支持 timeoutMs 与 AbortSignal；新增 ApiErrorPanel（message + 可复制 request_id），接入 EpisodePanel/StoryboardView/AIDirectorPanel。
+- P1-E4-T02 依赖的 request/project context 基线：request_id 已贯穿错误响应；日志关联字段由 P1-E4-T03 落实。
+
 **Priority**：P0  
 **Complexity**：M  
 **Dependencies**：无  

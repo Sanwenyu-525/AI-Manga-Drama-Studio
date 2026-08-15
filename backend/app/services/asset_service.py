@@ -112,6 +112,13 @@ class AssetService:
             logger.warning("thumbnail failed for %s: %s", image_path, exc)
             return None
 
+    def get_asset(self, asset_id: str) -> Asset:
+        """Fetch a live (non-deleted) asset — Router-safe lookup (P1-E4-T01)."""
+        asset = self.session.get(Asset, asset_id)
+        if asset is None or asset.deleted_at:
+            raise NotFoundError("Asset does not exist.", {"asset_id": asset_id})
+        return asset
+
     def absolute_path(self, asset: Asset) -> Path:
         if not asset.file_path:
             raise NotFoundError("Asset has no file.", {"asset_id": asset.id})

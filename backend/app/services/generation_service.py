@@ -115,6 +115,19 @@ class GenerationService:
         stmt = stmt.order_by(Generation.created_at.desc())
         return list(self.session.scalars(stmt))
 
+    def list_recent(self, limit: int = 20) -> list[Generation]:
+        """Recent generations across all shots (bottom dock history; P1-E4-T01:
+        query lives in the Service, not the Router)."""
+        from sqlalchemy import select
+
+        stmt = (
+            select(Generation)
+            .where(Generation.deleted_at.is_(None))
+            .order_by(Generation.created_at.desc())
+            .limit(limit)
+        )
+        return list(self.session.scalars(stmt))
+
     def retry_generation(self, generation_id: str) -> Generation:
         original = self.get_generation(generation_id)
         if original.status in ("queued", "running", "retrying"):

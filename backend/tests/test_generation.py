@@ -138,6 +138,26 @@ def test_generation_retry_creates_new_record(client: TestClient) -> None:
     assert len(versions) == 2  # original + retry
 
 
+def test_generations_recent_route_not_shadowed(client: TestClient) -> None:
+    """P1-E4-T01 regression: /generations/recent must NOT be captured by
+    /generations/{generation_id} (static route registered before the param route)."""
+    # empty history → 200 list, not 404
+    resp = client.get("/api/v1/generations/recent")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+    # after one generation it appears in recent
+    shot = _make_shot(client)
+    created = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"}).json()
+    _drive(created["id"])
+    _wait_status(client, created["id"])
+
+    recent = client.get("/api/v1/generations/recent").json()
+    ids = [g["id"] for g in recent]
+    assert created["id"] in ids
+    assert recent[0]["id"] == created["id"]  # newest first
+
+
 def test_generation_cancel(client: TestClient) -> None:
     shot = _make_shot(client)
     created = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"}).json()

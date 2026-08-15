@@ -3,7 +3,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { api, ApiError } from "../../api/client";
+import { api } from "../../api/client";
+import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { useAgentStore } from "../../stores/agentStore";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -24,7 +25,7 @@ export function AIDirectorPanel() {
   const setRightPanelTab = useWorkspaceStore((s) => s.setRightPanelTab);
   const agent = useAgentStore();
   const [input, setInput] = useState("");
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<Error | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -50,7 +51,7 @@ export function AIDirectorPanel() {
       setInput("");
       setSubmitError(null);
     },
-    onError: (error) => setSubmitError(error instanceof ApiError ? error.message : String(error)),
+    onError: (error) => setSubmitError(error instanceof Error ? error : new Error(String(error))),
   });
 
   const handleSubmit = () => {
@@ -108,7 +109,7 @@ export function AIDirectorPanel() {
             </div>
           )}
 
-          {submitError && <p className="error-text">{submitError}</p>}
+          {submitError && <ApiErrorPanel error={submitError} />}
         </div>
 
         {/* input (frontend-ux §83) */}

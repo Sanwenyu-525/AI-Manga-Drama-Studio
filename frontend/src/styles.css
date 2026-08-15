@@ -110,7 +110,21 @@ h1, h2, h3, h4, p { margin-top: 0; }
   background: rgba(217, 92, 92, .1);
   color: #ef8a8a;
   font-size: 12px;
+  flex-wrap: wrap;
 }
+.request-id-copy {
+  margin-left: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: #ef8a8a;
+  background: rgba(217, 92, 92, .15);
+  border: 1px solid rgba(217, 92, 92, .4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.request-id-copy:hover { background: rgba(217, 92, 92, .3); }
 .badge {
   display: inline-flex;
   align-items: center;

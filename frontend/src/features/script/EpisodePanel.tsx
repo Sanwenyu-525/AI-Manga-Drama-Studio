@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { BookOpenText, Check, CheckCircle, CloudCheck, FileArrowUp, MagicWand, MapPin, Moon, Sparkle, UsersThree } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
+import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import type { Episode, Operation, ScenePlan } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { useOperationPolling } from "../ai/useOperationPolling";
@@ -13,7 +14,7 @@ export function EpisodePanel({ episode }: { episode: Episode }) {
   const [sourceText, setSourceText] = useState(episode.source_text ?? "");
   const [preview, setPreview] = useState<ScenePlan[] | null>(null);
   const [activePlanIndex, setActivePlanIndex] = useState(0);
-  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<Error | null>(null);
   const [createOpId, setCreateOpId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,7 +39,7 @@ export function EpisodePanel({ episode }: { episode: Episode }) {
       setPreviewError(null);
       void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(episode.project_id) });
     },
-    onError: (error) => setPreviewError(error instanceof Error ? error.message : String(error)),
+    onError: (error) => setPreviewError(error instanceof Error ? error : new Error(String(error))),
   });
 
   const createScenes = useMutation({
@@ -55,7 +56,7 @@ export function EpisodePanel({ episode }: { episode: Episode }) {
       setCreateOpId(null);
     },
     (operation) => {
-      setPreviewError(operation.error ?? "创建场景失败");
+      setPreviewError(new Error(operation.error ?? "创建场景失败"));
       setCreateOpId(null);
     },
   );
@@ -148,7 +149,7 @@ export function EpisodePanel({ episode }: { episode: Episode }) {
         )}
       </div>
 
-      {previewError && <div className="error-banner">{previewError}</div>}
+      {previewError && <ApiErrorPanel error={previewError} />}
 
       <footer className="analysis-footer">
         <div className="row gap">
