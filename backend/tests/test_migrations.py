@@ -34,10 +34,27 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
     for expected in (
         "projects", "episodes", "scenes", "shots",
         "characters", "shot_characters",
-        "assets", "generations", "media_versions",
+        "assets", "generations",
+        "prompts", "prompt_versions",  # ADR-002
         "alembic_version",
     ):
         assert expected in tables, f"missing table {expected}"
+    # ADR-001: media_versions merged into assets (self-versioning)
+    assert "media_versions" not in tables
+
+    # ADR-001 columns on assets
+    asset_cols = _table_columns(engine, "assets")
+    for col in ("version_group_id", "version_number", "status", "source_type", "checksum", "generation_id"):
+        assert col in asset_cols, f"missing assets.{col}"
+    # ADR-001 active pointers on shots
+    shot_cols = _table_columns(engine, "shots")
+    assert "active_image_asset_id" in shot_cols
+    assert "active_video_asset_id" in shot_cols
+    assert "active_image_version_id" not in shot_cols
+
+    # ADR-002 prompt versioning columns
+    assert "active_prompt_version_id" in shot_cols
+    assert "prompt_version_id" in _table_columns(engine, "generations")
 
     # P1 columns present (P1-E1-T01 migration e1f2a3b4c5d6)
     assert "analysis_key" in _table_columns(engine, "episodes")

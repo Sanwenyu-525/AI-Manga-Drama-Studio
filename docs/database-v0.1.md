@@ -429,9 +429,11 @@ previous_shot_id
 
 next_shot_id
 
-active_image_version_id
+active_image_asset_id
 
-active_video_version_id
+active_video_asset_id
+
+active_prompt_version_id   （ADR-002 便捷指针，权威在 prompts.active_version_id）
 
 analysis_key
 
@@ -478,8 +480,7 @@ scenes:          UNIQUE (episode_id, scene_number)  WHERE deleted_at IS NULL
 shots:           UNIQUE (scene_id, shot_number)     WHERE deleted_at IS NULL
                  UNIQUE (scene_id, shot_order)      WHERE deleted_at IS NULL
 shot_characters: UNIQUE (shot_id, character_id)
-media_versions:  UNIQUE (shot_id, media_type, version_number)
-                 UNIQUE (shot_id)                   WHERE is_active = 1   （每镜头至多一个 active 版本）
+assets:          UNIQUE (version_group_id, version_number) WHERE version_group_id IS NOT NULL AND deleted_at IS NULL   （ADR-001：版本组内版本号唯一）
 generations:     INDEX (status, created_at)                            （Worker DB-poll 查询）
 ```
 
@@ -684,57 +685,52 @@ scene_asset
 
 ---
 
-# 15. Prompt 表
+# 15. Prompt 表（ADR-002 已落地：prompts + prompt_versions）
 
-Prompt 不建议全部只写在 Shot 里。
+> **ADR-002（docs/adr/ADR-002-prompt-versioning.md）已实现（2026-08）**：
+> Prompt 版本化正式落地，Shot 内联 Prompt（`image_prompt/video_prompt/negative_prompt`）
+> 保留为**弃用写透缓存**（由 PromptService 同步），权威版本在 `prompts.active_version_id`。
+> `shots.active_prompt_version_id` 为便捷指针（SHOT_IMAGE 优先）；
+> `generations.prompt_version_id` 记录生成使用的具体版本（provenance）。
 
-后期需要管理历史 Prompt。
+`prompts`（每目标每类型一行，active 权威）：
 
 ```sql
-prompts
+CREATE TABLE prompts (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    target_type TEXT NOT NULL,      -- SHOT（首期；后续 CHARACTER/LOCATION/...）
+    target_id TEXT NOT NULL,
+    prompt_type TEXT NOT NULL,      -- SHOT_IMAGE | SHOT_VIDEO（首期）
+    active_version_id TEXT,         -- 权威 active 指针 → prompt_versions.id
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+-- 索引: idx_prompts_target(target_type, target_id)
+--        idx_prompts_type(target_type, target_id, prompt_type)
 ```
 
-字段：
+`prompt_versions`（不可变版本链，编辑产生 vN+1）：
 
-```text
-id
-
-project_id
-
-entity_type
-
-entity_id
-
-prompt_type
-
-provider
-
-model
-
-content
-
-negative_content
-
-metadata
-
-created_at
+```sql
+CREATE TABLE prompt_versions (
+    id TEXT PRIMARY KEY,
+    prompt_id TEXT NOT NULL REFERENCES prompts(id),
+    version_number INTEGER NOT NULL,
+    positive_prompt TEXT,
+    negative_prompt TEXT,
+    structured_spec_json TEXT,      -- Canonical Prompt Spec（Phase 7 Prompt Agent 产出）
+    provider TEXT,
+    model TEXT,
+    generated_by TEXT,              -- user | agent | migration | system
+    parent_version_id TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (prompt_id, version_number)
+);
+-- 索引: idx_prompt_versions_prompt(prompt_id, version_number)
 ```
 
-prompt_type：
-
-```text
-character
-
-scene
-
-image
-
-video
-
-storyboard
-
-rewrite
-```
+Shot 表新增：`active_prompt_version_id`（便捷指针）。
 
 ---
 
@@ -911,34 +907,52 @@ data_snapshot 保存：
 
 ---
 
-# 19. Media Version
+# 19. Asset Version（ADR-001：media_versions 已合并）
 
-图片和视频建议单独做版本。
+> **ADR-001（docs/adr/ADR-001-asset-self-versioning.md）已实现（2026-08）**：
+> `media_versions` 表已删除，版本语义并入 `assets` 自版本化：
+> - `assets.version_group_id`：确定性组 ID `vg:shot:{shot_id}:{PURPOSE}`（PURPOSE = SHOT_IMAGE / SHOT_VIDEO）
+> - `assets.version_number`：组内从 1 递增（max+1 + 唯一索引 `uq_assets_version` 兜底）
+> - `assets.status / source_type / checksum / parent_asset_id / generation_id` 见 §13
+> - `shots.active_image_asset_id / active_video_asset_id` 指向 Asset（每镜头每媒体类型至多一个 active）
+> - 版本不可变语义保留：新生成产生新 Asset 行，旧行永不覆盖；`Set Active` 只翻转指针
 
-```sql
-media_versions
-```
-
-字段：
+字段（`assets` 表）：
 
 ```text
 id
 
-shot_id
+project_id
 
-asset_id
+type
 
-media_type
+name
 
-version_number
+file_path
 
-generation_id
+thumbnail_path
 
-is_active
+mime_type
 
-rating
+width / height / duration / file_size
 
-notes
+meta_json
+
+generation_id        （原 source_generation_id，ADR-001 改名）
+
+version_group_id     （ADR-001）
+
+version_number       （ADR-001）
+
+status               （ready|processing|stale|missing|corrupted|failed|archived）
+
+source_type          （generated|imported|edited|derived|captured）
+
+checksum             （SHA-256）
+
+parent_asset_id      （派生关系，Generation Input 仍必须记录）
+
+deleted_at
 
 created_at
 ```
@@ -946,17 +960,17 @@ created_at
 例如：
 
 ```text
-Shot 007
+Shot 007 Image 版本组 vg:shot:007:SHOT_IMAGE
 
-Image V1
-Image V2
-Image V3
+Image V1 (asset_a)   ← active
+Image V2 (asset_b)
+Image V3 (asset_c)
 ```
 
 用户可以选择：
 
 ```text
-V3 = Active
+V3 = Active   →  shots.active_image_asset_id = asset_c
 ```
 
 但 V1、V2 不删除。
@@ -1585,7 +1599,7 @@ Shot
  ├─N:M─ Character
  ├─N:M─ Prop
  ├─1:N─ Generation
- ├─1:N─ MediaVersion
+ ├─1:N─ Asset（版本化，ADR-001）
  ├─1:N─ Prompt
  ├─1:N─ ContinuityState
  └─1:N─ ShotVersion
@@ -1660,11 +1674,9 @@ characters
 
 shot_characters
 
-assets
+assets（版本化，ADR-001）
 
 generations
-
-media_versions
 
 providers
 models
@@ -1679,7 +1691,7 @@ costumes
 
 props
 
-prompts
+prompts（+ prompt_versions，ADR-002 已实现）
 
 workflows
 
@@ -1966,13 +1978,13 @@ ComfyUI Result
       ↓
 assets
 
-Create Version
+Create Version（Asset 自版本化，ADR-001）
       ↓
-media_versions
+assets.version_group_id + version_number
 
 Update Shot
       ↓
-active_image_version
+active_image_asset_id
 ```
 
 到这里，数据库 MVP 就形成完整闭环。

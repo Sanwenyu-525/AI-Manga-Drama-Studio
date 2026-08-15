@@ -4,7 +4,7 @@ import { Aperture, ArrowSquareOut, CheckCircle, Clock, DotsThree, ImageSquare, M
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { Character, GenerationRead, MediaVersionRead, Shot, ShotUpdatePatch } from "../../api/types";
+import type { AssetVersionRead, Character, GenerationRead, Shot, ShotUpdatePatch } from "../../api/types";
 import { SHOT_TYPES, SHOT_TYPE_LABELS } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -351,12 +351,12 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
 
   const { data: versions } = useQuery({
     queryKey: ["versions", shotId],
-    queryFn: () => api.get<MediaVersionRead[]>(`/shots/${shotId}/versions`),
+    queryFn: () => api.get<AssetVersionRead[]>(`/shots/${shotId}/versions`),
     refetchInterval: generating ? 800 : 3000, // poll faster while a generation runs
   });
 
   const activate = useMutation({
-    mutationFn: (versionId: string) => api.post<MediaVersionRead>(`/media-versions/${versionId}/activate`),
+    mutationFn: (versionId: string) => api.post<AssetVersionRead>(`/media-versions/${versionId}/activate`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["versions", shotId] });
       void queryClient.invalidateQueries({ queryKey: ["storyboard"] });

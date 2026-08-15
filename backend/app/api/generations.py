@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.domain.generation import GenerationCreate, GenerationRead, MediaVersionRead
+from app.core.errors import NotFoundError
+from app.domain.generation import AssetVersionRead, GenerationCreate, GenerationRead
 from app.generations.worker import cancel_running
 from app.services import GenerationService, VersionService
 
@@ -20,6 +21,7 @@ def _to_read(g) -> GenerationRead:
         provider=g.provider,
         model=g.model,
         workflow_id=g.workflow_id,
+        prompt_version_id=g.prompt_version_id,
         status=g.status,
         progress=g.progress,
         stage=g.stage,
@@ -69,36 +71,69 @@ async def cancel_generation(generation_id: str, db: Session = Depends(get_db)) -
     return _to_read(generation)
 
 
-@router.get("/shots/{shot_id}/versions", response_model=list[MediaVersionRead])
-def list_versions(shot_id: str, db: Session = Depends(get_db)) -> list[MediaVersionRead]:
-    versions = VersionService(db).list_shot_versions(shot_id)
-    return [
-        MediaVersionRead(
-            id=v.id,
-            shot_id=v.shot_id,
-            asset_id=v.asset_id,
-            media_type=v.media_type,
-            version_number=v.version_number,
-            generation_id=v.generation_id,
-            is_active=bool(v.is_active),
-            notes=v.notes,
-            created_at=v.created_at,
-        )
-        for v in versions
-    ]
+MEDIA_TYPES = ("image", "video")
 
 
-@router.post("/media-versions/{version_id}/activate", response_model=MediaVersionRead)
-def activate_version(version_id: str, db: Session = Depends(get_db)) -> MediaVersionRead:
-    v = VersionService(db).set_active_version(version_id)
-    return MediaVersionRead(
-        id=v.id,
-        shot_id=v.shot_id,
-        asset_id=v.asset_id,
-        media_type=v.media_type,
-        version_number=v.version_number,
-        generation_id=v.generation_id,
-        is_active=True,
-        notes=v.notes,
-        created_at=v.created_at,
+def _to_version_read(asset, shot_id: str, media_type: str, is_active: bool) -> AssetVersionRead:
+    return AssetVersionRead(
+        id=asset.id,
+        shot_id=shot_id,
+        asset_id=asset.id,
+        media_type=media_type,
+        version_number=asset.version_number or 0,
+        generation_id=asset.generation_id,
+        is_active=is_active,
+        status=asset.status,
+        notes=None,
+        created_at=asset.created_at,
     )
+
+
+def _list_versions(shot_id: str, db: Session) -> list[AssetVersionRead]:
+    """All versions of a shot across image+video purposes (ADR-001)."""
+    service = VersionService(db)
+    shot = service.shots.get(shot_id)
+    if shot is None:
+        raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
+    rows: list[AssetVersionRead] = []
+    for media_type in MEDIA_TYPES:
+        active_id = getattr(shot, f"active_{media_type}_asset_id")
+        for asset in service.list_shot_versions(shot_id, media_type):
+            rows.append(_to_version_read(asset, shot_id, media_type, asset.id == active_id))
+    return rows
+
+
+@router.get("/shots/{shot_id}/versions", response_model=list[AssetVersionRead])
+def list_versions(shot_id: str, db: Session = Depends(get_db)) -> list[AssetVersionRead]:
+    return _list_versions(shot_id, db)
+
+
+@router.get("/shots/{shot_id}/image-versions", response_model=list[AssetVersionRead])
+def list_image_versions(shot_id: str, db: Session = Depends(get_db)) -> list[AssetVersionRead]:
+    return _list_versions(shot_id, db)
+
+
+@router.get("/shots/{shot_id}/video-versions", response_model=list[AssetVersionRead])
+def list_video_versions(shot_id: str, db: Session = Depends(get_db)) -> list[AssetVersionRead]:
+    return _list_versions(shot_id, db)
+
+
+@router.post("/media-versions/{asset_id}/activate", response_model=AssetVersionRead)
+def activate_version(asset_id: str, db: Session = Depends(get_db)) -> AssetVersionRead:
+    """Legacy path kept for the current frontend: version_id IS the asset id (ADR-001)."""
+    asset = VersionService(db).set_active_asset(asset_id)
+    shot_id = asset.version_group_id.split(":")[2] if asset.version_group_id else ""
+    media_type = "image" if asset.version_group_id.endswith(":SHOT_IMAGE") else "video"
+    return _to_version_read(asset, shot_id, media_type, True)
+
+
+@router.post("/shots/{shot_id}/image-versions/{asset_id}/activate", response_model=AssetVersionRead)
+def activate_image_version(shot_id: str, asset_id: str, db: Session = Depends(get_db)) -> AssetVersionRead:
+    asset = VersionService(db).set_active_asset(asset_id)
+    return _to_version_read(asset, shot_id, "image", True)
+
+
+@router.post("/shots/{shot_id}/video-versions/{asset_id}/activate", response_model=AssetVersionRead)
+def activate_video_version(shot_id: str, asset_id: str, db: Session = Depends(get_db)) -> AssetVersionRead:
+    asset = VersionService(db).set_active_asset(asset_id)
+    return _to_version_read(asset, shot_id, "video", True)

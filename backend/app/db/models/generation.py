@@ -35,6 +35,7 @@ class Generation(Base):
     provider: Mapped[str] = mapped_column(Text, nullable=False, default="mock")  # mock|comfyui|...
     model: Mapped[str | None] = mapped_column(Text)
     workflow_id: Mapped[str | None] = mapped_column(Text)
+    prompt_version_id: Mapped[str | None] = mapped_column(Text)  # ADR-002: provenance
 
     status: Mapped[str] = mapped_column(Text, nullable=False, default="created")
     parameters: Mapped[str | None] = mapped_column(Text)  # JSON input (prompt, seed, size...)
