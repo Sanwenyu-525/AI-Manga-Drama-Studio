@@ -85,7 +85,7 @@ class ComfyUIClient:
             async with httpx.AsyncClient(timeout=120) as client:
                 resp = await client.get(f"{self.base_url}/view", params=params)
                 resp.raise_for_status()
-                with open(destination, "wb") as f:
+                with open(destination, "wb") as f:  # noqa: ASYNC230 — local desktop file IO is acceptable for MVP
                     f.write(resp.content)
                 return destination
         except httpx.TransportError as exc:
@@ -95,7 +95,7 @@ class ComfyUIClient:
         """Upload a reference image for ControlNet/IPAdapter-style workflows."""
         try:
             async with httpx.AsyncClient(timeout=60) as client:
-                with open(file_path, "rb") as f:
+                with open(file_path, "rb") as f:  # noqa: ASYNC230 — local desktop file IO is acceptable for MVP
                     resp = await client.post(
                         f"{self.base_url}/upload/image",
                         files={"image": f},
@@ -116,14 +116,14 @@ class ComfyUIClient:
 
     # --- websocket monitoring ---
 
-    async def monitor(self, prompt_id: str, on_progress, on_done, on_error, timeout: float = 900.0) -> None:
+    async def monitor(self, prompt_id: str, on_progress, on_done, on_error, timeout_seconds: float = 900.0) -> None:
         """Stream ComfyUI WS events → Studio progress callbacks. Blocks until done/error/timeout."""
         ws_url = f"ws://{self._host_port()}/ws?clientId={self._client_id}"
         try:
             import websockets
 
             async with websockets.connect(ws_url, max_size=None, open_timeout=15) as ws:
-                async with asyncio.timeout(timeout):
+                async with asyncio.timeout(timeout_seconds):
                     while True:
                         message = await ws.recv()
                         if isinstance(message, bytes):
@@ -148,7 +148,7 @@ class ComfyUIClient:
                         elif msg_type == "execution_interrupted":
                             on_error("Generation interrupted.")
                             return
-        except asyncio.TimeoutError:
+        except TimeoutError:
             on_error("ComfyUI generation timed out.")
         except Exception as exc:  # noqa: BLE001
             logger.warning("ws monitor ended for %s: %s", prompt_id, exc)

@@ -7,7 +7,6 @@ DB stores ONLY relative paths — the whole project directory is portable.
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from PIL import Image
@@ -67,8 +66,8 @@ class AssetService:
             try:
                 with Image.open(dest) as img:
                     width, height = img.size
-            except Exception:  # noqa: BLE001 — non-image content
-                pass
+            except Exception:  # noqa: BLE001 — non-image content is expected
+                logger.debug("asset %s has no image size (non-image content)", dest.name)
 
         thumbnail_rel = None
         if asset_type == "image" and make_thumbnail:

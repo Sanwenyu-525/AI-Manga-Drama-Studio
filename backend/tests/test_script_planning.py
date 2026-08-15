@@ -109,7 +109,7 @@ def test_analyze_persists_mapped_fields(client: TestClient) -> None:
 
     scenes = client.get(f"/api/v1/episodes/{episode_id}/scenes").json()
     assert len(scenes) == len(plans)
-    for plan, scene in zip(plans, scenes):
+    for plan, scene in zip(plans, scenes, strict=True):
         assert scene["name"] == plan["title"]
         assert scene["location_id"] == plan["location"]
         assert scene["time_of_day"] == plan["time"]

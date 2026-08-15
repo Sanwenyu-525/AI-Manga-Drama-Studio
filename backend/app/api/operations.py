@@ -1,6 +1,6 @@
 """Operation API (api-event-contract §15, §81): poll status of background AI operations."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
 from app.operations.store import operation_store
 

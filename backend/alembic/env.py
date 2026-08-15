@@ -22,7 +22,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# P1-E6-T01: tests inject an isolated DB URL on the Config — only fall back to
+# settings when no explicit URL was provided (alembic.ini placeholder).
+if config.get_main_option("sqlalchemy.url", "").startswith("driver://"):
+    config.set_main_option("sqlalchemy.url", settings.database_url)
 
 target_metadata = Base.metadata
 

@@ -1,6 +1,6 @@
 """Episode DTOs (api-event-contract §13-15)."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.domain.common import EpisodeStatus
 

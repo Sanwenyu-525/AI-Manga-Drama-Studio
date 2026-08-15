@@ -10,13 +10,13 @@ from app.db.models.scene import Scene
 from app.db.models.shot import Shot
 
 __all__ = [
-    "Project",
-    "Episode",
-    "Scene",
-    "Shot",
-    "Character",
-    "ShotCharacter",
     "Asset",
+    "Character",
+    "Episode",
     "Generation",
     "MediaVersion",
+    "Project",
+    "Scene",
+    "Shot",
+    "ShotCharacter",
 ]

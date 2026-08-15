@@ -17,7 +17,10 @@ async def test_comfyui() -> dict:
     """Health + template preflight (P1-E2-T01): a correctly configured ComfyUI must
     also pass the default workflow preflight before we call it production-ready."""
     from app.core.errors import ComfyUIError
-    from app.providers.comfyui.workflow_mapper import DEFAULT_WORKFLOW_ID, WorkflowMapper
+    from app.providers.comfyui.workflow_mapper import (
+        DEFAULT_WORKFLOW_ID,
+        WorkflowMapper,
+    )
 
     connected, latency = await get_comfyui_provider().health_check()
     result: dict = {"connected": connected, "latency_ms": latency}

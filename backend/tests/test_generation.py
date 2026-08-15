@@ -78,7 +78,8 @@ def test_generation_chain_completes(client: TestClient) -> None:
 def test_regenerate_preserves_v1(client: TestClient) -> None:
     shot = _make_shot(client)
     g1 = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"}).json()
-    _drive(g1["id"]); _wait_status(client, g1["id"])
+    _drive(g1["id"])
+    _wait_status(client, g1["id"])
 
     g2 = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"}).json()
     _drive(g2["id"])
@@ -98,10 +99,11 @@ def test_regenerate_preserves_v1(client: TestClient) -> None:
 def test_activate_old_version(client: TestClient) -> None:
     shot = _make_shot(client)
     g1 = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"}).json()
-    _drive(g1["id"]); _wait_status(client, g1["id"])
+    _drive(g1["id"])
+    _wait_status(client, g1["id"])
     g2 = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"}).json()
     _drive(g2["id"])
-    done2 = _wait_status(client, g2["id"])
+    _wait_status(client, g2["id"])
 
     versions = client.get(f"/api/v1/shots/{shot['id']}/versions").json()
     v1 = versions[1]  # older
@@ -122,7 +124,8 @@ def test_activate_old_version(client: TestClient) -> None:
 def test_generation_retry_creates_new_record(client: TestClient) -> None:
     shot = _make_shot(client)
     g1 = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"}).json()
-    _drive(g1["id"]); _wait_status(client, g1["id"])
+    _drive(g1["id"])
+    _wait_status(client, g1["id"])
 
     retried = client.post(f"/api/v1/generations/{g1['id']}/retry")
     assert retried.status_code == 202

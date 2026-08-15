@@ -24,7 +24,11 @@ from app.events.bus import (
     StudioEvent,
     bus,
 )
-from app.repositories import CharacterRepository, ProjectRepository, ShotCharacterRepository
+from app.repositories import (
+    CharacterRepository,
+    ProjectRepository,
+    ShotCharacterRepository,
+)
 
 UPDATE_FIELDS = (
     "name",

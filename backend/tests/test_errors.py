@@ -70,7 +70,7 @@ def test_internal_error_does_not_leak_details(client: TestClient, monkeypatch) -
     of the response — use a no-raise client like production uvicorn would deliver it."""
     from app.main import app
 
-    secret = "C:/Users/secret-user/.ssh/id_rsa STACK_TRACE_SECRET api_key=sk-abc123"
+    secret = "C:/Users/secret-user/.ssh/id_rsa STACK_TRACE_SECRET api_key=sk-abc123"  # noqa: S105 — test fixture secret (SECRET-SCAN)
 
     def boom(self):
         raise RuntimeError(secret)

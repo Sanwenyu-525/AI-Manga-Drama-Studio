@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.errors import ConflictError, NotFoundError
 from app.core.logging import get_logger
@@ -33,7 +33,7 @@ _cancel_requested: set[str] = set()
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def set_run_stage(run_id: str, stage: str) -> None:
@@ -128,7 +128,7 @@ async def _run_graph(run_id: str) -> None:
                 )
             )
             logger.info("agent run %s -> %s", run_id, run["status"])
-    except Exception as exc:  # noqa: BLE001 — graph failures are reported, not raised
+    except Exception as exc:
         logger.exception("agent run %s failed", run_id)
         run["status"] = "failed"
         run["result"] = {"error": str(exc)}

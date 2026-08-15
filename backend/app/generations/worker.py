@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.config import settings
 from app.core.errors import StudioError
@@ -27,7 +27,6 @@ from app.events.bus import (
 from app.providers.image.base import ImageRequest
 from app.providers.registry import get_image_provider
 from app.services.asset_service import AssetService
-from app.services.generation_service import GenerationService
 from app.services.version_service import VersionService
 
 logger = get_logger("generations.worker")
@@ -42,7 +41,7 @@ _cancelled: set[str] = set()
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def enqueue_generation(generation_id: str) -> None:
@@ -75,7 +74,7 @@ async def worker_loop() -> None:
             logger.debug("worker poll: %d pending", len(pending))
             for generation in pending:
                 await run_generation(generation.id)
-        except Exception:  # noqa: BLE001 鈥?worker must never die
+        except Exception:
             logger.exception("worker poll iteration failed")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
@@ -141,7 +140,7 @@ async def run_generation(generation_id: str) -> None:
     except StudioError as exc:
         _handle_failure(factory, gen_id, project_id, shot_id, str(exc))
         return
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.exception("generation %s provider error", gen_id)
         _handle_failure(factory, gen_id, project_id, shot_id, f"Provider error: {exc}")
         return

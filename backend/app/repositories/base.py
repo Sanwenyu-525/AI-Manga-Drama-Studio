@@ -4,17 +4,13 @@ Repositories are the ONLY layer that touches the ORM session for queries.
 Services depend on repositories; routers depend on services (red line: no db.query in routers).
 """
 
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.base import Base
 
-M = TypeVar("M", bound=Base)
-
-
-class SQLAlchemyRepository(Generic[M]):
+class SQLAlchemyRepository[M]:
     model: type[M]
 
     def __init__(self, session: Session) -> None:

@@ -12,10 +12,10 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from app.core.logging import get_logger
-from app.domain.analysis import ScenePlan, ShotPlan
-from app.domain.agent import DirectorPlan, ProductionIntent
 from app.agents.fake_planner import parse_director_plan, parse_production_intent
+from app.core.logging import get_logger
+from app.domain.agent import DirectorPlan, ProductionIntent
+from app.domain.analysis import ScenePlan, ShotPlan
 
 logger = get_logger("llm.fake")
 

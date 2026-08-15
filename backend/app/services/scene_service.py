@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
-from app.db.models import Episode, Scene, Shot
+from app.db.models import Scene, Shot
 from app.domain.scene import SceneCreate, SceneRead, SceneUpdate
 from app.events.bus import EVENT_SCENE_CREATED, EVENT_SCENE_UPDATED, StudioEvent, bus
 from app.repositories import EpisodeRepository, SceneRepository

@@ -13,6 +13,7 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from app.agents.tools import ToolExecutor, ToolResult
 from app.core.logging import get_logger
 from app.db import session as db_session_module
 from app.domain.agent import DirectorPlan, ProductionIntent, ToolOperation
@@ -23,9 +24,8 @@ from app.events.bus import (
     StudioEvent,
     bus,
 )
-from app.llm.gateway import LLMGateway
 from app.llm.factory import create_gateway
-from app.agents.tools import TOOL_SCHEMAS, ToolExecutor, ToolResult
+from app.llm.gateway import LLMGateway
 
 logger = get_logger("agent.director")
 

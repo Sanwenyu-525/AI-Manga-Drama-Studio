@@ -44,7 +44,7 @@ class LangChainOpenAIGateway:
         try:
             response = await self._chat.ainvoke([SystemMessage(content=system), HumanMessage(content=prompt)])
             return str(response.content)
-        except Exception as exc:  # noqa: BLE001 — normalize provider errors (contract §57)
+        except Exception as exc:
             raise ProviderUnavailableError(str(exc), {"base_url": settings.llm_base_url}) from exc
 
     async def structured(self, schema: type[T], system: str, prompt: str) -> T:
@@ -54,7 +54,7 @@ class LangChainOpenAIGateway:
             if response is None:
                 raise ProviderUnavailableError("LLM returned no structured result.", {})
             return response
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             if isinstance(exc, ProviderUnavailableError):
                 raise
             raise ProviderUnavailableError(
@@ -65,7 +65,7 @@ class LangChainOpenAIGateway:
         """Request a list by wrapping the schema in a single-item container model."""
         from pydantic import create_model
 
-        ListContainer = create_model(  # noqa: N806
+        ListContainer = create_model(
             "ListContainer",
             items=(list[schema], ...),  # type: ignore[valid-type]
         )

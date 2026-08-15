@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from app.domain.common import Literal
+from typing import Literal
 
 
 class GenerationCreate(BaseModel):

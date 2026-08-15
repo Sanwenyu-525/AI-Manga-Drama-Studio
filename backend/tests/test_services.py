@@ -4,7 +4,6 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
-from app.db.models import Project
 from app.domain.episode import EpisodeCreate
 from app.domain.project import ProjectCreate
 from app.domain.scene import SceneCreate

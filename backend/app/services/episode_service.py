@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
-from app.db.models import Episode, Project
+from app.db.models import Episode
 from app.domain.episode import EpisodeCreate, EpisodeRead, EpisodeUpdate
 from app.repositories import EpisodeRepository, ProjectRepository
 

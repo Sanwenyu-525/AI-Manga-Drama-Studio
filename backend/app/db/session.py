@@ -15,7 +15,7 @@ from app.core.config import settings
 _DATABASE_PATH: Path = settings.database_path
 
 
-def _configure_sqlite(dbapi_connection, connection_record) -> None:  # noqa: ARG001
+def _configure_sqlite(dbapi_connection, connection_record) -> None:
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA journal_mode=WAL")
@@ -46,10 +46,15 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 # same session factory as the app — tests override this with their isolated factory.
 # NOTE: provider returns the CALLABLE factory (sessionmaker), not a session instance.
 _default_session_factory = SessionLocal
-session_factory_provider = lambda: _default_session_factory  # noqa: E731
 
 
-def get_db() -> Generator[Session, None, None]:
+def session_factory_provider():
+    """Indirection so background operation jobs (api/operations flow) can use the
+    same session factory as the app — tests override this with their isolated factory."""
+    return _default_session_factory
+
+
+def get_db() -> Generator[Session]:
     """FastAPI dependency: one session per request, always closed."""
     session = SessionLocal()
     try:

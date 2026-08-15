@@ -8,9 +8,10 @@ Subscribers (WebSocket gateway, workflow listeners, agent listeners) plug in lat
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from app.core.logging import get_logger
 
@@ -72,7 +73,7 @@ class StudioEvent:
     payload: dict[str, Any] = field(default_factory=dict)
     event_version: int = 1
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 class EventBus:
@@ -99,7 +100,7 @@ class EventBus:
         for callback in callbacks:
             try:
                 callback(event)
-            except Exception:  # noqa: BLE001 — subscriber failure must not break the transaction
+            except Exception:
                 logger.exception("event subscriber failed for %s", event.event_type)
 
 

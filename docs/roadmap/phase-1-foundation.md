@@ -405,6 +405,15 @@
 - [ ] 失败门禁阻断合并，文档列出本地等价命令。
 - [ ] 不要求普通 PR 连接 GPU、真实 LLM 或用户 ComfyUI。
 
+**Design Decision（P1-E6-T01，2026-08）**：
+
+- 测试库：`tests/test_migrations.py` 用 Alembic 从零 upgrade → head（含 P1 列断言）与 downgrade round trip；`alembic/env.py` 尊重显式注入的 sqlalchemy.url（测试临时库），只有占位符才回退 settings。conftest 的 create_all fixture 保留但注明"仅单元速度用途"。
+- Worker loop：`tests/test_worker_loop.py` 驱动真实 DB-poll 循环完成一次生成（非直接调用执行函数）。
+- Lint：引入 ruff（select E/F/W/B/S/UP/ASYNC，忽略 E501/B008/S101/S311/S324），存量问题一次性修复，`uv run ruff check app tests` 为门禁。
+- 前端测试：vitest + jsdom + testing-library；覆盖 API 错误契约（含 CONFLICT=Character conflict）、Event reconcile 门（从 socket.ts 提取纯函数 shouldRouteEvent/isWellFormedEvent）、selectionStore、ApiErrorPanel。
+- CI：.github/workflows/ci.yml（backend pytest+ruff+secret scan / frontend build+test / windows cargo check）；scripts/scan-secrets.py 扫描 git-tracked 文件，SECRET-SCAN 标记允许测试夹具。本地等价命令见 `docs/testing.md`。
+- 真实 LLM/ComfyUI 属 nightly/manual，不进普通 PR 门禁。
+
 **Priority**：P0  
 **Complexity**：L  
 **Dependencies**：可先搭框架；具体回归用例随本 Sprint P0 Task 同步落入  

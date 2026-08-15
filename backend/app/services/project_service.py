@@ -12,7 +12,12 @@ from app.domain.project import (
     ProjectRead,
     ProjectUpdate,
 )
-from app.events.bus import EVENT_PROJECT_CREATED, EVENT_PROJECT_UPDATED, StudioEvent, bus
+from app.events.bus import (
+    EVENT_PROJECT_CREATED,
+    EVENT_PROJECT_UPDATED,
+    StudioEvent,
+    bus,
+)
 from app.repositories import ProjectRepository
 from app.services.character_service import CharacterService
 

@@ -7,7 +7,7 @@ the graph executes it deterministically through Studio Services.
 
 from pydantic import BaseModel, Field
 
-from app.domain.common import Literal
+from typing import Literal
 
 
 class ToolOperation(BaseModel):

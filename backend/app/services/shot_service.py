@@ -292,7 +292,6 @@ class ShotService:
         scene = self.scenes.get(scene_id)
         if scene is None:
             raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
-        episode = self.session.get(Episode, scene.episode_id)
         shots = self.repo.list_for_scene(scene_id)
         thumbnails = self._thumbnail_urls(shots)
         _, names = self._character_data([s.id for s in shots])
@@ -345,7 +344,7 @@ class ShotService:
         links = self.links.list_for_shots(shot_ids)
         if not links:
             return {}, {}
-        character_ids = {l.character_id for l in links}
+        character_ids = {link.character_id for link in links}
         characters = {
             c.id: c.name
             for c in self.session.scalars(select(Character).where(Character.id.in_(character_ids)))
@@ -373,10 +372,7 @@ class ShotService:
             )
         }
         asset_ids = [v.asset_id for v in versions.values()]
-        assets = {
-            a.id: a
-            for a in self.session.scalars(select(Asset).where(Asset.id.in_(asset_ids)))
-        }
+        self.session.scalars(select(Asset).where(Asset.id.in_(asset_ids)))  # warm identity map (P1-E2-T01 lint cleanup)
         return {
             s.id: (f"/api/v1/assets/{versions[s.active_image_version_id].asset_id}/thumbnail"
                    if s.active_image_version_id in versions else None)

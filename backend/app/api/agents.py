@@ -1,8 +1,14 @@
 """Agent API (api-event-contract §23-31, §52-54; mvp-spec §82)."""
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, status
 
-from app.agents.director.runner import cancel_run, create_run, get_run, resume_run, start_run
+from app.agents.director.runner import (
+    cancel_run,
+    create_run,
+    get_run,
+    resume_run,
+    start_run,
+)
 from app.domain.agent import AgentRunCreate, AgentRunRead
 
 router = APIRouter(prefix="/agent", tags=["agent"])

@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import StudioError
 from app.domain.agent import ToolOperation
-from app.domain.common import DirtyState, ShotStatus, ShotType
 from app.services.context_service import ContextService
 from app.services.generation_service import GenerationService
 from app.services.shot_service import ShotService

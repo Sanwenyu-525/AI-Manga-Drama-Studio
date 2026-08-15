@@ -9,6 +9,7 @@ Studio and the AI generation world.
 from __future__ import annotations
 
 import json
+from datetime import UTC
 
 from sqlalchemy.orm import Session
 
@@ -196,9 +197,9 @@ class GenerationService:
 
     @staticmethod
     def _now() -> str:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()
 
     def _project_id_of(self, shot: Shot) -> str | None:
         from app.db.models import Episode, Scene

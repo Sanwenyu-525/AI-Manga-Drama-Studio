@@ -7,7 +7,6 @@ ImageProvider implementation: workflow template → parameter injection → queu
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 from app.core.config import settings
 from app.core.errors import ComfyUIError, ProviderUnavailableError

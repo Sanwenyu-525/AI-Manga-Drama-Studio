@@ -9,7 +9,7 @@ import time
 
 from fastapi.testclient import TestClient
 
-from app.agents.director.runner import _runs, _cancel_requested
+from app.agents.director.runner import _cancel_requested, _runs
 
 
 def _wait_run(client: TestClient, run_id: str, timeout: float = 15.0) -> dict:
@@ -287,9 +287,21 @@ def test_concurrent_runs_do_not_cross_selection(client: TestClient) -> None:
     assert client.get(f"/api/v1/shots/{shot_b['id']}").json()["shot_type"] == "close_up"
 
 
-def test_cancel_run(client: TestClient) -> None:
+def test_cancel_run(client: TestClient, monkeypatch) -> None:
     """P1-E3-T02: cancel is cooperative — status goes cancelling immediately, the
     graph observes the token and reaches the single terminal cancelled state."""
+    from app.agents.director import graph as graph_module
+    from app.llm.fake import FakeLLMGateway
+
+    class SlowGateway(FakeLLMGateway):
+        async def structured(self, schema, system, prompt):
+            import asyncio
+
+            await asyncio.sleep(0.3)  # keep the run cancellable while in flight
+            return await super().structured(schema, system, prompt)
+
+    monkeypatch.setattr(graph_module, "create_gateway", lambda: SlowGateway())
+
     # isolate global runner state (parallel background tasks may still be settling)
     _runs.clear()
     _cancel_requested.clear()
@@ -339,7 +351,7 @@ def _unsubscribe(callback) -> None:
     from app.events.bus import bus
 
     try:
-        bus._subscribers["*"].remove(callback)  # noqa: SLF001 — test-only cleanup
+        bus._subscribers["*"].remove(callback)
     except (KeyError, ValueError):
         pass
 
@@ -419,13 +431,8 @@ def test_cancel_before_graph_stops_everything(client: TestClient, monkeypatch) -
 def test_cancel_between_tools_skips_remaining(client: TestClient, monkeypatch) -> None:
     """P1-E3-T02: cancel at the tool boundary — the FIRST tool may commit, the
     remaining tools must NOT run (no Generation created after cancel)."""
-    from app.agents.tools import ToolExecutor
     from app.agents.director.runner import _cancel_requested as cancel_set
-    from app.events.bus import (
-        EVENT_AGENT_RUN_CANCELLED,
-        EVENT_AGENT_RUN_COMPLETED,
-        EVENT_GENERATION_CREATED,
-    )
+    from app.agents.tools import ToolExecutor
 
     _runs.clear()
     _cancel_requested.clear()

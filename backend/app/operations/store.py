@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
@@ -33,7 +34,7 @@ class OperationStore:
 
     def create(self, op_type: str, project_id: str | None = None) -> dict[str, Any]:
         op_id = f"op_{uuid.uuid4().hex[:10]}"
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         op = {
             "id": op_id,
             "type": op_type,
@@ -53,7 +54,7 @@ class OperationStore:
         if op is None:
             return
         op["status"] = "running"
-        op["started_at"] = datetime.now(timezone.utc).isoformat()
+        op["started_at"] = datetime.now(UTC).isoformat()
         asyncio.create_task(self._run(op_id, job))
 
     async def _run(self, op_id: str, job: Job) -> None:
@@ -62,12 +63,12 @@ class OperationStore:
             result = await job()
             op["result"] = result
             op["status"] = "completed"
-        except Exception as exc:  # noqa: BLE001 — operation failure is reported via API, not raised
+        except Exception as exc:
             logger.exception("operation %s failed", op_id)
             op["error"] = str(exc)
             op["status"] = "failed"
         finally:
-            op["completed_at"] = datetime.now(timezone.utc).isoformat()
+            op["completed_at"] = datetime.now(UTC).isoformat()
 
     def get(self, op_id: str) -> dict[str, Any]:
         op = self._operations.get(op_id)

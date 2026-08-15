@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.base import Base
 from app.db import models  # noqa: F401 — register all models on Base.metadata
+from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 
@@ -28,7 +28,7 @@ def session_factory(db_path: Path):
 
 
 @pytest.fixture()
-def client(session_factory) -> Generator[TestClient, None, None]:
+def client(session_factory) -> Generator[TestClient]:
     factory, _ = session_factory
 
     # Route background operation jobs to the same isolated DB (not the real studio.db).
@@ -38,7 +38,7 @@ def client(session_factory) -> Generator[TestClient, None, None]:
     original_provider = db_session_module.session_factory_provider
     db_session_module.session_factory_provider = lambda: factory
 
-    def override_get_db() -> Generator[Session, None, None]:
+    def override_get_db() -> Generator[Session]:
         session = factory()
         try:
             yield session

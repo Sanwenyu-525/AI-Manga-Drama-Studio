@@ -58,7 +58,6 @@ def get_comfyui_provider() -> ComfyUIProvider:
 
 def provider_status() -> list[dict]:
     """Provider status DTO (contract §47)."""
-    comfyui = get_comfyui_provider()
     providers = [
         {
             "id": "mock",

@@ -19,6 +19,26 @@ export interface StudioEvent {
   payload: Record<string, unknown>;
 }
 
+// Event gate (P1-E6-T01 / api-event-contract §52): pure sequence/dedupe/reconcile
+// logic, extracted from the socket so it is unit-testable.
+// Returns true when the event should be routed (newer sequence than seen).
+export function shouldRouteEvent(sequence: number, lastSequence: number): boolean {
+  return sequence > lastSequence;
+}
+
+// Returns true when the payload is a well-formed Studio event envelope.
+export function isWellFormedEvent(value: unknown): value is StudioEvent {
+  if (typeof value !== "object" || value === null) return false;
+  const event = value as Record<string, unknown>;
+  return (
+    typeof event.event_id === "string" &&
+    typeof event.event_type === "string" &&
+    typeof event.sequence === "number" &&
+    typeof event.timestamp === "string"
+  );
+}
+
+
 const WS_URL = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/api/v1/events`;
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
@@ -35,11 +55,12 @@ function connect() {
   socket.onmessage = (message) => {
     try {
       const event = JSON.parse(message.data as string) as StudioEvent;
+      if (!isWellFormedEvent(event)) return; // malformed: ignore (contract §137)
       if (event.event_type === "system.connected") {
         lastSequence = event.sequence;
         return;
       }
-      if (event.sequence <= lastSequence) return; // dedupe (contract §52)
+      if (!shouldRouteEvent(event.sequence, lastSequence)) return; // dedupe (contract §52)
       lastSequence = event.sequence;
       routeEvent(event);
     } catch {
