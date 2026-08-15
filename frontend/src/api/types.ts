@@ -179,6 +179,29 @@ export interface ProjectSettings {
   settings_json: Record<string, unknown> | null;
   updated_at: string;
 }
+// --- ProjectSettingUpdate (api-event-contract §142: PUT /projects/{id}/settings) ---
+// Partial settings update — unprovided fields keep their current value on the server.
+// 0/1 integer flags: auto_retry/max_retry_count range over 0.., boolean-ish flags are 0|1.
+
+export interface ProjectSettingUpdate {
+  language?: string;
+  default_llm_provider?: string | null;
+  default_llm_model?: string | null;
+  default_image_provider?: string | null;
+  default_image_model?: string | null;
+  default_video_provider?: string | null;
+  default_video_model?: string | null;
+  default_voice_provider?: string | null;
+  default_voice_model?: string | null;
+  default_image_workflow_id?: string | null;
+  default_video_workflow_id?: string | null;
+  auto_retry?: number;
+  max_retry_count?: number;
+  auto_save?: number;
+  continuity_enabled?: number;
+  auto_activate_new_generation?: number;
+}
+
 
 export interface Health {
   status: string;
@@ -387,3 +410,71 @@ export const SHOT_TYPE_LABELS: Record<string, string> = {
   close_up: "近景",
   extreme_close_up: "特写",
 };
+// --- Provenance (P3-T012/T013: GET /assets/{asset_id}/provenance) ---
+
+export interface GenerationInputRead {
+  id: string;
+  generation_id: string;
+  input_type: string;
+  reference_type: string | null;
+  reference_id: string | null;
+  role: string | null;
+  order_index: number;
+  metadata_json: string | null;
+}
+
+export interface GenerationOutputRead {
+  generation_id: string;
+  asset_id: string;
+  role: string | null;
+  order_index: number;
+  type: string | null;
+  status: string | null;
+  version_number: number | null;
+  file_path: string | null;
+}
+
+// The "producing generation" block of an asset (provenance.py GenerationProvenanceBlock).
+// parameters is the raw generation JSON-string (parsed at the call site).
+export interface GenerationProvenanceBlock {
+  id: string;
+  type: string;
+  provider: string;
+  model: string | null;
+  workflow_id: string | null;
+  prompt_version_id: string | null;
+  status: string | null;
+  created_at: string | null;
+  completed_at: string | null;
+  parameters: string | null;
+}
+
+// Asset summary (asset dict emitted by ProvenanceService._asset_summary).
+export interface ProvenanceAsset {
+  id: string;
+  project_id: string;
+  type: string;
+  name: string | null;
+  file_path: string | null;
+  mime_type: string | null;
+  width: number | null;
+  height: number | null;
+  status: string;
+  source_type: string;
+  version_group_id: string | null;
+  version_number: number | null;
+  generation_id: string | null;
+  parent_asset_id: string | null;
+  meta: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
+export interface ProvenanceRead {
+  asset: ProvenanceAsset;
+  generation: GenerationProvenanceBlock | null;
+  inputs: GenerationInputRead[];
+  retry_of: string | null;
+  parent_asset_id: string | null;
+  ancestors: string[]; // retry chain, oldest first, excluding this generation
+}
+
