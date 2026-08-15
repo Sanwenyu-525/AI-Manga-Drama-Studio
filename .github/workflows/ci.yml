@@ -21,7 +21,7 @@ jobs:
         run: cd backend && uv sync --locked
       - name: Lint (ruff)
         run: cd backend && uv run ruff check app tests
-      - name: Test (pytest: Alembic-from-zero + worker loop + risk suites)
+      - name: "Test (pytest: Alembic-from-zero + worker loop + risk suites)"
         run: cd backend && uv run pytest -q
       - name: Secret scan
         run: python scripts/scan-secrets.py
