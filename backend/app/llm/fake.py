@@ -21,12 +21,16 @@ logger = get_logger("llm.fake")
 
 T = TypeVar("T", bound=BaseModel)
 
-# Selection context injected by the graph for fake planning (message → target resolution)
-_FAKE_SELECTION: dict = {"shot_id": None}
 
+def selection_from_prompt(prompt: str) -> str | None:
+    """Extract the first selected shot id from the understand prompt (run-local)."""
+    import re
 
-def set_fake_selection(shot_id: str | None) -> None:
-    _FAKE_SELECTION["shot_id"] = shot_id
+    m = re.search(r"shots=\[([^\]]*)\]", prompt)
+    if not m:
+        return None
+    ids = [part.strip().strip("'\"") for part in m.group(1).split(",") if part.strip()]
+    return ids[0] if ids else None
 
 _MOODS = ["tense", "calm", "warm", "melancholic", "excited"]
 _SHOT_TYPES = ["wide", "medium", "close_up", "extreme_close_up", "full", "medium"]
@@ -49,9 +53,9 @@ class FakeLLMGateway:
         if schema is ShotPlan:
             return self._shot_plans(prompt)[0]  # type: ignore[return-value]
         if schema is DirectorPlan:
-            return parse_director_plan(prompt, _FAKE_SELECTION["shot_id"])  # type: ignore[return-value]
+            return parse_director_plan(prompt, selection_from_prompt(prompt))  # type: ignore[return-value]
         if schema is ProductionIntent:
-            return parse_production_intent(prompt, _FAKE_SELECTION["shot_id"])  # type: ignore[return-value]
+            return parse_production_intent(prompt, selection_from_prompt(prompt))  # type: ignore[return-value]
         raise NotImplementedError(f"FakeLLMGateway.structured unsupported schema: {schema}")
 
     async def structured_list(self, schema: type[T], system: str, prompt: str) -> list[T]:

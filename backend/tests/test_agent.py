@@ -139,6 +139,154 @@ def test_scenario_a_explicit_shot_number_wins_over_selection(client: TestClient)
     assert client.get(f"/api/v1/shots/{selected['id']}").json()["shot_type"] == "medium"
 
 
+def _make_two_scene_project(client: TestClient) -> dict:
+    """Project with two scenes, each holding a shot numbered 1 (ambiguous numbers)."""
+    project = client.post("/api/v1/projects", json={"name": "StageD-amb"}).json()
+    episode = client.post(
+        f"/api/v1/projects/{project['id']}/episodes", json={"title": "E1"}
+    ).json()
+    scenes = []
+    for i in range(2):
+        scene = client.post(
+            f"/api/v1/episodes/{episode['id']}/scenes", json={"name": f"S{i + 1}"}
+        ).json()
+        shot = client.post(
+            f"/api/v1/scenes/{scene['id']}/shots", json={"shot_type": "medium"}
+        ).json()
+        scenes.append({"scene_id": scene["id"], "shot": shot})
+    return {"project_id": project["id"], "episode_id": episode["id"], "scenes": scenes}
+
+
+def test_foreign_shot_id_rejected_before_tools(client: TestClient) -> None:
+    """P1-E3-T01: selection pointing at another project's shot must fail before any
+    tool runs — no cross-project mutation, clarification instead of guessing."""
+    ctx_a = _make_project_shot(client)
+    ctx_b = _make_project_shot(client)
+    foreign = ctx_b["shots"][0]
+
+    resp = client.post(
+        "/api/v1/agent/director/runs",
+        json={
+            "project_id": ctx_a["project_id"],
+            "message": "把这个镜头改成近景。",
+            "selection": {"shot_ids": [foreign["id"]], "scene_id": ctx_a["scene_id"]},
+        },
+    )
+    run_id = resp.json()["id"]
+    done = _wait_run(client, run_id)
+    assert done["status"] == "completed"
+    assert done["result"]["clarification"] is not None
+    assert done["result"]["tool_count"] == 0
+
+    # foreign shot untouched
+    fetched = client.get(f"/api/v1/shots/{foreign['id']}").json()
+    assert fetched["shot_type"] == "medium"
+
+
+def test_deleted_shot_rejected_before_tools(client: TestClient) -> None:
+    """P1-E3-T01: selection pointing at a soft-deleted shot → clarification, no tools."""
+    ctx = _make_project_shot(client)
+    shot = ctx["shots"][0]
+    client.delete(f"/api/v1/shots/{shot['id']}")
+
+    resp = client.post(
+        "/api/v1/agent/director/runs",
+        json={
+            "project_id": ctx["project_id"],
+            "message": "把这个镜头改成近景。",
+            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
+        },
+    )
+    done = _wait_run(client, resp.json()["id"])
+    assert done["status"] == "completed"
+    assert done["result"]["clarification"] is not None
+    assert done["result"]["tool_count"] == 0
+
+
+def test_ambiguous_shot_number_requires_clarification(client: TestClient) -> None:
+    """P1-E3-T01: same shot_number across the project without a selected scene →
+    clarification, never a silent first pick."""
+    ctx = _make_two_scene_project(client)
+
+    resp = client.post(
+        "/api/v1/agent/director/runs",
+        json={
+            "project_id": ctx["project_id"],
+            "message": "把第1镜改成近景。",
+            "selection": {"shot_ids": [], "workspace": "storyboard"},
+        },
+    )
+    done = _wait_run(client, resp.json()["id"])
+    assert done["status"] == "completed"
+    assert done["result"]["clarification"] is not None
+    assert done["result"]["tool_count"] == 0
+
+    # neither scene's shot was modified
+    for entry in ctx["scenes"]:
+        fetched = client.get(f"/api/v1/shots/{entry['shot']['id']}").json()
+        assert fetched["shot_type"] == "medium"
+
+
+def test_ambiguous_shot_number_resolved_by_selected_scene(client: TestClient) -> None:
+    """P1-E3-T01: the same ambiguous number resolves inside the selected scene."""
+    ctx = _make_two_scene_project(client)
+    scene_a = ctx["scenes"][0]
+    scene_b = ctx["scenes"][1]
+
+    resp = client.post(
+        "/api/v1/agent/director/runs",
+        json={
+            "project_id": ctx["project_id"],
+            "message": "把第1镜改成近景。",
+            "selection": {"shot_ids": [], "scene_id": scene_a["scene_id"]},
+        },
+    )
+    done = _wait_run(client, resp.json()["id"])
+    assert done["status"] == "completed", done.get("result")
+
+    assert client.get(f"/api/v1/shots/{scene_a['shot']['id']}").json()["shot_type"] == "close_up"
+    assert client.get(f"/api/v1/shots/{scene_b['shot']['id']}").json()["shot_type"] == "medium"
+
+
+def test_concurrent_runs_do_not_cross_selection(client: TestClient) -> None:
+    """P1-E3-T01: selection is run-local — two concurrent runs must target their own
+    shots (regression for the old process-global _FAKE_SELECTION)."""
+    ctx = _make_project_shot(client)
+    shot_a = ctx["shots"][0]
+    shot_b = ctx["shots"][1]
+
+    r1 = client.post(
+        "/api/v1/agent/director/runs",
+        json={
+            "project_id": ctx["project_id"],
+            "message": "把这个镜头改成近景。",
+            "selection": {"shot_ids": [shot_a["id"]], "scene_id": ctx["scene_id"]},
+        },
+    ).json()
+    r2 = client.post(
+        "/api/v1/agent/director/runs",
+        json={
+            "project_id": ctx["project_id"],
+            "message": "把这个镜头改成近景。",
+            "selection": {"shot_ids": [shot_b["id"]], "scene_id": ctx["scene_id"]},
+        },
+    ).json()
+
+    done1 = _wait_run(client, r1["id"])
+    done2 = _wait_run(client, r2["id"])
+    assert done1["status"] == "completed" and done2["status"] == "completed"
+
+    # each run resolved its OWN selection (no cross-talk)
+    arg1 = done1["result"]["details"][0]["arguments"]["shot_id"]
+    arg2 = done2["result"]["details"][0]["arguments"]["shot_id"]
+    assert arg1 == shot_a["id"]
+    assert arg2 == shot_b["id"]
+
+    # both shots updated by their own runs
+    assert client.get(f"/api/v1/shots/{shot_a['id']}").json()["shot_type"] == "close_up"
+    assert client.get(f"/api/v1/shots/{shot_b['id']}").json()["shot_type"] == "close_up"
+
+
 def test_cancel_run(client: TestClient) -> None:
     # isolate global runner state (parallel background tasks may still be settling)
     _runs.clear()

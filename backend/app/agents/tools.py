@@ -65,13 +65,63 @@ TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
 
 
 class ToolExecutor:
-    """Deterministic executor for ToolOperation lists (agent-director §27, §70)."""
+    """Deterministic executor for ToolOperation lists (agent-director §27, §70).
 
-    def __init__(self, session: Session) -> None:
+    P1-E3-T01 (defense in depth): the executor never trusts the planner alone —
+    every target shot/scene is re-validated (live + owned by the run's project)
+    right before the tool runs, so a hallucinated or forged id is rejected.
+    """
+
+    def __init__(
+        self,
+        session: Session,
+        *,
+        project_id: str | None = None,
+        resolved_shot_id: str | None = None,
+    ) -> None:
         self.session = session
+        self.project_id = project_id
+        self.resolved_shot_id = resolved_shot_id
         self.shots = ShotService(session)
         self.generations = GenerationService(session)
         self.context = ContextService(session)
+
+    # --- ownership defense (P1-E3-T01) ---
+
+    def _require_shot(self, shot_id: str):
+        """Reject missing/deleted shots and shots outside the run's project."""
+        from app.core.errors import ValidationError
+        from app.db.models import Episode, Scene, Shot
+
+        shot = self.session.get(Shot, shot_id)
+        if shot is None or shot.deleted_at:
+            raise ValidationError("Shot does not exist or was deleted.", {"shot_id": shot_id})
+        if self.project_id:
+            scene = self.session.get(Scene, shot.scene_id)
+            episode = self.session.get(Episode, scene.episode_id) if scene else None
+            if episode is None or episode.project_id != self.project_id:
+                raise ValidationError(
+                    "Shot does not belong to the run's project.",
+                    {"shot_id": shot_id, "project_id": self.project_id},
+                )
+        return shot
+
+    def _require_scene(self, scene_id: str):
+        """Reject missing/deleted scenes and scenes outside the run's project."""
+        from app.core.errors import ValidationError
+        from app.db.models import Episode, Scene
+
+        scene = self.session.get(Scene, scene_id)
+        if scene is None or scene.deleted_at:
+            raise ValidationError("Scene does not exist or was deleted.", {"scene_id": scene_id})
+        if self.project_id:
+            episode = self.session.get(Episode, scene.episode_id)
+            if episode is None or episode.project_id != self.project_id:
+                raise ValidationError(
+                    "Scene does not belong to the run's project.",
+                    {"scene_id": scene_id, "project_id": self.project_id},
+                )
+        return scene
 
     def execute(self, op: ToolOperation) -> ToolResult:
         try:
@@ -86,11 +136,12 @@ class ToolExecutor:
 
     def _get_shot(self, args: dict) -> ToolResult:
         schema = GetShotArgs.model_validate(args)
-        shot = self.shots.get_shot(schema.shot_id)
-        return ToolResult(success=True, entity_id=shot.id, data=shot.model_dump())
+        shot = self._require_shot(schema.shot_id)
+        return ToolResult(success=True, entity_id=shot.id, data=self.shots.get_shot(shot.id).model_dump())
 
     def _get_scene_shots(self, args: dict) -> ToolResult:
         schema = GetSceneShotsArgs.model_validate(args)
+        self._require_scene(schema.scene_id)
         shots = self.shots.list_shots(schema.scene_id)
         return ToolResult(
             success=True,
@@ -100,8 +151,8 @@ class ToolExecutor:
 
     def _update_shot(self, args: dict) -> ToolResult:
         schema = UpdateShotArgs.model_validate(args)
-        shot = self.shots.get_shot(schema.shot_id)
-        from app.domain.shot import ShotUpdate, ShotUpdateRequest
+        shot = self._require_shot(schema.shot_id)
+        from app.domain.shot import ShotUpdate
 
         patch = ShotUpdate.model_validate(schema.patch)
         updated = self.shots.update_shot(schema.shot_id, shot.revision, patch)
@@ -114,6 +165,7 @@ class ToolExecutor:
 
     def _generate_image(self, args: dict) -> ToolResult:
         schema = GenerateImageArgs.model_validate(args)
+        self._require_shot(schema.shot_id)
         from app.domain.generation import GenerationCreate
 
         generation = self.generations.create_generation(

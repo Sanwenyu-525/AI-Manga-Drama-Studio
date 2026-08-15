@@ -810,6 +810,16 @@ Frontend 不自行推断。
 
 完全依据服务器状态。
 
+Ownership 与歧义（P1-E3-T01）：
+
+- Run 只能访问声明 project 内、未删除、无歧义的实体；跨项目 Shot ID、
+  已删除 Shot、伪造 selection 在工具执行前被拒绝。
+- 目标歧义（如项目内多个"第 1 镜"且未选中场景）时 Run 以
+  `result.clarification` 完成（tool_count=0），不静默选首个。
+- `shot_number:N` 优先在 selection.scene_id 场景内解析。
+- 工具执行层（ToolExecutor）对每个目标再做一次 ownership 校验，
+  不信任 Planner 输出。
+
 ---
 
 # 27. Agent Approval API

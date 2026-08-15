@@ -570,6 +570,19 @@ Semantic Search
 Clarification Required
 ```
 
+Ownership 与歧义规则（P1-E3-T01）：
+
+- 解析结果必须满足：目标存在、未软删除、属于当前 Run 的 project。
+- 跨项目 Shot ID / 已删除 Shot / 伪造 selection → rejected/not_found，
+  在工具执行前失败（ContextService.resolve_shot_reference 返回结构化
+  ShotResolution：resolved | ambiguous | not_found | rejected | none）。
+- `shot_number:N` 先用 selection.scene_id 定域；项目内重号且无定域 → ambiguous，
+  要求澄清，绝不静默取首个。
+- ToolExecutor 是第二道防线：每个工具目标在执行前再次校验 project ownership，
+  不能只信任 Planner 的输出。
+- Selection 只通过 Run 的 Graph State / 调用参数传递（run-local），
+  FakeLLM 从 prompt 解析 selection，不再使用进程全局变量。
+
 ---
 
 # 17. Studio Selection Context

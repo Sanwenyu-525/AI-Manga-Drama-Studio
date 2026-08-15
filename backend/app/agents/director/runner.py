@@ -21,7 +21,6 @@ from app.events.bus import (
     StudioEvent,
     bus,
 )
-from app.llm.fake import set_fake_selection
 
 logger = get_logger("agent.runner")
 
@@ -79,11 +78,6 @@ async def _run_graph(run_id: str) -> None:
     if run is None:
         return
     project_id = run["project_id"]
-    shot_ids = run["selection"].get("shot_ids") or []
-    selected_shot = shot_ids[0] if shot_ids else None
-
-    # fake planner needs the selection for "这个" resolution
-    set_fake_selection(selected_shot)
 
     initial_state = {
         "run_id": run_id,
@@ -136,7 +130,6 @@ async def _run_graph(run_id: str) -> None:
         )
     finally:
         run["updated_at"] = _now()
-        set_fake_selection(None)
 
 
 def get_run(run_id: str) -> AgentRunRead:

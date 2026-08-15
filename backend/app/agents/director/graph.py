@@ -89,21 +89,34 @@ async def understand_node(state: DirectorState) -> DirectorState:
 
 
 async def load_context_node(state: DirectorState) -> DirectorState:
-    """Resolve the target shot and load Minimum Sufficient Context (agent-director §18, §27)."""
+    """Resolve the target shot and load Minimum Sufficient Context (agent-director §18, §27).
+
+    P1-E3-T01: resolution is ownership-checked and ambiguity-aware; ambiguous /
+    not-found / rejected targets are reported to the executor instead of guessing.
+    """
     intent = ProductionIntent.model_validate(state["intent"])
     selection = state.get("selection") or {}
     project_id = state.get("project_id", "")
     shot_ids = selection.get("shot_ids") or []
+    scene_id = selection.get("scene_id")
 
     factory = db_session_module.session_factory_provider()
     with factory() as session:
         from app.services.context_service import ContextService
 
         context_service = ContextService(session)
-        shot_id = context_service.resolve_shot_reference(project_id, intent.target_reference, shot_ids)
-        context: dict[str, Any] = {"resolved_shot_id": shot_id, "selection": selection}
-        if shot_id:
-            context["shot"] = context_service.get_shot_context(shot_id)
+        resolution = context_service.resolve_shot_reference(
+            project_id, intent.target_reference, shot_ids, scene_id
+        )
+        context: dict[str, Any] = {
+            "resolved_shot_id": resolution.shot_id,
+            "selection": selection,
+            "resolution_status": resolution.status,
+        }
+        if resolution.message:
+            context["resolution_message"] = resolution.message
+        if resolution.shot_id:
+            context["shot"] = context_service.get_shot_context(resolution.shot_id)
 
     return {**state, "context": context}
 
@@ -136,27 +149,34 @@ async def execute_node(state: DirectorState) -> DirectorState:
 
     context = state.get("context") or {}
     resolved_shot_id = context.get("resolved_shot_id")
+    if resolved_shot_id is None and plan.steps:
+        # P1-E3-T01: ambiguous / not found / forged target — never guess, ask.
+        message = (
+            context.get("resolution_message")
+            or plan.clarification_message
+            or "请先选中一个镜头，或说明要修改第几镜。"
+        )
+        return {
+            **state,
+            "status": "completed",
+            "tool_results": [],
+            "final_result": {"clarification": message},
+        }
+
     results: list[dict[str, Any]] = []
 
     factory = db_session_module.session_factory_provider()
     with factory() as session:
-        executor = ToolExecutor(session)
+        executor = ToolExecutor(
+            session,
+            project_id=state.get("project_id"),
+            resolved_shot_id=resolved_shot_id,
+        )
         for step in plan.steps:
             # resolve symbolic references ('shot_number:N') to real ids (context node resolved them)
             args = dict(step.arguments)
             ref = args.get("shot_id")
             if isinstance(ref, str) and ref.startswith("shot_number:"):
-                if resolved_shot_id is None:
-                    results.append(
-                        {
-                            "tool": step.tool,
-                            "arguments": args,
-                            "result": ToolResult(
-                                success=False, error="Could not resolve the referenced shot."
-                            ).model_dump(),
-                        }
-                    )
-                    continue
                 args["shot_id"] = resolved_shot_id
             op = ToolOperation(tool=step.tool, arguments=args)
             _publish(EVENT_AGENT_TOOL_STARTED, state, {"tool": op.tool, "target": {"type": "shot", "id": op.arguments.get("shot_id")}})
@@ -175,6 +195,23 @@ async def review_node(state: DirectorState) -> DirectorState:
     """Task-level review (agent-director §36-37): summarize what happened for the user."""
     results = state.get("tool_results") or []
     plan = state.get("plan") or {}
+
+    # P1-E3-T01: a clarification produced by execute_node (ambiguous / not found /
+    # rejected target) is the final word — never replace it with an empty summary.
+    # Keep the standard result shape (tool_count etc.) for contract stability.
+    if (state.get("final_result") or {}).get("clarification"):
+        return {
+            **state,
+            "status": "completed",
+            "final_result": {
+                "summary": "需要澄清。",
+                "tool_count": 0,
+                "failed": 0,
+                "generation_submitted": 0,
+                "details": [],
+                "clarification": state["final_result"]["clarification"],
+            },
+        }
     failures = [r for r in results if not r["result"].get("success")]
     generated = [r for r in results if r["tool"] == "generate_image" and r["result"].get("success")]
 

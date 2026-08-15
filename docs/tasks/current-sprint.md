@@ -10,12 +10,11 @@
 
 | Order | Task ID | Task Name | Priority | Complexity | Dependencies | Status |
 |---:|---|---|---|---|---|---|
-| 1 | P1-E3-T01 | 强制 Agent Project Ownership 与 Run-local Context | P0 | M | 无 | Ready |
-| 2 | P1-E3-T02 | 实现协作式 Agent Cancel 与真实执行报告 | P0 | M | P1-E3-T01 | Blocked by dependency |
-| 3 | P1-E2-T01 | 修复真实 ComfyUI workflow 与 Provider 选择 | P0 | M | 无 | Ready |
-| 4 | P1-E1-T02 | 建立数据库不变量、原子 revision 与安全重排 | P0 | L | P1-E1-T01 事务决策（已定：见 roadmap §P1-E1-T01 Design Decision） | Blocked by dependency |
-| 5 | P1-E2-T02 | 实现 Generation 状态机、原子认领与崩溃恢复 | P0 | L | P1-E1-T02 | Blocked by dependency |
-| 6 | P1-E6-T01 | 建立风险驱动测试基线与最小 CI | P0 | L | 测试框架可先行；风险用例随任务落地 | Ready |
+| 1 | P1-E3-T02 | 实现协作式 Agent Cancel 与真实执行报告 | P0 | M | P1-E3-T01（已完成） | Ready |
+| 2 | P1-E2-T01 | 修复真实 ComfyUI workflow 与 Provider 选择 | P0 | M | 无 | Ready |
+| 3 | P1-E1-T02 | 建立数据库不变量、原子 revision 与安全重排 | P0 | L | P1-E1-T01 事务决策（已定：见 roadmap §P1-E1-T01 Design Decision） | Blocked by dependency |
+| 4 | P1-E2-T02 | 实现 Generation 状态机、原子认领与崩溃恢复 | P0 | L | P1-E1-T02 | Blocked by dependency |
+| 5 | P1-E6-T01 | 建立风险驱动测试基线与最小 CI | P0 | L | 测试框架可先行；风险用例随任务落地 | Ready |
 
 完整背景、实现建议与验收标准见 [Phase 1](../roadmap/phase-1-foundation.md)。
 
@@ -23,7 +22,6 @@
 
 ```text
 Wave A（可并行）
-  P1-E3-T01  Agent ownership/context
   P1-E2-T01  ComfyUI/provider
   P1-E6-T01  CI 骨架与对应回归用例
 
@@ -40,6 +38,7 @@ Wave C
 
 - `P1-E1-T01` 已完成（2026-08）：Plan 显式映射、批量写入事务化、幂等/替换策略落库；P1-E1-T02 的事务决策见 [Phase 1 P1-E1-T01 Design Decision](../roadmap/phase-1-foundation.md)。
 - `P1-E4-T01` 已完成（2026-08）：generations/recent 路由冲突修复、统一错误 Envelope（422/404/405/409/500 + request_id）、Router 业务 SQL 移入 Service、前端 ApiError 携带 request_id 并支持 timeout/AbortSignal；P1-E4-T02 的 request context 基线见 [P1-E4-T01 Design Decision](../roadmap/phase-1-foundation.md)。
+- `P1-E3-T01` 已完成（2026-08）：reference 解析强制 project ownership（跨项目/已删除/伪造 selection 拒绝）、同号歧义澄清、FakeLLM selection run-local 化、ToolExecutor 防御；见 [P1-E3-T01 Design Decision](../roadmap/phase-1-foundation.md)。
 - `P1-E6-T01` 不是最后才做；每个 P0 修复必须同 PR/commit 带回归测试，CI 骨架可并行推进。
 - `P1-E2-T03`（完成链原子化）和 `P1-E4-T02`（Event Gateway）仍是 P0，但因复杂度和依赖未塞入本 Sprint，排在下一个 Stabilization Sprint 首位。
 - 本 Sprint 不开发 Timeline、Continuity、多 Agent、云端、插件或 UI 大改。

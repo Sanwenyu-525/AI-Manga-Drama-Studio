@@ -182,6 +182,15 @@
 - [ ] ToolExecutor 再做一次 ownership 防御，不能只信 Planner。
 - [ ] Scenario A/B/C 保持通过，并新增跨项目/并发场景。
 
+**Design Decision（P1-E3-T01，2026-08）**：
+
+- ContextService.resolve_shot_reference 返回结构化 ' + bt + 'ShotResolution' + bt + '（resolved|ambiguous|not_found|rejected|none）：raw Shot ID / selection 校验存在（含软删除）与 project ownership；' + bt + 'shot_number:N' + bt + ' 先按 selection.scene_id 定域，项目内重号 → ambiguous（澄清），不再取首个。
+- Graph：load_context 记录 resolution status/message；execute 在无 resolved 目标且有计划步骤时以 ' + bt + 'result.clarification' + bt + ' 完成（review 节点透传标准结果形状），工具绝不执行。
+- ToolExecutor 第二道防线：' + bt + '_require_shot/_require_scene' + bt + ' 在每次工具执行前校验 live + project ownership（不信任 Planner）。
+- FakeLLM 移除进程全局 ' + bt + '_FAKE_SELECTION' + bt + '：selection 经 Graph State → prompt（run-local）传递，并发 Run 不交叉；runner 不再 set/reset 全局。
+- 测试：跨项目/已删除/伪造 selection 拒绝、同号歧义澄清、选中场景定域、并发双 Run 不交叉（test_agent.py 新增 5 项）、ToolExecutor 防御（test_agent_ownership.py 3 项）。Scenario A/B/C 保持通过。
+- P1-E3-T02 依赖的边界：取消检查在节点与工具边界（见 P1-E3-T02）。
+
 **Priority**：P0  
 **Complexity**：M  
 **Dependencies**：无  
