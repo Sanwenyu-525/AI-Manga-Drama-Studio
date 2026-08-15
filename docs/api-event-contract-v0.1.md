@@ -1531,10 +1531,16 @@ shot.dirty_state.changed
 
     "source": "agent",
 
+    "run_id": "agent_run_101",
+
     "change_set_id": "changeset_101"
   }
 }
 ```
+
+`source`：`user`（API 直接编辑，默认）或 `agent`（Director 工具修改）；
+`run_id` 在 agent 修改时关联来源 Run（P1-E3-T02）。`changed_fields`
+只包含实际发生变化的字段。
 
 Frontend收到后：
 

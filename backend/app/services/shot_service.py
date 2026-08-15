@@ -189,8 +189,19 @@ class ShotService:
         ids, _ = self._character_data([s.id for s in shots])
         return [_to_read(s, ids.get(s.id, [])) for s in shots]
 
-    def update_shot(self, shot_id: str, revision: int, patch: ShotUpdate) -> ShotRead:
-        """Optimistic concurrency update: revision must match; every mutation bumps revision."""
+    def update_shot(
+        self,
+        shot_id: str,
+        revision: int,
+        patch: ShotUpdate,
+        source: str = "user",
+        run_id: str | None = None,
+    ) -> ShotRead:
+        """Optimistic concurrency update: revision must match; every mutation bumps revision.
+
+        P1-E3-T02: source ("user" | "agent") and run_id are recorded in the
+        shot.updated event payload so the audit trail can distinguish origins.
+        """
         shot = self.repo.get(shot_id)
         if shot is None:
             raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
@@ -234,7 +245,12 @@ class ShotService:
                     entity_type="shot",
                     entity_id=shot.id,
                     project_id=self._project_id_of(shot),
-                    payload={"revision": shot.revision, "changed_fields": changed, "source": "user"},
+                    payload={
+                        "revision": shot.revision,
+                        "changed_fields": changed,
+                        "source": source,
+                        "run_id": run_id,
+                    },
                 )
             )
         ids, _ = self._character_data([shot_id])

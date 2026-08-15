@@ -15,6 +15,7 @@ from app.core.errors import ConflictError, NotFoundError
 from app.core.logging import get_logger
 from app.domain.agent import AgentRunCreate, AgentRunRead, DirectorPlan
 from app.events.bus import (
+    EVENT_AGENT_RUN_CANCELLED,
     EVENT_AGENT_RUN_COMPLETED,
     EVENT_AGENT_RUN_FAILED,
     EVENT_AGENT_RUN_STARTED,
@@ -33,6 +34,19 @@ _cancel_requested: set[str] = set()
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def set_run_stage(run_id: str, stage: str) -> None:
+    """Real-time current_stage for GET run (P1-E3-T02) — called by graph nodes."""
+    run = _runs.get(run_id)
+    if run is not None:
+        run["current_stage"] = stage
+        run["updated_at"] = _now()
+
+
+def is_cancel_requested(run_id: str) -> bool:
+    """Cancel token check — graph nodes/tool boundaries consult this (P1-E3-T02)."""
+    return run_id in _cancel_requested
 
 
 def create_run(data: AgentRunCreate) -> AgentRunRead:
@@ -94,7 +108,7 @@ async def _run_graph(run_id: str) -> None:
             run["status"] = "cancelled"
             bus.publish(
                 StudioEvent(
-                    event_type="agent.run.cancelled",
+                    event_type=EVENT_AGENT_RUN_CANCELLED,
                     entity_type="agent_run",
                     entity_id=run_id,
                     project_id=project_id,
@@ -102,7 +116,6 @@ async def _run_graph(run_id: str) -> None:
             )
         else:
             run["status"] = final.get("status", "completed")
-            run["current_stage"] = "review"
             run["plan"] = final.get("plan")
             run["result"] = final.get("final_result")
             bus.publish(
@@ -140,22 +153,22 @@ def get_run(run_id: str) -> AgentRunRead:
 
 
 def cancel_run(run_id: str) -> AgentRunRead:
+    """Cooperative cancel (P1-E3-T02): status → cancelling immediately; the graph
+    observes the token at the next node/tool boundary and stops producing side
+    effects; the SINGLE terminal agent.run.cancelled event is published by the
+    runner once the graph has actually stopped (no contradictory events)."""
     run = _runs.get(run_id)
     if run is None:
         raise NotFoundError("Agent run does not exist.", {"run_id": run_id})
-    if run["status"] in ("completed", "failed", "cancelled"):
-        raise ConflictError("Agent run already finished.", {"run_id": run_id, "status": run["status"]})
-    _cancel_requested.add(run_id)
-    run["status"] = "cancelled"
-    run["updated_at"] = _now()
-    bus.publish(
-        StudioEvent(
-            event_type="agent.run.cancelled",
-            entity_type="agent_run",
-            entity_id=run_id,
-            project_id=run["project_id"],
+    if run["status"] in ("completed", "failed", "cancelled", "cancelling"):
+        raise ConflictError(
+            "Agent run already finished or is being cancelled.",
+            {"run_id": run_id, "status": run["status"]},
         )
-    )
+    _cancel_requested.add(run_id)
+    run["status"] = "cancelling"
+    run["updated_at"] = _now()
+    logger.info("agent run %s cancel requested (cancelling)", run_id)
     return _to_read(run)
 
 
@@ -164,7 +177,7 @@ def active_run_count(project_id: str) -> int:
     return sum(
         1
         for run in _runs.values()
-        if run["project_id"] == project_id and run["status"] in ("created", "running", "waiting_approval")
+        if run["project_id"] == project_id and run["status"] in ("created", "running", "waiting_approval", "cancelling")
     )
 
 

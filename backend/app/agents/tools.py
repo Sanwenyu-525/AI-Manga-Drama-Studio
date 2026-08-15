@@ -78,10 +78,12 @@ class ToolExecutor:
         *,
         project_id: str | None = None,
         resolved_shot_id: str | None = None,
+        run_id: str | None = None,
     ) -> None:
         self.session = session
         self.project_id = project_id
         self.resolved_shot_id = resolved_shot_id
+        self.run_id = run_id
         self.shots = ShotService(session)
         self.generations = GenerationService(session)
         self.context = ContextService(session)
@@ -150,16 +152,28 @@ class ToolExecutor:
         )
 
     def _update_shot(self, args: dict) -> ToolResult:
+        """P1-E3-T02: report ACTUAL changed fields (diff before/after for the
+        requested non-None keys), not the requested ones; events carry source=agent
+        and run_id so the audit trail distinguishes user vs agent mutations."""
         schema = UpdateShotArgs.model_validate(args)
         shot = self._require_shot(schema.shot_id)
         from app.domain.shot import ShotUpdate
 
+        requested = {key: value for key, value in schema.patch.items() if value is not None}
+        before = {key: getattr(shot, key, None) for key in requested}
         patch = ShotUpdate.model_validate(schema.patch)
-        updated = self.shots.update_shot(schema.shot_id, shot.revision, patch)
+        updated = self.shots.update_shot(
+            schema.shot_id,
+            shot.revision,
+            patch,
+            source="agent",
+            run_id=self.run_id,
+        )
+        changed_fields = [key for key, old in before.items() if getattr(updated, key, None) != old]
         return ToolResult(
             success=True,
             entity_id=updated.id,
-            changed_fields=list(schema.patch.keys()),
+            changed_fields=changed_fields,
             data=updated.model_dump(),
         )
 

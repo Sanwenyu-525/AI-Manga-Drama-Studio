@@ -59,6 +59,20 @@ class DirectorState(TypedDict, total=False):
     final_result: dict[str, Any] | None
 
 
+def _stage(state: DirectorState, stage: str) -> None:
+    """Record current_stage in the run store (P1-E3-T02: GET run shows live stage)."""
+    from app.agents.director.runner import set_run_stage
+
+    set_run_stage(state.get("run_id", ""), stage)
+
+
+def _cancelled(state: DirectorState) -> bool:
+    """Cooperative cancel token (P1-E3-T02): consulted at every node + tool boundary."""
+    from app.agents.director.runner import is_cancel_requested
+
+    return is_cancel_requested(state.get("run_id", ""))
+
+
 def _publish(event_type: str, state: DirectorState, payload: dict[str, Any] | None = None) -> None:
     bus.publish(
         StudioEvent(
@@ -74,6 +88,9 @@ def _publish(event_type: str, state: DirectorState, payload: dict[str, Any] | No
 # ---------- nodes ----------
 
 async def understand_node(state: DirectorState) -> DirectorState:
+    _stage(state, "understand")
+    if _cancelled(state):
+        return {**state, "status": "cancelled"}
     llm: LLMGateway = create_gateway()
     message = state.get("user_message", "")
     selection = state.get("selection") or {}
@@ -94,6 +111,9 @@ async def load_context_node(state: DirectorState) -> DirectorState:
     P1-E3-T01: resolution is ownership-checked and ambiguity-aware; ambiguous /
     not-found / rejected targets are reported to the executor instead of guessing.
     """
+    _stage(state, "load_context")
+    if _cancelled(state):
+        return {**state, "status": "cancelled"}
     intent = ProductionIntent.model_validate(state["intent"])
     selection = state.get("selection") or {}
     project_id = state.get("project_id", "")
@@ -124,6 +144,9 @@ async def load_context_node(state: DirectorState) -> DirectorState:
 async def plan_node(state: DirectorState) -> DirectorState:
     """Build the DirectorPlan. Fake mode: intent.operations carry the plan already;
     real mode: LLM refines the plan with context (same schema, Structured Planner)."""
+    _stage(state, "plan")
+    if _cancelled(state):
+        return {**state, "status": "cancelled"}
     intent = ProductionIntent.model_validate(state["intent"])
     context = state.get("context") or {}
 
@@ -143,6 +166,9 @@ async def plan_node(state: DirectorState) -> DirectorState:
 
 
 async def execute_node(state: DirectorState) -> DirectorState:
+    _stage(state, "execute")
+    if _cancelled(state):
+        return {**state, "status": "cancelled", "tool_results": [], "final_result": {"summary": "已取消。", "clarification": None}}
     plan = DirectorPlan.model_validate(state["plan"])
     if plan.requires_clarification:
         return {**state, "status": "completed", "tool_results": [], "final_result": {"clarification": plan.clarification_message}}
@@ -171,8 +197,13 @@ async def execute_node(state: DirectorState) -> DirectorState:
             session,
             project_id=state.get("project_id"),
             resolved_shot_id=resolved_shot_id,
+            run_id=state.get("run_id"),
         )
         for step in plan.steps:
+            # P1-E3-T02: tool boundary cancel check — stop before the NEXT tool,
+            # no new side effects after cancellation.
+            if _cancelled(state):
+                break
             # resolve symbolic references ('shot_number:N') to real ids (context node resolved them)
             args = dict(step.arguments)
             ref = args.get("shot_id")
@@ -193,8 +224,25 @@ async def execute_node(state: DirectorState) -> DirectorState:
 
 async def review_node(state: DirectorState) -> DirectorState:
     """Task-level review (agent-director §36-37): summarize what happened for the user."""
+    _stage(state, "review")
     results = state.get("tool_results") or []
     plan = state.get("plan") or {}
+
+    # P1-E3-T02: a cancelled run keeps its cancelled status — review must never
+    # overwrite it with completed/failed (contradictory terminal states).
+    if state.get("status") == "cancelled":
+        return {
+            **state,
+            "status": "cancelled",
+            "final_result": {
+                "summary": "已取消。",
+                "tool_count": len(results),
+                "failed": 0,
+                "generation_submitted": 0,
+                "details": results,
+                "clarification": None,
+            },
+        }
 
     # P1-E3-T01: a clarification produced by execute_node (ambiguous / not found /
     # rejected target) is the final word — never replace it with an empty summary.

@@ -16,6 +16,8 @@ const STATUS_LABELS: Record<string, string> = {
   planning: "制定计划…",
   executing: "执行中…",
   reviewing: "检查结果…",
+  cancelling: "取消中…",
+  cancelled: "已取消",
   completed: "完成",
   failed: "失败",
 };

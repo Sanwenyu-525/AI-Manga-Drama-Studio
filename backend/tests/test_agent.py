@@ -288,6 +288,8 @@ def test_concurrent_runs_do_not_cross_selection(client: TestClient) -> None:
 
 
 def test_cancel_run(client: TestClient) -> None:
+    """P1-E3-T02: cancel is cooperative — status goes cancelling immediately, the
+    graph observes the token and reaches the single terminal cancelled state."""
     # isolate global runner state (parallel background tasks may still be settling)
     _runs.clear()
     _cancel_requested.clear()
@@ -302,13 +304,242 @@ def test_cancel_run(client: TestClient) -> None:
         },
     )
     run_id = resp.json()["id"]
-    cancelled = client.post(f"/api/v1/agent/runs/{run_id}/cancel").json()
-    assert cancelled["status"] == "cancelled"
+    cancelling = client.post(f"/api/v1/agent/runs/{run_id}/cancel").json()
+    assert cancelling["status"] == "cancelling"
 
-    # cancel again → 409
+    done = _wait_run(client, run_id)  # polls until the graph reaches terminal state
+    assert done["status"] == "cancelled"
+
+    # cancel again → 409 (already finished / being cancelled)
     again = client.post(f"/api/v1/agent/runs/{run_id}/cancel")
     assert again.status_code == 409
 
     # resume without approval → 409
     resume = client.post(f"/api/v1/agent/runs/{run_id}/resume")
     assert resume.status_code == 409
+
+
+def _subscribe_events(event_types: set[str]) -> list[dict]:
+    """Subscribe to the in-process bus and collect matching events (test helper)."""
+    from app.events.bus import bus
+
+    collected: list[dict] = []
+
+    def _on(event) -> None:
+        if event.event_type in event_types:
+            collected.append(
+                {"type": event.event_type, "entity_id": event.entity_id, "payload": event.payload}
+            )
+
+    bus.subscribe("*", _on)
+    return collected, _on
+
+
+def _unsubscribe(callback) -> None:
+    from app.events.bus import bus
+
+    try:
+        bus._subscribers["*"].remove(callback)  # noqa: SLF001 — test-only cleanup
+    except (KeyError, ValueError):
+        pass
+
+
+def test_cancel_before_graph_stops_everything(client: TestClient, monkeypatch) -> None:
+    """P1-E3-T02: cancel while the first node is in flight → the next node boundary
+    stops the run: no tool, no side effect, exactly one terminal cancelled event,
+    never a completed event."""
+    from app.agents.director import graph as graph_module
+    from app.events.bus import (
+        EVENT_AGENT_RUN_CANCELLED,
+        EVENT_AGENT_RUN_COMPLETED,
+        EVENT_AGENT_TOOL_STARTED,
+    )
+    from app.llm.fake import FakeLLMGateway
+
+    class SlowGateway(FakeLLMGateway):
+        async def structured(self, schema, system, prompt):
+            import asyncio
+
+            await asyncio.sleep(0.3)  # keep the understand node in flight
+            return await super().structured(schema, system, prompt)
+
+    monkeypatch.setattr(graph_module, "create_gateway", lambda: SlowGateway())
+
+    _runs.clear()
+    _cancel_requested.clear()
+    ctx = _make_project_shot(client)
+    shot = ctx["shots"][0]
+    resp = client.post(
+        "/api/v1/agent/director/runs",
+        json={
+            "project_id": ctx["project_id"],
+            "message": "改成近景。",
+            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
+        },
+    )
+    run_id = resp.json()["id"]
+    client.post(f"/api/v1/agent/runs/{run_id}/cancel")
+    done = _wait_run(client, run_id)
+    assert done["status"] == "cancelled"
+
+    # shot untouched (revision 1), no generation rows
+    assert client.get(f"/api/v1/shots/{shot['id']}").json()["revision"] == 1
+    assert client.get(f"/api/v1/shots/{shot['id']}/generations").json() == []
+
+    collected, cb = _subscribe_events(
+        {EVENT_AGENT_RUN_CANCELLED, EVENT_AGENT_RUN_COMPLETED, EVENT_AGENT_TOOL_STARTED}
+    )
+    # note: events of THIS run were already published before subscription —
+    # re-run the same flow to observe the single-cancelled-event guarantee
+    _runs.clear()
+    _cancel_requested.clear()
+    ctx2 = _make_project_shot(client)
+    resp2 = client.post(
+        "/api/v1/agent/director/runs",
+        json={
+            "project_id": ctx2["project_id"],
+            "message": "改成近景。",
+            "selection": {"shot_ids": [ctx2["shots"][0]["id"]], "scene_id": ctx2["scene_id"]},
+        },
+    )
+    run2 = resp2.json()["id"]
+    client.post(f"/api/v1/agent/runs/{run2}/cancel")
+    _wait_run(client, run2)
+
+    cancelled_events = [e for e in collected if e["type"] == EVENT_AGENT_RUN_CANCELLED]
+    completed_events = [e for e in collected if e["type"] == EVENT_AGENT_RUN_COMPLETED]
+    tool_events = [e for e in collected if e["type"] == EVENT_AGENT_TOOL_STARTED]
+    assert len(cancelled_events) == 1
+    assert cancelled_events[0]["entity_id"] == run2
+    assert completed_events == []
+    assert tool_events == []
+    _unsubscribe(cb)
+
+
+def test_cancel_between_tools_skips_remaining(client: TestClient, monkeypatch) -> None:
+    """P1-E3-T02: cancel at the tool boundary — the FIRST tool may commit, the
+    remaining tools must NOT run (no Generation created after cancel)."""
+    from app.agents.tools import ToolExecutor
+    from app.agents.director.runner import _cancel_requested as cancel_set
+    from app.events.bus import (
+        EVENT_AGENT_RUN_CANCELLED,
+        EVENT_AGENT_RUN_COMPLETED,
+        EVENT_GENERATION_CREATED,
+    )
+
+    _runs.clear()
+    _cancel_requested.clear()
+    ctx = _make_project_shot(client)
+    shot = ctx["shots"][2]
+
+    original_update = ToolExecutor._update_shot
+    cancelled_run_id = {"id": None}
+
+    def update_then_cancel(self, args):
+        result = original_update(self, args)
+        cancel_set.add(self.run_id)  # simulate user cancel right after the first tool
+        cancelled_run_id["id"] = self.run_id
+        return result
+
+    monkeypatch.setattr(ToolExecutor, "_update_shot", update_then_cancel)
+
+    resp = client.post(
+        "/api/v1/agent/director/runs",
+        json={
+            "project_id": ctx["project_id"],
+            "message": "改成近景然后重新生成。",
+            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
+        },
+    )
+    run_id = resp.json()["id"]
+    done = _wait_run(client, run_id)
+    assert done["status"] == "cancelled"
+
+    # the first (update_shot) tool committed…
+    assert client.get(f"/api/v1/shots/{shot['id']}").json()["shot_type"] == "close_up"
+    # …but the second (generate_image) tool never ran — no Generation, no Version
+    assert client.get(f"/api/v1/shots/{shot['id']}/generations").json() == []
+
+
+def test_current_stage_updates_while_running(client: TestClient, monkeypatch) -> None:
+    """P1-E3-T02: GET run exposes the real-time current_stage as the graph moves."""
+    from app.agents.director import graph as graph_module
+    from app.llm.fake import FakeLLMGateway
+
+    _runs.clear()
+    _cancel_requested.clear()
+    ctx = _make_project_shot(client)
+    shot = ctx["shots"][0]
+
+    class SlowGateway(FakeLLMGateway):
+        async def structured(self, schema, system, prompt):
+            import asyncio
+
+            await asyncio.sleep(0.3)  # keep the understand stage observable
+            return await super().structured(schema, system, prompt)
+
+    monkeypatch.setattr(graph_module, "create_gateway", lambda: SlowGateway())
+    resp = client.post(
+        "/api/v1/agent/director/runs",
+        json={
+            "project_id": ctx["project_id"],
+            "message": "改成近景。",
+            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
+        },
+    )
+    run_id = resp.json()["id"]
+
+    observed: set[str] = set()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        run = client.get(f"/api/v1/agent/runs/{run_id}").json()
+        if run["current_stage"]:
+            observed.add(run["current_stage"])
+        if run["status"] in ("completed", "failed", "cancelled"):
+            break
+        time.sleep(0.02)
+
+    # "understand" is kept observable by the slow gateway; "review" is the final
+    # stage. Fast intermediate stages are not guaranteed to be sampled.
+    assert "understand" in observed
+    assert "review" in observed
+
+
+def test_shot_updated_event_carries_agent_source_and_run_id(client: TestClient) -> None:
+    """P1-E3-T02: shot.updated distinguishes user vs agent and links run_id."""
+    from app.events.bus import EVENT_SHOT_UPDATED
+
+    _runs.clear()
+    _cancel_requested.clear()
+    ctx = _make_project_shot(client)
+    shot = ctx["shots"][1]
+
+    collected, cb = _subscribe_events({EVENT_SHOT_UPDATED})
+    resp = client.post(
+        "/api/v1/agent/director/runs",
+        json={
+            "project_id": ctx["project_id"],
+            "message": "把这个镜头改成近景。",
+            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
+        },
+    )
+    run_id = resp.json()["id"]
+    _wait_run(client, run_id)
+    _unsubscribe(cb)
+
+    shot_events = [e for e in collected if e["payload"].get("source") == "agent"]
+    assert len(shot_events) == 1
+    assert shot_events[0]["payload"]["run_id"] == run_id
+    assert shot_events[0]["payload"]["changed_fields"] == ["shot_type"]
+
+    # a user edit carries source=user (default) and no run_id
+    collected2, cb2 = _subscribe_events({EVENT_SHOT_UPDATED})
+    client.patch(
+        f"/api/v1/shots/{shot['id']}",
+        json={"revision": 2, "patch": {"emotion": "tense"}},
+    )
+    _unsubscribe(cb2)
+    user_events = [e for e in collected2 if e["type"] == EVENT_SHOT_UPDATED]
+    assert len(user_events) == 1
+    assert user_events[0]["payload"]["source"] == "user"
+    assert user_events[0]["payload"].get("run_id") is None

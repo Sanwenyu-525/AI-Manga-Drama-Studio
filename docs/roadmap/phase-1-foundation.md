@@ -224,6 +224,13 @@
 - [ ] GET run 能看到实时 current_stage 与 cancelling 状态。
 - [ ] shot.updated 能区分 user/agent 并关联 run_id。
 
+**Design Decision（P1-E3-T02，2026-08）**：
+
+- 协作式取消：`POST /agent/runs/{id}/cancel` 立即置 `cancelling`（写入取消令牌 `_cancel_requested`）；Graph 每个节点入口与每个工具执行前检查令牌（`_cancelled(state)`），观察到即停止产生副作用；Runner 在 Graph 真正停止后发布唯一一次 `agent.run.cancelled` 终态事件（API/Event 无矛盾终态，无重复发布）。取消前已提交的单步更新不回滚（Undo 属 Phase 2）。
+- 实时报告：`set_run_stage` 由各节点在入口写入 `current_stage`（understand/load_context/plan/execute/review），GET run 实时可见。
+- 真实执行报告：ToolExecutor 的 update_shot 按 before/after 对比上报 `changed_fields`（实际变化，而非请求字段）；`shot.updated` 事件 payload 携带 `source`（user|agent）与 `run_id`。
+- 测试：cancel 前后置 + 工具边界注入（首工具提交后取消 → 后续工具不执行）、单次终态事件断言、慢网关下轮询 current_stage、事件 source/run_id 断言（test_agent.py 新增 5 项）。
+
 **Priority**：P0  
 **Complexity**：M  
 **Dependencies**：P1-E3-T01  
