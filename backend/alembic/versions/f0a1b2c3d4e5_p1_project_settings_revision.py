@@ -1,7 +1,7 @@
 """p1 (ProjectSetting + revision optimistic locking)
 
 Revision ID: f0a1b2c3d4e5
-Revises: e5f6a7b8c9d0
+Revises: f6a7b8c9d0e1
 Create Date: 2026-08
 
 Phase-1 (ProjectSetting + revision 乐观锁, database-schema-design §15):
@@ -16,7 +16,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = "f0a1b2c3d4e5"
-down_revision: Union[str, Sequence[str], None] = "e5f6a7b8c9d0"
+down_revision: Union[str, Sequence[str], None] = "f6a7b8c9d0e1"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
