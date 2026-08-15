@@ -4,39 +4,65 @@ Loads a ComfyUI workflow template (API format) and injects Studio params via
 $PLACEHOLDER tokens. Studio never needs to understand KSampler/CLIP/VAE —
 it only knows prompt / negative_prompt / seed / width / height (contract §42).
 
-P1-E2-T01 (修复真实 ComfyUI workflow 与 Provider 选择):
+P1-E2-T01 (fix real ComfyUI workflow + Provider selection):
 
-- workflow_id 决定模板：受校验的 catalog（"default_image_api" → default_image_api.json），
-  未知 id 在 Generation 创建时返回 422，绝不静默回落。
-- 模板定位：settings.workflows_dir（默认仓库根 workflows/，可用 STUDIO_WORKFLOWS_DIR
-  覆盖以适配打包布局）；不再使用错误的 parents[3] 相对路径。
-- preflight：模板必须（a）是合法 JSON，（b）声明恰好一个 SaveImage 输出节点，
-  （c）包含全部必需 placeholder；缺失时 ComfyUIError，生成前失败。
+- workflow_id decides the template: a validated catalog ("default_image_api" ->
+  default_image_api.json); unknown id returns 422 at generation creation, never a
+  silent fallback.
+- Template location: settings.workflows_dir (default repo root workflows/, can be
+  overridden with STUDIO_WORKFLOWS_DIR for packaged layouts); no more erroneous
+  parents[3] relative path.
+- preflight: template must (a) be valid JSON, (b) declare exactly one SaveImage
+  output node, and (c) satisfy the WorkflowSchema template contract (P4-T005) —
+  every token used is declared and every required placeholder is present. Failures
+  surface as ComfyUIError / ValidationError before generation.
+
+P4-T006 (formal Input Mapping):
+
+- The placeholder-mapping table now lives in WorkflowSchema (workflow_schema.py):
+  logical parameter name -> placeholder token ($PROMPT etc.). build() drives
+  substitution through the schema's coerce step instead of hand-writing the values
+  dict. The external build() signature is unchanged, so existing callers
+  (ComfyUIProvider.generate, provider test preflight) are unaffected, and Studio
+  still never exposes a node_id.
 """
 
 from __future__ import annotations
 
 import json
-import random
 from pathlib import Path
 
 from app.core.config import settings
 from app.core.errors import ComfyUIError, ValidationError
 from app.core.logging import get_logger
+from app.providers.comfyui.workflow_schema import (
+    IMAGE_PARAMETERS,
+    RESERVED_PARAMETERS,
+)
+from app.providers.comfyui.workflow_schema import REQUIRED_PLACEHOLDERS  # noqa: F401 — re-export for callers/tests
+from app.providers.comfyui.workflow_schema import WorkflowSchema
 
 logger = get_logger("comfyui.mapper")
 
-# Canonical workflow catalog: workflow_id → template filename under settings.workflows_dir.
+# Canonical workflow catalog: workflow_id -> template filename under settings.workflows_dir.
 WORKFLOW_CATALOG: dict[str, str] = {
     "default_image_api": "default_image_api.json",
 }
 DEFAULT_WORKFLOW_ID = "default_image_api"
 
-# Placeholders required for a working image workflow (preflight contract).
-REQUIRED_PLACEHOLDERS = ("$PROMPT", "$SEED", "$WIDTH", "$HEIGHT")
+# Placeholders required for a working image workflow (preflight contract) — derived
+# from the declarative schema. REQUIRED_PLACEHOLDERS is re-exported from
+# workflow_schema (kept for backward compatibility with callers/tests).
 OUTPUT_NODE_CLASS = "SaveImage"
 
-PLACEHOLDERS = ("$PROMPT", "$NEGATIVE_PROMPT", "$SEED", "$WIDTH", "$HEIGHT", "$REFERENCE_IMAGE")
+# All placeholder tokens recognised by the image schema (active + reserved).
+PLACEHOLDERS: tuple[str, ...] = tuple(
+    p.placeholder for p in (IMAGE_PARAMETERS + RESERVED_PARAMETERS)
+)
+
+
+def _default_schema() -> WorkflowSchema:
+    return WorkflowSchema()
 
 
 def resolve_workflow_path(workflow_id: str | None, workflows_dir: Path | None = None) -> Path:
@@ -59,9 +85,15 @@ def resolve_workflow_path(workflow_id: str | None, workflows_dir: Path | None = 
 class WorkflowMapper:
     """Template loader + placeholder injector for ONE workflow id."""
 
-    def __init__(self, workflow_id: str | None = None, workflows_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        workflow_id: str | None = None,
+        workflows_dir: Path | None = None,
+        schema: WorkflowSchema | None = None,
+    ) -> None:
         self.workflow_id = workflow_id or DEFAULT_WORKFLOW_ID
         self.workflow_path = resolve_workflow_path(self.workflow_id, workflows_dir)
+        self.schema = schema or _default_schema()
         self._output_node_id: str | None = None
 
     def load_template(self) -> dict:
@@ -89,7 +121,7 @@ class WorkflowMapper:
         return self._output_node_id
 
     def _preflight(self, template: dict) -> None:
-        """P1-E2-T01: fail fast on missing output node / required placeholders."""
+        """P1-E2-T01 + P4-T005: fail fast on missing output node / schema contract."""
         outputs = [
             node_id
             for node_id, node in template.items()
@@ -102,22 +134,13 @@ class WorkflowMapper:
             )
         self._output_node_id = outputs[0]
 
-        input_values = [
-            value
-            for node in template.values()
-            if isinstance(node, dict)
-            for value in node.get("inputs", {}).values()
-        ]
-        missing = [
-            placeholder
-            for placeholder in REQUIRED_PLACEHOLDERS
-            if placeholder not in input_values
-        ]
-        if missing:
-            raise ComfyUIError(
-                f"Workflow template is missing required placeholders: {', '.join(missing)}.",
-                {"workflow_id": self.workflow_id, "missing": missing},
-            )
+        # P4-T005: schema-driven template contract (unknown tokens + required
+        # placeholders). A template that violates the schema is a provider-side defect,
+        # so surface it as ComfyUIError (preflight/test-connection also catch this type).
+        try:
+            self.schema.validate_template(template)
+        except ValidationError as exc:
+            raise ComfyUIError(exc.message, {"workflow_id": self.workflow_id, **exc.details}) from exc
 
     def build(
         self,
@@ -129,20 +152,20 @@ class WorkflowMapper:
         height: int | None = None,
         reference_images: list[str] | None = None,
     ) -> dict:
-        """Return a workflow with placeholders substituted (reference upload is caller's job)."""
+        """Return a workflow with placeholders substituted from the schema
+        (reference upload is the caller's job). Parameters are type/range validated
+        via the schema; errors surface as ValidationError (422)."""
         template = self.load_template()
-        resolved_seed = seed if seed is not None else random.randint(0, 2**31)
-        refs = reference_images or []
-        ref_value = refs[0] if refs else ""
-
-        values = {
-            "$PROMPT": prompt,
-            "$NEGATIVE_PROMPT": negative_prompt or "",
-            "$SEED": resolved_seed,
-            "$WIDTH": width or 512,
-            "$HEIGHT": height or 912,
-            "$REFERENCE_IMAGE": ref_value,
-        }
+        # P4-T006: the mapper no longer hand-writes a values dict — the schema owns
+        # the logical-name → placeholder mapping, defaults and random-seed resolution.
+        values = self.schema.coerce(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            seed=seed,
+            width=width,
+            height=height,
+            reference_images=reference_images,
+        )
 
         workflow = json.loads(json.dumps(template))  # deep copy
         for node in workflow.values():

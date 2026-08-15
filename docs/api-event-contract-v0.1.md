@@ -1083,6 +1083,23 @@ Request：
 > （project default 取 `project_settings.default_image_workflow_id` / `default_video_workflow_id`，
 > 按 `type` 选择；system default = `default_image_api`）。显式传入保持原有 422 前检；
 > 未知的解析结果一律 422（绝不静默回退）。
+>
+> **逻辑参数 schema（P4-T005）**：每个 workflow 的占位符注入由声明式逻辑参数表驱动
+> （`providers/comfyui/workflow_schema.py`，逻辑参数名 → `$PLACEHOLDER` token）：
+>
+> ```text
+> prompt            str    必填（$PROMPT）
+> negative_prompt   str    可选（$NEGATIVE_PROMPT，默认 ""）
+> seed              int    可选（$SEED，0..2^31-1；缺省随机）
+> width / height    int    可选（$WIDTH/$HEIGHT，64..4096，默认 512x912）
+> reference_images  list[str] 可选（$REFERENCE_IMAGE，取首项；上传由 provider 负责）
+> duration / resolution        视频预留字段（$DURATION/$RESOLUTION，MVP image 不实例化）
+> ```
+>
+> template 校验：模板中出现的占位符必须都在 schema 内（未知 token → preflight 失败）；
+> schema 必需占位符（`$PROMPT/$SEED/$WIDTH/$HEIGHT`）必须出现在模板。请求参数类型/范围错误
+> （如 width/height 超出 64..4096、seed 非法）→ ValidationError 422。前端只见逻辑参数，
+> 永不暴露 node_id（见 §112-113）。
 
 ---
 
