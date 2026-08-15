@@ -16,6 +16,7 @@ from app.api import (
     prompts,
     provenance,
     providers,
+    readmodels,
     scenes,
     shots,
     workflows,
@@ -28,6 +29,7 @@ api_router.include_router(projects.router)
 api_router.include_router(episodes.router)
 api_router.include_router(scenes.router)
 api_router.include_router(shots.router)
+api_router.include_router(readmodels.router)
 api_router.include_router(characters.router)
 api_router.include_router(locations.router)
 api_router.include_router(costumes.router)

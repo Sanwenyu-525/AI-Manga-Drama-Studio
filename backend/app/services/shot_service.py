@@ -12,7 +12,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError, ValidationError
-from app.db.models import Character, Episode, Scene, Shot, ShotCharacter
+from app.db.models import Character, Episode, Scene, Shot, ShotCharacter, ShotVisualSpec
 from app.domain.scene import SceneSummary
 from app.domain.shot import (
     ShotCreate,
@@ -44,19 +44,27 @@ DIRTY_FIELDS = {
 }
 
 
-def _to_read(s: Shot, character_ids: list[str] | None = None) -> ShotRead:
+def _to_read(
+    s: Shot,
+    character_ids: list[str] | None = None,
+    spec: ShotVisualSpec | None = None,
+) -> ShotRead:
+    """Build the shot DTO. P2-T005: prefer the ShotVisualSpec fields and fall back
+    to the deprecated inline shot columns when the spec/mapping field is missing,
+    so legacy rows created before the spec migration stay fully readable."""
+    mapped = spec.mapped_read_dict() if spec is not None else {}
     return ShotRead(
         id=s.id,
         scene_id=s.scene_id,
         shot_number=s.shot_number,
         shot_order=s.shot_order,
-        shot_type=s.shot_type,
-        camera_angle=s.camera_angle,
-        camera_movement=s.camera_movement,
+        shot_type=_spec_or_legacy(mapped, "shot_type", s.shot_type),
+        camera_angle=_spec_or_legacy(mapped, "camera_angle", s.camera_angle),
+        camera_movement=_spec_or_legacy(mapped, "camera_movement", s.camera_movement),
         lens=s.lens,
         duration=s.duration,
-        action=s.action,
-        emotion=s.emotion,
+        action=_spec_or_legacy(mapped, "action", s.action),
+        emotion=_spec_or_legacy(mapped, "emotion", s.emotion),
         dialogue=s.dialogue,
         image_prompt=s.image_prompt,
         character_ids=character_ids or [],
@@ -68,17 +76,30 @@ def _to_read(s: Shot, character_ids: list[str] | None = None) -> ShotRead:
     )
 
 
-def _to_summary(s: Shot, character_names: list[str] | None = None) -> ShotSummary:
+def _to_summary(
+    s: Shot,
+    character_names: list[str] | None = None,
+    spec: ShotVisualSpec | None = None,
+) -> ShotSummary:
+    mapped = spec.mapped_read_dict() if spec is not None else {}
     return ShotSummary(
         id=s.id,
         shot_number=s.shot_number,
-        shot_type=s.shot_type,
+        shot_type=_spec_or_legacy(mapped, "shot_type", s.shot_type),
         duration=s.duration,
         status=s.status,
         dirty_state=s.dirty_state,
         thumbnail_url=None,  # resolved per-shot in get_storyboard (needs DB lookups)
         character_names=character_names or [],
     )
+
+
+def _spec_or_legacy(mapped: dict, key: str, legacy: object) -> object | None:
+    """P2-T005 read preference: use the formal spec value when present (neither a
+    missing spec row nor a NULL spec field), otherwise fall back to the legacy
+    inline shot column."""
+    value = mapped.get(key)
+    return value if value is not None else legacy
 
 
 class ShotService:
@@ -101,7 +122,8 @@ class ShotService:
             )
         )
         ids, _ = self._character_data([shot.id])
-        return _to_read(shot, ids.get(shot.id, []))
+        spec = self._specs_for([shot.id]).get(shot.id)
+        return _to_read(shot, ids.get(shot.id, []), spec)
 
     def create_shots(
         self,
@@ -140,6 +162,7 @@ class ShotService:
             )
             self.repo.add(shot)
             self.session.flush()  # assign shot.id before link rows reference it (autoflush=False)
+            self._upsert_spec(shot)  # P2-T005: same-transaction write-through
             if data.image_prompt:
                 # ADR-002: inline prompt at creation is backed by a v1 prompt version
                 from app.services.prompt_service import PromptService
@@ -195,7 +218,8 @@ class ShotService:
             raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
         self._require_live_scene(shot)  # P1-E1-T02: hidden when the parent scene is soft-deleted
         ids, _ = self._character_data([shot_id])
-        return _to_read(shot, ids.get(shot_id, []))
+        spec = self._specs_for([shot_id]).get(shot_id)
+        return _to_read(shot, ids.get(shot_id, []), spec)
 
     def list_shots(self, scene_id: str) -> list[ShotRead]:
         scene = self.scenes.get(scene_id)
@@ -203,7 +227,8 @@ class ShotService:
             raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
         shots = self.repo.list_for_scene(scene_id)
         ids, _ = self._character_data([s.id for s in shots])
-        return [_to_read(s, ids.get(s.id, [])) for s in shots]
+        specs = self._specs_for([s.id for s in shots])
+        return [_to_read(s, ids.get(s.id, []), specs.get(s.id)) for s in shots]
 
     def update_shot(
         self,
@@ -272,7 +297,8 @@ class ShotService:
 
         if not values and not character_change and not prompt_change:
             ids, _ = self._character_data([shot_id])
-            return _to_read(shot, ids.get(shot_id, []))
+            spec = self._specs_for([shot_id]).get(shot_id)
+            return _to_read(shot, ids.get(shot_id, []), spec)
 
         if any(f in DIRTY_FIELDS for f in changed):
             values["dirty_state"] = "dirty_image"
@@ -300,8 +326,13 @@ class ShotService:
             )
         if character_change:
             self._replace_characters(shot, assignments)
-        self.session.commit()
+        # Persist any pending ORM-side changes (prompt write-through cache, character
+        # links) BEFORE refreshing, so the reload sees the conditional-UPDATE columns
+        # AND the prompt-cache columns at their new values — one transaction (P2-T005).
+        self.session.flush()
         self.session.refresh(shot)
+        self._upsert_spec(shot)  # P2-T005: same-transaction write-through
+        self.session.commit()
 
         if changed:
             bus.publish(
@@ -319,7 +350,8 @@ class ShotService:
                 )
             )
         ids, _ = self._character_data([shot_id])
-        return _to_read(shot, ids.get(shot_id, []))
+        spec = self._specs_for([shot_id]).get(shot_id)
+        return _to_read(shot, ids.get(shot_id, []), spec)
 
     def delete_shot(self, shot_id: str) -> None:
         shot = self.repo.get(shot_id)
@@ -370,7 +402,9 @@ class ShotService:
             shot.shot_number = index
         self.session.commit()
         ids, _ = self._character_data(list(shots))
-        return [_to_read(s, ids.get(s.id, [])) for s in self.repo.list_for_scene(scene_id)]
+        live = self.repo.list_for_scene(scene_id)
+        specs = self._specs_for([s.id for s in live])
+        return [_to_read(s, ids.get(s.id, []), specs.get(s.id)) for s in live]
 
     def get_storyboard(self, scene_id: str) -> StoryboardRead:
         """Aggregate endpoint payload (api-event-contract §101-102) — avoids N+1 on the grid."""
@@ -380,15 +414,49 @@ class ShotService:
         shots = self.repo.list_for_scene(scene_id)
         thumbnails = self._thumbnail_urls(shots)
         _, names = self._character_data([s.id for s in shots])
+        specs = self._specs_for([s.id for s in shots])
         summaries = []
         for s in shots:
-            summary = _to_summary(s, names.get(s.id, []))
+            summary = _to_summary(s, names.get(s.id, []), specs.get(s.id))
             summary.thumbnail_url = thumbnails.get(s.id)
             summaries.append(summary)
         return StoryboardRead(
             scene=SceneSummary(id=scene.id, scene_number=scene.scene_number, name=scene.name),
             shots=summaries,
         )
+
+    # --- ShotVisualSpec (P2-T005: formalized spec, 1:1 with shots) ---
+
+    def _specs_for(self, shot_ids: list[str]) -> dict[str, ShotVisualSpec]:
+        """shot_id → ShotVisualSpec, one query (SELECT ... WHERE shot_id IN (...))."""
+        if not shot_ids:
+            return {}
+        specs = self.session.scalars(
+            select(ShotVisualSpec).where(ShotVisualSpec.shot_id.in_(shot_ids))
+        )
+        return {spec.shot_id: spec for spec in specs}
+
+    def _upsert_spec(self, shot: Shot) -> None:
+        """Write-through the formal ShotVisualSpec row from the shot's live framing
+        fields + its scene's world/staging, in the SAME transaction (P2-T005).
+
+        Fields that have no legacy inline shot column (composition, facial_expression,
+        style_instructions, negative_instructions) are left untouched by this sync so
+        an external writer can fill them later; the spec keeps whatever it already has.
+        """
+        scene = self.session.get(Scene, shot.scene_id)
+        spec = self.session.get(ShotVisualSpec, shot.id)
+        if spec is None:
+            spec = ShotVisualSpec(shot_id=shot.id)
+            self.session.add(spec)
+        spec.shot_type = shot.shot_type
+        spec.camera_angle = shot.camera_angle
+        spec.camera_movement = shot.camera_movement
+        spec.action = shot.action
+        spec.mood = shot.emotion  # spec.mood ↔ shot.emotion (legacy)
+        spec.environment = shot.environment_description
+        spec.location_id = scene.location_id if scene else None
+        spec.lighting = scene.lighting if scene else None
 
     # --- character assignment (database-v0.1 §11) ---
 

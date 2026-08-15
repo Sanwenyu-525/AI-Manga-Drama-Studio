@@ -481,6 +481,15 @@ updated_at
 
 这是整个数据库最核心的表。
 
+> **P2-T005（已落地）**：`shot_visual_specs` 1:1 表已落地（见 §10.1），正式承载镜头视觉规格
+> （shot_type / camera_angle / camera_movement / composition / location_id / lighting / mood /
+> action / facial_expression / environment / style_instructions / negative_instructions / metadata）。
+> 本节 `shots` 内联字段（shot_type / camera_angle / camera_movement / lens / duration / action /
+> emotion / environment_description / image_prompt / video_prompt / negative_prompt）标记为
+> **deprecated**：保留以兼容历史数据；ShotService 创建/更新镜头时在同一事务写透到 spec，
+> 读取时优先 spec、缺失回退旧字段；后续批次再清理旧字段（本次不做数据迁移）。
+> 相关 Read Model：`GET /projects/{id}/tree`、`GET /scenes/{id}/editor`、`GET /shots/{id}/inspector`。
+
 ```sql
 shots
 ```
@@ -544,6 +553,38 @@ created_at
 
 updated_at
 ```
+### 10.1 shot_visual_specs（P2-T005 已落地）
+
+镜头视觉规格正式分离为 1:1 子表（shot_id 即主键 / FK→shots.id）：
+
+```sql
+shot_visual_specs
+```
+
+字段：
+
+```text
+shot_id               （PK，FK→shots.id，1:1）
+shot_type             （wide|medium|close_up...）
+camera_angle          （eye_level|low_angle|high_angle...）
+camera_movement       （static|pan|dolly|handheld...）
+composition           （rule_of_thirds|centered...）
+location_id           （FK→locations，Phase 2 表；当前回填 scene.location_id）
+lighting              （当前回填 scene.lighting）
+mood                  （spec.mood ↔ 旧 shot.emotion）
+action                （spec.action ↔ 旧 shot.action）
+facial_expression
+environment           （spec.environment ↔ 旧 shot.environment_description）
+style_instructions
+negative_instructions
+metadata_json
+created_at
+updated_at
+```
+
+写入策略（write-through）：ShotService 创建/更新镜头时在同一事务 upsert 该行；
+读取策略（read preference）：shot DTO / storyboard 聚合优先 spec 字段，spec 缺失
+时回退到 `shots` 旧字段（向后兼容）；旧字段保持 deprecated，后续批次清理。
 
 analysis_key（P1-E1-T01）：分镜规划（generate-shots）的幂等键；NOT NULL 表示
 AI 创建的镜头（replace 时软删除的目标）。内部字段，不进 API。
