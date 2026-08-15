@@ -3801,6 +3801,12 @@ Generation 与 Agent 生命周期分离。
 /generations/{id}/inputs            （P3：生成请求输入引用）
 
 /generations/{id}/outputs           （P3：生成结果资产）
+
+--- P3（Asset Import / Missing）---
+
+/projects/{id}/assets/import         （P3-T003：multipart 导入外部文件 → 项目级 Asset，201 返回 AssetRead）
+
+/projects/{id}/assets/check-missing  （P3-T005：扫描项目资产，ready→missing，返回 {checked, missing}）
 ```
 
 ---

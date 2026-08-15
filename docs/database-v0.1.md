@@ -1887,6 +1887,23 @@ Storyboard：
 EP01_SC03_SH005_STORYBOARD_V001.png
 ```
 
+---
+
+### 40.1 导入资产命名（P3-T003）
+
+外部文件导入为项目级（**project-scope**，无 shot / version 归属）Asset，存放于
+`<proj>/imported/` 目录，命名与生成资产区分：
+
+```text
+<PROJECT_ID>_IMP_001.png
+<PROJECT_ID>_IMP_002.jpg
+```
+
+- 命名由系统自动生成（不要依赖用户手动命名）。
+- `source_type = imported`，`version_group_id / version_number` 为 NULL。
+- 元数据由 MediaProbeService（纯标准库）探测：图片解析宽高/格式/模式；视频/音频
+  用 ffprobe（不可用时返回空元数据，绝不报错）。
+
 不要依赖用户手动命名。
 
 ---

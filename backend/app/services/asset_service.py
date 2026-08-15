@@ -1,32 +1,59 @@
-"""AssetService (backend-architecture §15, mvp-spec §27).
+"""AssetService (backend-architecture §15, mvp-spec §27; P3-T003/T005).
 
 File storage layout (database-v0.1 §38-40):
   <data_dir>/projects/{project_id}/images/EP01_SC03_SH005_IMG_V001.png
+  <data_dir>/projects/{project_id}/imported/{PROJECT_ID}_IMP_001.png
 DB stores ONLY relative paths — the whole project directory is portable.
+
+P3-T003 (import): external files become project-scope Assets (source_type=imported,
+no shot / version-group ownership). P3-T005 (missing): a ready asset whose file
+disappears is marked "missing"; the record and any file are preserved.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 from PIL import Image
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.errors import NotFoundError
+from app.core.errors import NotFoundError, ValidationError
 from app.core.logging import get_logger
-from app.db.models import Asset, Episode, Scene, Shot
+from app.db.models import Asset, Episode, Project, Scene, Shot
 from app.events.bus import EVENT_ASSET_CREATED, StudioEvent, bus
 from app.repositories import SceneRepository, ShotRepository
 
 logger = get_logger("assets")
 
 THUMBNAIL_WIDTH = 240
+IMPORT_MAX_BYTES = 50 * 1024 * 1024  # 50 MB (P3-T003 validation)
+IMPORTED_SUBDIR = "imported"
+
+_IMAGE_MIME_BY_FORMAT = {
+    "png": "image/png",
+    "jpeg": "image/jpeg",
+    "jpg": "image/jpeg",
+    "webp": "image/webp",
+    "gif": "image/gif",
+}
 
 
 def project_dir(project_id: str) -> Path:
     return settings.data_dir / "projects" / project_id
+
+
+def _import_suffix(asset_type: str, original_name: str) -> str:
+    """Best-effort file extension for the imported copy (database-v0.1 §40)."""
+    if asset_type == "video":
+        return ".mp4"
+    suffix = Path(original_name).suffix.lower()
+    if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+        return suffix
+    return ".png"
 
 
 class AssetService:
@@ -110,6 +137,154 @@ class AssetService:
                 )
             )
         return asset
+
+    def import_asset(
+        self,
+        *,
+        project_id: str,
+        asset_type: str,
+        source_path: str | Path,
+        purpose: str | None = None,
+        source_name: str | None = None,
+    ) -> Asset:
+        """P3-T003: bring an external file into the project and register it as a
+        project-scope Asset (no shot / version-group ownership).
+
+        - Naming (database-v0.1 §40): projects are portable, so imported assets
+          live under <proj>/imported/ with the scheme {PROJECT_ID}_IMP_{seq} —
+          distinct from generated EP_SC_SH_IMG_V assets.
+        - SHA-256 checksum (same hash as register_asset).
+        - Metadata from MediaProbeService (pure stdlib; never errors).
+        - Owns its own transaction: commit then publish asset.created.
+        """
+        from app.services.media_probe_service import probe
+
+        project = self.session.get(Project, project_id)
+        if project is None:
+            raise NotFoundError("Project does not exist.", {"project_id": project_id})
+
+        allowed = ("image", "video")
+        if asset_type not in allowed:
+            raise ValidationError(
+                "Unsupported asset_type for import.",
+                {"asset_type": asset_type, "supported": list(allowed)},
+            )
+
+        source = Path(source_path)
+        if not source.is_file():
+            raise NotFoundError("Source file does not exist.", {"path": str(source)})
+
+        size = source.stat().st_size
+        if size > IMPORT_MAX_BYTES:
+            raise ValidationError(
+                "Imported asset exceeds the 50 MB limit.",
+                {"size": size, "limit": IMPORT_MAX_BYTES},
+            )
+
+        seq = self._next_import_seq(project_id)
+        dest_name = f"{project_id}_IMP_{seq:03d}{_import_suffix(asset_type, source.name)}"
+        rel_dir = Path(IMPORTED_SUBDIR)
+        dest_dir = project_dir(project_id) / rel_dir
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / dest_name
+
+        content = source.read_bytes()
+        dest.write_bytes(content)
+        checksum = hashlib.sha256(content).hexdigest()
+
+        media = probe(dest) or {}
+        mime_type = None
+        if asset_type == "image":
+            fmt = media.get("format") or "png"
+            mime_type = _IMAGE_MIME_BY_FORMAT.get(fmt, f"image/{fmt}")
+
+        thumbnail_rel = self.create_thumbnail(project_id, dest) if asset_type == "image" else None
+
+        meta = {"asset_type": asset_type}
+        if purpose:
+            meta["purpose"] = purpose
+        if source_name:
+            meta["source_name"] = source_name
+        if "codec_type" in media:
+            meta["codec"] = media.get("codec_name")
+
+        asset = Asset(
+            project_id=project_id,
+            type=asset_type,
+            name=dest.name,
+            file_path=str(rel_dir / dest.name).replace("\\", "/"),
+            thumbnail_path=thumbnail_rel,
+            mime_type=mime_type,
+            width=media.get("width"),
+            height=media.get("height"),
+            duration=media.get("duration"),
+            file_size=size,
+            meta_json=json.dumps(meta, ensure_ascii=False),
+            status="ready",
+            source_type="imported",
+            checksum=checksum,
+            version_group_id=None,
+            version_number=None,
+            generation_id=None,
+            parent_asset_id=None,
+        )
+        self.session.add(asset)
+        self.session.commit()
+        self._publish_asset_created(asset)
+        logger.info("asset imported: %s -> %s (%d bytes)", dest_name, project_id, size)
+        return asset
+
+    def check_missing_assets(self, project_id: str) -> tuple[int, int]:
+        """P3-T005: scan a project's assets; mark ready assets whose file is
+        missing as "missing" (record is KEPT, file untouched). Returns
+        (checked, newly_missing)."""
+        project = self.session.get(Project, project_id)
+        if project is None:
+            raise NotFoundError("Project does not exist.", {"project_id": project_id})
+
+        rows = list(
+            self.session.scalars(
+                select(Asset).where(
+                    Asset.project_id == project_id,
+                    Asset.deleted_at.is_(None),
+                    Asset.file_path.is_not(None),
+                    Asset.status == "ready",
+                )
+            )
+        )
+        checked = 0
+        newly_missing = 0
+        for asset in rows:
+            checked += 1
+            path = project_dir(project_id) / asset.file_path
+            if not path.is_file():
+                asset.status = "missing"
+                newly_missing += 1
+        self.session.commit()
+        logger.info("missing-asset scan for %s: checked=%d new_missing=%d", project_id, checked, newly_missing)
+        return checked, newly_missing
+
+    def _next_import_seq(self, project_id: str) -> int:
+        count = self.session.scalar(
+            select(func.count())
+            .select_from(Asset)
+            .where(
+                Asset.project_id == project_id,
+                Asset.name.like(f"{project_id}_IMP_%"),
+            )
+        )
+        return int(count or 0) + 1
+
+    def _publish_asset_created(self, asset: Asset) -> None:
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_ASSET_CREATED,
+                entity_type="asset",
+                entity_id=asset.id,
+                project_id=asset.project_id,
+                payload={"type": asset.type, "source": "import"},
+            )
+        )
 
     def create_thumbnail(self, project_id: str, image_path: Path) -> str | None:
         """Generate a small thumbnail next to the image; returns relative path or None."""
