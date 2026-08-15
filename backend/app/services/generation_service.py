@@ -12,6 +12,7 @@ import json
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.logging import get_logger
 from app.db.models import Generation, Shot
@@ -44,6 +45,22 @@ class GenerationService:
         if project_id is None:
             raise NotFoundError("Shot has no project.", {"shot_id": shot_id})
 
+        # P1-E2-T01: fail fast BEFORE queuing — canonical provider id, supported
+        # media type, known workflow. generation.provider will equal the
+        # implementation the worker actually runs.
+        if data.type != "image":
+            raise ValidationError(
+                "Only image generation is supported in MVP.",
+                {"type": data.type, "supported": ["image"]},
+            )
+        from app.providers.comfyui.workflow_mapper import resolve_workflow_path
+        from app.providers.registry import get_image_provider
+
+        provider = data.provider or settings.image_provider
+        get_image_provider(provider)  # unknown provider → ValidationError (422)
+        if data.workflow_id:
+            resolve_workflow_path(data.workflow_id)  # unknown workflow → ValidationError (422)
+
         prompt = data.prompt or shot.image_prompt
         if not prompt:
             raise ValidationError(
@@ -55,7 +72,7 @@ class GenerationService:
             project_id=project_id,
             shot_id=shot_id,
             type=data.type,
-            provider=data.provider or "default",
+            provider=provider,
             workflow_id=data.workflow_id,
             status="queued",
             parameters=json.dumps(

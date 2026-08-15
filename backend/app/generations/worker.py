@@ -108,9 +108,12 @@ async def run_generation(generation_id: str) -> None:
         project_id = generation.project_id
         shot_id = generation.shot_id
         gen_id = generation.id
+        provider_id = generation.provider
         params = json.loads(generation.parameters or "{}")
 
-    provider = get_image_provider()
+    # P1-E2-T01: the stored provider id IS the implementation to run — the
+    # registry resolves it (unknown ids are rejected at creation, 422).
+    provider = get_image_provider(provider_id)
     request = ImageRequest(
         prompt=params.get("prompt", ""),
         negative_prompt=params.get("negative_prompt"),

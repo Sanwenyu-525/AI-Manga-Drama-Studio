@@ -101,6 +101,14 @@
 - [ ] `httpx`、`websockets` 等运行依赖显式声明。
 - [ ] 配置正确的 ComfyUI 可完成 test connection 与最小生成 smoke。
 
+**Design Decision（P1-E2-T01，2026-08）**：
+
+- 规范 provider id：`mock|comfyui`；GenerationService 创建时解析（缺省 = settings.image_provider）并校验，未知 provider/type/workflow → 422（fail fast，不静默回落）；落库的 generation.provider 即 Worker 实际执行的实现（get_image_provider(provider_id) 按 id 解析）。
+- workflow catalog：`WORKFLOW_CATALOG`（MVP：default_image_api → default_image_api.json）；模板目录 = `settings.workflows_dir`（默认仓库根 workflows/，STUDIO_WORKFLOWS_DIR 可覆盖打包布局），修复原 parents[3] 指向 backend/workflows 的错误默认路径。
+- preflight：合法 JSON + 恰好一个 SaveImage 输出节点 + 必需 placeholder（`$PROMPT/$SEED/$WIDTH/$HEIGHT`）；缺失时 ComfyUIError；test connection 同时报告 preflight。WS monitor 移除硬编码 node 14。
+- 依赖：httpx、websockets 声明为显式运行依赖。
+- 测试：`test_provider_contract.py` 10 项（无需 GPU）：模板定位/preflight 失败注入/workflow_id 决定模板/未知 provider/workflow/video 422/worker 按存储 provider 解析/test 端点 preflight。
+
 **Priority**：P0  
 **Complexity**：M  
 **Dependencies**：无  

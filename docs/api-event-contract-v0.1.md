@@ -1307,6 +1307,10 @@ Response：
 
 # 48. Test ComfyUI
 
+P1-E2-T01：连接成功时同时报告默认 workflow 的 preflight 状态（模板缺失 /
+非法 JSON / 缺少 SaveImage 输出节点 / 缺少必需 placeholder 都会在 workflow.error
+中返回，不需要 GPU 即可验证配置）。
+
 ```http
 POST /api/v1/providers/comfyui/test
 ```

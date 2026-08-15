@@ -26,7 +26,6 @@ class ComfyUIProvider:
 
     def __init__(self) -> None:
         self.client = ComfyUIClient(settings.comfyui_url)
-        self.mapper = WorkflowMapper()
         self._output_dir = settings.data_dir / "comfyui_output"
         self._output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -42,7 +41,9 @@ class ComfyUIProvider:
             )
         on_progress(2, "queuing")
 
-        workflow = self.mapper.build(
+        # P1-E2-T01: the workflow_id on the Generation decides the template.
+        mapper = WorkflowMapper(workflow_id=request.workflow_id)
+        workflow = mapper.build(
             prompt=request.prompt,
             negative_prompt=request.negative_prompt,
             seed=request.seed,

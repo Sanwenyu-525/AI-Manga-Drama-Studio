@@ -5,6 +5,7 @@ requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.19.1",
     "fastapi>=0.141.1",
+    "httpx>=0.28.1",  # ComfyUI client (P1-E2-T01: explicit runtime dep)
     "langchain-core>=1.5.4",
     "langchain-openai>=1.5.0",
     "langgraph>=1.2.11",
@@ -12,6 +13,7 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "sqlalchemy>=2.0.52",
     "uvicorn[standard]>=0.52.3",
+    "websockets>=15.0",  # ComfyUI WS monitor (P1-E2-T01: explicit runtime dep)
 ]
 
 [dependency-groups]

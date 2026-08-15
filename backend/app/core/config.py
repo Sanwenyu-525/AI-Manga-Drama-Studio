@@ -1,10 +1,12 @@
 """Application configuration (pydantic-settings, env prefix STUDIO_)."""
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+REPO_ROOT = BACKEND_DIR.parent
 
 
 class Settings(BaseSettings):
@@ -48,10 +50,15 @@ class Settings(BaseSettings):
 
     # Generation (Stage C): "mock" = MockImageProvider (deterministic test image, default);
     # "comfyui" = external ComfyUI server (user-started, mvp-spec §8).
-    image_provider: str = "mock"  # mock | comfyui
+    # P1-E2-T01: Literal type → invalid provider values fail at startup/preflight.
+    image_provider: Literal["mock", "comfyui"] = "mock"
     comfyui_url: str = "http://127.0.0.1:8188"
     generation_concurrency: int = 1  # ComfyUI queue is serial; keep 1 for MVP
     generation_max_attempts: int = 3
+
+    # ComfyUI workflow templates (P1-E2-T01): default = repo root workflows/;
+    # override with STUDIO_WORKFLOWS_DIR for packaged/bundled layouts.
+    workflows_dir: Path = REPO_ROOT / "workflows"
 
     @property
     def database_path(self) -> Path:

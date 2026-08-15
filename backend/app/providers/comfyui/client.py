@@ -137,8 +137,8 @@ class ComfyUIClient:
                             if node is None:
                                 on_done()
                                 return
-                            if node == "14":
-                                on_progress(99, "saving")
+                            # P1-E2-T01: no hardcoded output node id — "executed" /
+                            # "execution_error" events carry the final state.
                         elif msg_type == "executed":
                             on_progress(100, "saving")
                         elif msg_type == "execution_error":

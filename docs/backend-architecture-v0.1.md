@@ -1719,12 +1719,26 @@ WebSocketMonitor
 
 # 41. ComfyUI 调用流程
 
+Provider / Workflow 契约（P1-E2-T01）：
+
+- 规范 provider id：`mock` | `comfyui`。Generation 创建时把请求中的 provider
+  解析为规范 id（缺省 = `settings.image_provider`），未知 id 返回 422；
+  落库的 `generation.provider` 就是 Worker 实际执行的实现（Registry 按 id 解析，
+  不再忽略该字段）。media type 只支持 image，video 请求 fail fast 422。
+- workflow catalog：`workflow_id` 决定模板文件（`workflow_mapper.py` 的
+  WORKFLOW_CATALOG），未知 id 422；模板目录 = `settings.workflows_dir`
+  （默认仓库根 `workflows/`，可用 `STUDIO_WORKFLOWS_DIR` 覆盖以适配打包布局）。
+- preflight：模板必须是合法 JSON、声明恰好一个 `SaveImage` 输出节点、包含全部
+  必需 placeholder（`$PROMPT/$SEED/$WIDTH/$HEIGHT`），否则 ComfyUIError 在生成前失败；
+  `POST /providers/comfyui/test` 在连接成功后同时报告 workflow preflight 状态。
+- WS monitor 不再硬编码输出 node id（"executed"/"execution_error" 事件承载终态）。
+
 ```text
 GenerationRequest
        ↓
 ComfyUIProvider
        ↓
-Load Workflow Template
+Load Workflow Template (workflow_id → catalog → preflight)
        ↓
 Inject Parameters
        ↓
