@@ -433,6 +433,8 @@ active_image_asset_id
 
 active_video_asset_id
 
+active_prompt_version_id   （ADR-002 便捷指针，权威在 prompts.active_version_id）
+
 analysis_key
 
 status
@@ -683,57 +685,52 @@ scene_asset
 
 ---
 
-# 15. Prompt 表
+# 15. Prompt 表（ADR-002 已落地：prompts + prompt_versions）
 
-Prompt 不建议全部只写在 Shot 里。
+> **ADR-002（docs/adr/ADR-002-prompt-versioning.md）已实现（2026-08）**：
+> Prompt 版本化正式落地，Shot 内联 Prompt（`image_prompt/video_prompt/negative_prompt`）
+> 保留为**弃用写透缓存**（由 PromptService 同步），权威版本在 `prompts.active_version_id`。
+> `shots.active_prompt_version_id` 为便捷指针（SHOT_IMAGE 优先）；
+> `generations.prompt_version_id` 记录生成使用的具体版本（provenance）。
 
-后期需要管理历史 Prompt。
+`prompts`（每目标每类型一行，active 权威）：
 
 ```sql
-prompts
+CREATE TABLE prompts (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    target_type TEXT NOT NULL,      -- SHOT（首期；后续 CHARACTER/LOCATION/...）
+    target_id TEXT NOT NULL,
+    prompt_type TEXT NOT NULL,      -- SHOT_IMAGE | SHOT_VIDEO（首期）
+    active_version_id TEXT,         -- 权威 active 指针 → prompt_versions.id
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+-- 索引: idx_prompts_target(target_type, target_id)
+--        idx_prompts_type(target_type, target_id, prompt_type)
 ```
 
-字段：
+`prompt_versions`（不可变版本链，编辑产生 vN+1）：
 
-```text
-id
-
-project_id
-
-entity_type
-
-entity_id
-
-prompt_type
-
-provider
-
-model
-
-content
-
-negative_content
-
-metadata
-
-created_at
+```sql
+CREATE TABLE prompt_versions (
+    id TEXT PRIMARY KEY,
+    prompt_id TEXT NOT NULL REFERENCES prompts(id),
+    version_number INTEGER NOT NULL,
+    positive_prompt TEXT,
+    negative_prompt TEXT,
+    structured_spec_json TEXT,      -- Canonical Prompt Spec（Phase 7 Prompt Agent 产出）
+    provider TEXT,
+    model TEXT,
+    generated_by TEXT,              -- user | agent | migration | system
+    parent_version_id TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (prompt_id, version_number)
+);
+-- 索引: idx_prompt_versions_prompt(prompt_id, version_number)
 ```
 
-prompt_type：
-
-```text
-character
-
-scene
-
-image
-
-video
-
-storyboard
-
-rewrite
-```
+Shot 表新增：`active_prompt_version_id`（便捷指针）。
 
 ---
 
@@ -1694,7 +1691,7 @@ costumes
 
 props
 
-prompts
+prompts（+ prompt_versions，ADR-002 已实现）
 
 workflows
 

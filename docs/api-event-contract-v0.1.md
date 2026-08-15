@@ -1598,6 +1598,8 @@ shot.version.created   （兼容保留：语义同 Asset 版本创建，payload 
 shot.active_version.changed   （ADR-001：payload = {media_type, asset_id, version_number}，active 指针指向 Asset）
 
 shot.dirty_state.changed
+
+prompt.version.created / prompt.active_version.changed   （预留：Alpha P3 尚未发布 prompt 事件，前端以 REST 为准）
 ```
 
 ---
@@ -3749,6 +3751,24 @@ Generation 与 Agent 生命周期分离。
 /workflows
 
 /health
+
+--- P3（ADR-001/ADR-002）---
+
+/shots/{id}/versions                （Asset 版本列表，image+video）
+
+/media-versions/{assetId}/activate  （按 Asset 激活，旧路径兼容保留）
+
+/shots/{id}/image-versions          /shots/{id}/video-versions
+
+/shots/{id}/image-versions/{assetId}/activate
+
+/shots/{id}/video-versions/{assetId}/activate
+
+/shots/{id}/prompts                 （列表/创建，ADR-002）
+
+/prompts/{id}/versions              （列表/创建 vN+1）
+
+/prompts/{id}/versions/{versionId}/activate
 ```
 
 ---
