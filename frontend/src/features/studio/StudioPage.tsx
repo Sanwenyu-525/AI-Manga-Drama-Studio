@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Circle, FilmStrip, ImageSquare, MagicWand, Play, Scroll, SquaresFour } from "@phosphor-icons/react";
+import { CaretLineLeft, CaretLineRight, Circle, FilmStrip, ImageSquare, MagicWand, Play, Scroll, SquaresFour } from "@phosphor-icons/react";
 import { Link, Outlet, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
@@ -33,6 +33,10 @@ export function StudioPage() {
   const rightPanelTab = useWorkspaceStore((state) => state.rightPanelTab);
   const setRightPanelTab = useWorkspaceStore((state) => state.setRightPanelTab);
   const dockExpanded = useWorkspaceStore((state) => state.bottomDockExpanded);
+  const explorerCollapsed = useWorkspaceStore((state) => state.explorerCollapsed);
+  const setExplorerCollapsed = useWorkspaceStore((state) => state.setExplorerCollapsed);
+  const rightPanelCollapsed = useWorkspaceStore((state) => state.rightPanelCollapsed);
+  const setRightPanelCollapsed = useWorkspaceStore((state) => state.setRightPanelCollapsed);
   const selection = useSelectionStore((state) => state.selection);
   const setEpisode = useSelectionStore((state) => state.setEpisode);
   const setScene = useSelectionStore((state) => state.setScene);
@@ -103,7 +107,7 @@ export function StudioPage() {
   const onStoryboard = Boolean(storyboardSceneId);
 
   return (
-    <div className={`app-shell ${dockExpanded ? "dock-expanded" : ""}`}>
+    <div className={`app-shell ${dockExpanded ? "dock-expanded" : ""} ${explorerCollapsed ? "explorer-collapsed" : ""} ${rightPanelCollapsed ? "right-collapsed" : ""}`}>
       <header className="top-bar">
         <Link to="/" className="studio-project-name"><img src="/assets/logo.png" alt="" className="app-logo" /> {project?.name ?? "AI Manga Drama Studio"}</Link>
         <nav className="studio-nav" aria-label="工作台导航">
@@ -125,7 +129,7 @@ export function StudioPage() {
           <button className={rightPanelTab === "director" ? "active" : ""} onClick={() => setRightPanelTab("director")} title="打开 AI Director">
             <MagicWand size={17} /> 导演画布
           </button>
-          <button onClick={() => navigate("/assets")} title="全局素材库">
+          <button onClick={() => navigate("/assets", { state: { fromProject: projectId } })} title="全局素材库">
             <ImageSquare size={17} /> 素材
           </button>
         </nav>
@@ -151,13 +155,31 @@ export function StudioPage() {
         </div>
       </header>
 
-      <aside className="explorer"><ProjectExplorer projectId={projectId} /></aside>
+      <aside className="explorer">
+        {explorerCollapsed ? (
+          <button type="button" className="panel-rail-btn" title="展开资源树" aria-label="展开资源树" onClick={() => setExplorerCollapsed(false)}>
+            <CaretLineRight size={16} />
+          </button>
+        ) : (
+          <ProjectExplorer projectId={projectId} onCollapse={() => setExplorerCollapsed(true)} />
+        )}
+      </aside>
 
       <main className="workspace">
         <Outlet context={{ projectId, activeEpisode } satisfies StudioContext} />
       </main>
 
-      <aside className="right-panel">{rightPanelTab === "inspector" ? <ShotInspector /> : <AIDirectorPanel />}</aside>
+      <aside className="right-panel">
+        {rightPanelCollapsed ? (
+          <button type="button" className="panel-rail-btn" title="展开检查器" aria-label="展开检查器" onClick={() => setRightPanelCollapsed(false)}>
+            <CaretLineLeft size={16} />
+          </button>
+        ) : rightPanelTab === "inspector" ? (
+          <ShotInspector />
+        ) : (
+          <AIDirectorPanel />
+        )}
+      </aside>
       <footer className="bottom-dock"><GenerationQueue /></footer>
     </div>
   );

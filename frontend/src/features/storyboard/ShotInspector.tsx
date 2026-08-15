@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Aperture, ArrowSquareOut, CheckCircle, Clock, DotsThree, ImageSquare, MagicWand, Trash, VideoCamera } from "@phosphor-icons/react";
+import { Aperture, ArrowSquareOut, CheckCircle, Clock, DotsThree, ImageSquare, MagicWand, CaretLineRight, Trash, VideoCamera } from "@phosphor-icons/react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
@@ -410,6 +410,7 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
 }
 
 function PanelTabs({ active, onSwitch }: { active: "inspector" | "director"; onSwitch: (tab: "inspector" | "director") => void }) {
+  const setRightPanelCollapsed = useWorkspaceStore((state) => state.setRightPanelCollapsed);
   return (
     <div className="panel-tabs">
       <button className={`tab ${active === "inspector" ? "active" : ""}`} onClick={() => onSwitch("inspector")}>
@@ -417,6 +418,9 @@ function PanelTabs({ active, onSwitch }: { active: "inspector" | "director"; onS
       </button>
       <button className={`tab ${active === "director" ? "active" : ""}`} onClick={() => onSwitch("director")}>
         AI Director
+      </button>
+      <button type="button" className="tab panel-collapse-tab" title="收起右侧面板" aria-label="收起右侧面板" onClick={() => setRightPanelCollapsed(true)}>
+        <CaretLineRight size={15} />
       </button>
     </div>
   );

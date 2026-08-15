@@ -210,3 +210,35 @@ Playwright 验证：1600px 与 1100px 下均无重叠、无文档横向溢出；
 验证：Playwright 实测 idle opacity 0 / hover 1、无重叠、边框 0px、上传封面 filter none、默认封面 grayscale(1)；无 console 警告；build 通过。
 
 注：验证期间发现项目库仅剩 1 个（其余被用户侧删除操作移除），属正常数据状态。
+
+## UI 改造 Pass 14 (2026-08) — 素材/工作流/设置页返回按钮
+
+素材页、工作流页、设置页此前没有返回入口（Studio 内跳转后回不去）。修复：
+
+- 三页 page-heading 右上角新增返回按钮：从 Studio 导航进入（`navigate(..., { state: { fromProject } })`）显示「返回工作台」→ `/projects/{id}`（自动重定向当前 workspace）；从标题栏 tab 进入显示「返回项目」→ `/`。
+- StudioPage「素材」跳转携带 `fromProject` 来源。
+
+验证：Playwright：Studio → 素材 → 返回工作台（href 指向来源项目，点击回 Studio 且 app-shell 正常渲染）✅；标题栏 → 素材/工作流/设置 → 返回项目 ✅；无 console 错误；build 通过。注：Studio 路由现为 URL 驱动（/projects/:id → /script），返回后 URL 带 /script 属预期行为。
+
+## UI 改造 Pass 15 (2026-08) — 工作区左右面板可收起
+
+工作区（Studio）左侧资源树（explorer）与右侧检查器（right-panel）新增收起/展开：
+
+- **收起按钮**：资源树标题栏右侧（CaretLineLeft，aria-label「收起资源树」）；右面板 tab 栏右侧（CaretLineRight，aria-label「收起右侧面板」），hover 有反馈。
+- **收起态**：面板列宽 300/380 → 30px，内容卸载，保留 1px 分隔线；窄条上 sticky「展开」按钮（CaretLineLeft/Right 反向），点击恢复。
+- **动画**：grid-template-columns 180ms ease 过渡；双面板可同时收起（30 / 1fr / 30），工作区获得最大空间。
+- 状态存 workspaceStore（explorerCollapsed / rightPanelCollapsed），会话内保持。
+
+验证：Playwright 收起/展开全流程：300/920/380 → 30/1190/380 → 300/920/380；右面板 300/1270/30 → 恢复后 tabs 与 inspector（选中镜头态）完整还原；双收起 30/1540/30；无 console 错误；build + 12 项测试通过。
+
+## UI 改造 Pass 16 (2026-08) — 剧集/场景基础 CRUD
+
+此前剧集与场景仅有创建/浏览，补齐重命名与删除：
+
+- **后端**：`DELETE /api/v1/episodes/{id}`（软删除并级联场景/镜头）；补事件 `episode.created/updated/deleted`、`scene.deleted`（create/update 时补发）；`delete_scene` 补发 `scene.deleted` 事件（project_id 经 episode 关联解析）。
+- **前端**（ProjectExplorer）：剧集行与场景行 hover 显示操作（铅笔重命名 / 垃圾桶删除，无边框小图标、focus-within 可达）；重命名内联输入（Enter 保存 / ESC 取消）；删除带确认框。
+  - 删除当前打开的 Storyboard 场景 → 自动跳回剧本视图；删除选中剧集 → 落到第一个剩余剧集；删除展开中的剧集 → 同步收起。
+- 后端新增 test_episode_scene_crud.py（4 项：剧集改名/删除级联、场景改名/删除）。
+- 契约文档 §143 事件清单补 episode/scene 事件。
+
+验证：后端 105 项 pytest 全过；前端 build + 12 项测试；Playwright 全流程：剧集重命名、场景重命名、删除场景（含当前打开场景自动跳回剧本）、删除剧集，均无 console 错误。

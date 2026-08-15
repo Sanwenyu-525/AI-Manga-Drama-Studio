@@ -4,9 +4,10 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle, Plug, WarningCircle, XCircle } from "@phosphor-icons/react";
+import { ArrowLeft, CheckCircle, Plug, WarningCircle, XCircle } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import type { ProviderStatus } from "../../api/types";
+import { Link, useLocation } from "react-router-dom";
 
 interface TestResult {
   connected: boolean;
@@ -23,6 +24,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function SettingsPage() {
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [results, setResults] = useState<Record<string, TestResult | { error: string }>>({});
 
@@ -50,7 +52,18 @@ export function SettingsPage() {
             <h1>设置</h1>
             <p>生成服务与连接状态 · 真实反映 Studio Service 的 Provider 注册表</p>
           </div>
-          <button className="btn secondary compact" onClick={refresh}>刷新状态</button>
+          <div className="row gap">
+                  {(location.state as { fromProject?: string } | null)?.fromProject ? (
+        <Link to={`/projects/${(location.state as { fromProject: string }).fromProject}`} className="btn secondary compact">
+          <ArrowLeft size={15} /> 返回工作台
+        </Link>
+      ) : (
+        <Link to="/" className="btn secondary compact">
+          <ArrowLeft size={15} /> 返回项目
+        </Link>
+      )}
+            <button className="btn secondary compact" onClick={refresh}>刷新状态</button>
+          </div>
         </div>
 
         {isLoading && <div className="home-loading">正在读取设置…</div>}

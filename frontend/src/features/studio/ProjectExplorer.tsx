@@ -1,19 +1,24 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CaretDown, CaretRight, Check, FilmStrip, FolderOpen, ImageSquare, MapPin, PencilSimple, Plus, Trash, UsersThree, X } from "@phosphor-icons/react";
+import { CaretDown, CaretLineLeft, CaretRight, Check, FilmStrip, FolderOpen, ImageSquare, MapPin, PencilSimple, Plus, Trash, UsersThree, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type { Character, CharacterUpdatePatch, Episode, Scene } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
 
-export function ProjectExplorer({ projectId }: { projectId: string }) {
+export function ProjectExplorer({ projectId, onCollapse }: { projectId: string; onCollapse: () => void }) {
+  const setExplorerCollapsed = useWorkspaceStore((state) => state.setExplorerCollapsed);
   const navigate = useNavigate();
+  const selection = useSelectionStore((state) => state.selection);
   const setEpisode = useSelectionStore((state) => state.setEpisode);
   const setScene = useSelectionStore((state) => state.setScene);
   const queryClient = useQueryClient();
   // 剧集树的展开/收起是 UI 状态，与选中解耦：再次点击已展开的剧集即可收起。
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<string | null>(null);
+  const [renamingEpisodeId, setRenamingEpisodeId] = useState<string | null>(null);
+  const [episodeNameValue, setEpisodeNameValue] = useState("");
 
   const openScript = (episodeId: string) => {
     setEpisode(episodeId); // keep selection context for the AI Director
@@ -56,10 +61,40 @@ export function ProjectExplorer({ projectId }: { projectId: string }) {
     },
   });
 
+  const renameEpisode = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) =>
+      api.patch<Episode>(`/episodes/${id}`, { title }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(projectId) });
+      setRenamingEpisodeId(null);
+    },
+  });
+
+  const deleteEpisode = useMutation({
+    mutationFn: (id: string) => api.delete<{ deleted: boolean }>(`/episodes/${id}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(projectId) });
+      if (expandedEpisodeId === deleteEpisode.variables) setExpandedEpisodeId(null);
+      // 若被删剧集是当前选中 → 落到第一个剩余剧集
+      if (selection.episodeId === deleteEpisode.variables) {
+        const remaining = (episodes ?? []).filter((e) => e.id !== deleteEpisode.variables);
+        if (remaining[0]) openScript(remaining[0].id);
+      }
+    },
+  });
+
+  const startEpisodeRename = (episode: Episode) => {
+    setRenamingEpisodeId(episode.id);
+    setEpisodeNameValue(episode.title ?? "");
+  };
+
   return (
     <div className="explorer-tree">
       <div className="explorer-head">
         <span>资源树</span>
+        <button type="button" className="panel-collapse-btn" title="收起资源树" aria-label="收起资源树" onClick={() => { setExplorerCollapsed(true); onCollapse(); }}>
+          <CaretLineLeft size={15} />
+        </button>
       </div>
 
       <div className="tree-section">
@@ -74,16 +109,53 @@ export function ProjectExplorer({ projectId }: { projectId: string }) {
             const isOpen = expandedEpisodeId === episode.id;
             return (
               <div key={episode.id} className="tree-item">
-                <button
-                  type="button"
-                  className={"tree-row episode-row " + (isOpen ? "active" : "")}
-                  aria-expanded={isOpen}
-                  onClick={() => toggleEpisode(episode)}
-                >
-                  {isOpen ? <CaretDown size={14} /> : <CaretRight size={14} />}
-                  <FilmStrip size={17} />
-                  <span className="tree-label">第 {episode.episode_number} 集 · {episode.title || "未命名"}</span>
-                </button>
+                {renamingEpisodeId === episode.id ? (
+                  <div className="tree-row-rename" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      autoFocus
+                      value={episodeNameValue}
+                      placeholder="剧集名称"
+                      onChange={(e) => setEpisodeNameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && episodeNameValue.trim()) renameEpisode.mutate({ id: episode.id, title: episodeNameValue.trim() });
+                        if (e.key === "Escape") setRenamingEpisodeId(null);
+                      }}
+                    />
+                    <button className="icon-button ok" disabled={!episodeNameValue.trim() || renameEpisode.isPending} onClick={() => renameEpisode.mutate({ id: episode.id, title: episodeNameValue.trim() })} title="保存名称"><Check size={14} /></button>
+                    <button className="icon-button" onClick={() => setRenamingEpisodeId(null)} title="取消"><X size={14} /></button>
+                  </div>
+                ) : (
+                  <div className="tree-row-wrap">
+                    <button
+                      type="button"
+                      className={"tree-row episode-row " + (isOpen ? "active" : "")}
+                      aria-expanded={isOpen}
+                      onClick={() => toggleEpisode(episode)}
+                    >
+                      {isOpen ? <CaretDown size={14} /> : <CaretRight size={14} />}
+                      <FilmStrip size={17} />
+                      <span className="tree-label">第 {episode.episode_number} 集 · {episode.title || "未命名"}</span>
+                    </button>
+                    <span className="tree-row-actions" onClick={(e) => e.stopPropagation()}>
+                      <button type="button" title="重命名剧集" aria-label="重命名剧集" onClick={() => startEpisodeRename(episode)}><PencilSimple size={13} /></button>
+                      <button
+                        type="button"
+                        className="danger"
+                        title="删除剧集"
+                        aria-label="删除剧集"
+                        disabled={deleteEpisode.isPending}
+                        onClick={() => {
+                          if (window.confirm(`删除剧集「第 ${episode.episode_number} 集 · ${episode.title || "未命名"}」？
+其场景与镜头将一并软删除，不可恢复。`)) {
+                            deleteEpisode.mutate(episode.id);
+                          }
+                        }}
+                      >
+                        <Trash size={13} />
+                      </button>
+                    </span>
+                  </div>
+                )}
                 {isOpen && <EpisodeScenes episode={episode} projectId={projectId} onCreateScene={() => createScene.mutate(episode.id)} />}
               </div>
             );
@@ -311,9 +383,13 @@ function EpisodeScenes({
   onCreateScene: () => void;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const queryClient = useQueryClient();
   const selection = useSelectionStore((state) => state.selection);
   const setEpisode = useSelectionStore((state) => state.setEpisode);
   const setScene = useSelectionStore((state) => state.setScene);
+  const [renamingSceneId, setRenamingSceneId] = useState<string | null>(null);
+  const [sceneNameValue, setSceneNameValue] = useState("");
   const { data: scenes } = useQuery({
     queryKey: queryKeys.scenes(episode.id),
     queryFn: () => api.get<Scene[]>("/episodes/" + episode.id + "/scenes"),
@@ -325,14 +401,80 @@ function EpisodeScenes({
     navigate(`/projects/${projectId}/storyboard/${scene.id}`);
   };
 
+  const renameScene = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      api.patch<Scene>(`/scenes/${id}`, { name }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scenes(episode.id) });
+      void queryClient.invalidateQueries({ queryKey: ["scenes"] });
+      setRenamingSceneId(null);
+    },
+  });
+
+  const deleteScene = useMutation({
+    mutationFn: (id: string) => api.delete<{ deleted: boolean }>(`/scenes/${id}`),
+    onSuccess: (_, sceneId) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scenes(episode.id) });
+      void queryClient.invalidateQueries({ queryKey: ["scenes"] });
+      // 若删除的是当前打开的 Storyboard 场景 → 返回剧本视图
+      if (location.pathname.includes(`/storyboard/${sceneId}`)) {
+        navigate(`/projects/${projectId}/script`);
+      }
+    },
+  });
+
+  const startSceneRename = (scene: Scene) => {
+    setRenamingSceneId(scene.id);
+    setSceneNameValue(scene.name ?? "");
+  };
+
   return (
     <div className="tree-children">
       {scenes?.map((scene) => (
-        <button key={scene.id} className={"tree-row child " + (selection.sceneId === scene.id ? "active" : "")} onClick={() => openScene(scene)}>
-          <ImageSquare size={15} />
-          <span className="tree-label">SC{String(scene.scene_number).padStart(2, "0")} · {scene.name ?? "场景"}</span>
-          <span className="tree-count">{scene.shot_count}</span>
-        </button>
+        <div key={scene.id} className="tree-item">
+          {renamingSceneId === scene.id ? (
+            <div className="tree-row-rename" onClick={(e) => e.stopPropagation()}>
+              <input
+                autoFocus
+                value={sceneNameValue}
+                placeholder="场景名称"
+                onChange={(e) => setSceneNameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && sceneNameValue.trim()) renameScene.mutate({ id: scene.id, name: sceneNameValue.trim() });
+                  if (e.key === "Escape") setRenamingSceneId(null);
+                }}
+              />
+              <button className="icon-button ok" disabled={!sceneNameValue.trim() || renameScene.isPending} onClick={() => renameScene.mutate({ id: scene.id, name: sceneNameValue.trim() })} title="保存名称"><Check size={14} /></button>
+              <button className="icon-button" onClick={() => setRenamingSceneId(null)} title="取消"><X size={14} /></button>
+            </div>
+          ) : (
+            <div className="tree-row-wrap">
+              <button className={"tree-row child " + (selection.sceneId === scene.id ? "active" : "")} onClick={() => openScene(scene)}>
+                <ImageSquare size={15} />
+                <span className="tree-label">SC{String(scene.scene_number).padStart(2, "0")} · {scene.name ?? "场景"}</span>
+                <span className="tree-count">{scene.shot_count}</span>
+              </button>
+              <span className="tree-row-actions" onClick={(e) => e.stopPropagation()}>
+                <button type="button" title="重命名场景" aria-label="重命名场景" onClick={() => startSceneRename(scene)}><PencilSimple size={13} /></button>
+                <button
+                  type="button"
+                  className="danger"
+                  title="删除场景"
+                  aria-label="删除场景"
+                  disabled={deleteScene.isPending}
+                  onClick={() => {
+                    if (window.confirm(`删除场景「SC${String(scene.scene_number).padStart(2, "0")} · ${scene.name ?? "场景"}」？
+其镜头与版本将一并软删除，不可恢复。`)) {
+                      deleteScene.mutate(scene.id);
+                    }
+                  }}
+                >
+                  <Trash size={13} />
+                </button>
+              </span>
+            </div>
+          )}
+        </div>
       ))}
       {!scenes?.length && <span className="tree-muted-item child-note">暂无场景</span>}
       <button className="tree-row child add" onClick={onCreateScene}><Plus size={14} /> 场景</button>

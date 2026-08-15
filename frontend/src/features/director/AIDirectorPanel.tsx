@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Check, Circle, X } from "@phosphor-icons/react";
+import { Check, Circle, CaretLineRight, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { useAgentStore } from "../../stores/agentStore";
@@ -26,6 +26,7 @@ const STATUS_LABELS: Record<string, string> = {
 export function AIDirectorPanel() {
   const selection = useSelectionStore((s) => s.selection);
   const setRightPanelTab = useWorkspaceStore((s) => s.setRightPanelTab);
+  const setRightPanelCollapsed = useWorkspaceStore((s) => s.setRightPanelCollapsed);
   const agent = useAgentStore();
   const [input, setInput] = useState("");
   const [submitError, setSubmitError] = useState<Error | null>(null);
@@ -72,6 +73,9 @@ export function AIDirectorPanel() {
           Inspector
         </button>
         <button className="tab active">AI Director</button>
+        <button type="button" className="tab panel-collapse-tab" title="收起右侧面板" aria-label="收起右侧面板" onClick={() => setRightPanelCollapsed(true)}>
+          <CaretLineRight size={15} />
+        </button>
       </div>
 
       <div className="director">

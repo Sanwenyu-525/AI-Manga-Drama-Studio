@@ -11,6 +11,10 @@ interface WorkspaceState {
   setBottomDockTab: (tab: "queue" | "history") => void;
   bottomDockExpanded: boolean;
   setBottomDockExpanded: (expanded: boolean) => void;
+  explorerCollapsed: boolean;
+  setExplorerCollapsed: (collapsed: boolean) => void;
+  rightPanelCollapsed: boolean;
+  setRightPanelCollapsed: (collapsed: boolean) => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
@@ -22,4 +26,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   setBottomDockTab: (tab) => set({ bottomDockTab: tab }),
   bottomDockExpanded: false,
   setBottomDockExpanded: (expanded) => set({ bottomDockExpanded: expanded }),
+  explorerCollapsed: false,
+  setExplorerCollapsed: (collapsed) => set({ explorerCollapsed: collapsed }),
+  rightPanelCollapsed: false,
+  setRightPanelCollapsed: (collapsed) => set({ rightPanelCollapsed: collapsed }),
 }));

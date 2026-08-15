@@ -407,7 +407,12 @@ input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: defau
 .flow-ribbon b { color: var(--faint); }
 
 /* Studio shell */
-.app-shell { height: 100vh; display: grid; grid-template-columns: 300px minmax(540px, 1fr) 380px; grid-template-rows: 55px minmax(0, 1fr) 58px; grid-template-areas: "top top top" "explorer workspace right" "explorer dock right"; background: var(--abyss); transition: grid-template-rows .18s ease; }
+.app-shell { height: 100vh; display: grid; grid-template-columns: 300px minmax(540px, 1fr) 380px; grid-template-rows: 55px minmax(0, 1fr) 104px; grid-template-areas: "top top top" "explorer workspace right" "explorer dock right"; background: var(--abyss); transition: grid-template-rows .18s ease, grid-template-columns .18s ease; }
+.app-shell.explorer-collapsed { grid-template-columns: 30px minmax(540px, 1fr) 380px; }
+.app-shell.right-collapsed { grid-template-columns: 300px minmax(540px, 1fr) 30px; }
+.app-shell.explorer-collapsed.right-collapsed { grid-template-columns: 30px minmax(540px, 1fr) 30px; }
+.app-shell.explorer-collapsed .explorer { overflow: visible; border-right: 1px solid var(--hairline-soft); }
+.app-shell.right-collapsed .right-panel { overflow: visible; border-left: 1px solid var(--hairline-soft); }
 .app-shell.dock-expanded { grid-template-rows: 55px minmax(0, 1fr) 240px; }
 .top-bar { grid-area: top; display: flex; align-items: stretch; border-bottom: 1px solid var(--hairline-soft); background: #12151b; }
 .studio-project-name { width: 300px; display: flex; align-items: center; gap: 10px; flex: 0 0 auto; padding: 0 20px; color: var(--amber); font-size: 15px; font-weight: 720; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -984,3 +989,82 @@ input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: defau
 }
 .not-found-page h1 { font-size: 24px; }
 .not-found-page p { color: var(--muted); font-size: 13px; }
+
+/* Collapsible side panels: collapse button in panel headers + rail expand button */
+.panel-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  transition: color .12s ease, background .12s ease;
+}
+.panel-collapse-btn:hover { color: var(--ink); background: var(--overlay); }
+.explorer-head .panel-collapse-btn { margin-left: 8px; }
+.panel-collapse-tab { flex: 0 0 44px !important; display: inline-flex !important; align-items: center; justify-content: center; color: var(--faint) !important; }
+.panel-collapse-tab:hover { color: var(--ink) !important; }
+.panel-rail-btn {
+  position: sticky;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 32px;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  background: var(--elevated);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .12s ease, border-color .12s ease, background .12s ease;
+}
+.panel-rail-btn:hover { color: var(--amber); border-color: rgba(232, 163, 61, .5); background: var(--amber-dim); }
+
+
+/* Episode / Scene tree row CRUD: hover actions + inline rename */
+.tree-row-wrap { display: flex; align-items: center; gap: 2px; }
+.tree-row-wrap .tree-row { flex: 1; min-width: 0; }
+.tree-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  padding-right: 6px;
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+.tree-item:hover .tree-row-actions,
+.tree-row-wrap:focus-within .tree-row-actions { opacity: 1; }
+.tree-row-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  transition: color .12s ease, background .12s ease;
+}
+.tree-row-actions button:hover:not(:disabled) { color: var(--ink); background: var(--overlay); }
+.tree-row-actions button.danger:hover:not(:disabled) { color: #f07979; background: rgba(217, 92, 92, .12); }
+.tree-row-actions button:disabled { opacity: .45; cursor: default; }
+.tree-row-rename {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 5px 6px 5px 10px;
+}
+.tree-row-rename input { height: 26px; padding: 2px 7px; font-size: 12px; }
+.tree-row-rename .icon-button { width: 24px; height: 24px; flex: none; }
+.tree-children .tree-row-rename { margin-left: -1px; }

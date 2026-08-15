@@ -4,7 +4,8 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ImageSquare, X } from "@phosphor-icons/react";
+import { Link, useLocation } from "react-router-dom";
+import { ArrowLeft, ImageSquare, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type { GenerationRead, Project } from "../../api/types";
@@ -20,6 +21,7 @@ interface AssetItem {
 }
 
 export function AssetsPage() {
+  const location = useLocation();
   const [preview, setPreview] = useState<AssetItem | null>(null);
 
   const { data: generations, isLoading, isError } = useQuery({
@@ -61,6 +63,15 @@ export function AssetsPage() {
             <h1>素材</h1>
             <p>{assets.length} 个已生成素材 · 来自全部项目的生成记录</p>
           </div>
+                {(location.state as { fromProject?: string } | null)?.fromProject ? (
+        <Link to={`/projects/${(location.state as { fromProject: string }).fromProject}`} className="btn secondary compact">
+          <ArrowLeft size={15} /> 返回工作台
+        </Link>
+      ) : (
+        <Link to="/" className="btn secondary compact">
+          <ArrowLeft size={15} /> 返回项目
+        </Link>
+      )}
         </div>
 
         {isLoading && <div className="home-loading">正在读取素材…</div>}
