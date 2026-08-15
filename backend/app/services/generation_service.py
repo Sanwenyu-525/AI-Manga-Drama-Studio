@@ -142,6 +142,23 @@ class GenerationService:
                 order_index=2000.0,
             )
         )
+        # P3-T012 (P2-T007 link): CHARACTER_REFERENCE -> each shot character whose
+        # CharacterVersion MASTER has a representative asset (the visual to reference).
+        for ref in self._character_references(shot_id):
+            self.session.add(
+                GenerationInput(
+                    generation_id=generation.id,
+                    input_type="reference",
+                    reference_type="CHARACTER_REFERENCE",
+                    reference_id=ref["version_id"],
+                    role="character_reference",
+                    metadata_json=json.dumps(
+                        {"character_id": ref["character_id"], "asset_id": ref["asset_id"]},
+                        ensure_ascii=False,
+                    ),
+                    order_index=3000.0,
+                )
+            )
         self.session.commit()
         bus.publish(
             StudioEvent(
@@ -251,6 +268,56 @@ class GenerationService:
         from datetime import datetime
 
         return datetime.now(UTC).isoformat()
+
+    def _character_references(self, shot_id: str) -> list[dict]:
+        """P3-T012 (P2-T007 link): shot characters' MASTER CharacterVersion assets.
+
+        For each character linked to the shot with a non-null master_version_id, emit
+        {character_id, version_id, asset_id} so provenance records what visual standard a
+        generation should reference. Characters without a master version are skipped.
+        """
+        from sqlalchemy import select
+
+        from app.db.models import Character, CharacterVersion, ShotCharacter
+
+        links = self.session.scalars(
+            select(ShotCharacter).where(ShotCharacter.shot_id == shot_id)
+        ).all()
+        if not links:
+            return []
+        character_ids = [link.character_id for link in links]
+        characters = self.session.scalars(
+            select(Character).where(
+                Character.id.in_(character_ids),
+                Character.deleted_at.is_(None),
+                Character.master_version_id.isnot(None),
+            )
+        ).all()
+        if not characters:
+            return []
+        version_ids = [c.master_version_id for c in characters if c.master_version_id]
+        versions_by_id = {
+            v.id: v
+            for v in self.session.scalars(
+                select(CharacterVersion).where(
+                    CharacterVersion.id.in_(version_ids),
+                    CharacterVersion.deleted_at.is_(None),
+                    CharacterVersion.status == "active",
+                )
+            )
+        }
+        refs: list[dict] = []
+        for c in characters:
+            version = versions_by_id.get(c.master_version_id)
+            if version is not None:
+                refs.append(
+                    {
+                        "character_id": c.id,
+                        "version_id": version.id,
+                        "asset_id": version.asset_id,
+                    }
+                )
+        return refs
 
     def _project_id_of(self, shot: Shot) -> str | None:
         from app.db.models import Episode, Scene

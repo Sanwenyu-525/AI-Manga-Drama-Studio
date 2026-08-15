@@ -1,7 +1,7 @@
 """ORM models — import all models here so Base.metadata is complete (Alembic / create_all)."""
 
 from app.db.models.asset import Asset
-from app.db.models.character import Character, ShotCharacter
+from app.db.models.character import Character, CharacterVersion, ShotCharacter
 from app.db.models.episode import Episode
 from app.db.models.generation import Generation
 from app.db.models.generation_io import GenerationInput, GenerationOutput
@@ -15,6 +15,7 @@ from app.db.models.workflow import WorkflowTemplate, WorkflowVersion
 __all__ = [
     "Asset",
     "Character",
+    "CharacterVersion",
     "Episode",
     "Generation",
     "GenerationInput",

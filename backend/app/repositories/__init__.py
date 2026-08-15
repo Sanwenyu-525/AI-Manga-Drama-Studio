@@ -1,9 +1,10 @@
-"""Concrete repositories (Stage A: Project / Episode / Scene / Shot; P1: Character; P4: Workflow)."""
+"""Concrete repositories (Stage A: Project / Episode / Scene / Shot; P1: Character; P4: Workflow; P2: CharacterVersion)."""
 
 from sqlalchemy import select
 
 from app.db.models import (
     Character,
+    CharacterVersion,
     Episode,
     Project,
     Scene,
@@ -48,6 +49,31 @@ class CharacterRepository(SQLAlchemyRepository[Character]):
 
     def list_for_project(self, project_id: str) -> list[Character]:
         return self.list_ordered(order_by="created_at", project_id=project_id)
+
+
+class CharacterVersionRepository(SQLAlchemyRepository[CharacterVersion]):
+    """Character visual versions (P2-T007) — immutable chain, soft-delete aware.
+
+    CharacterVersion rows own their soft-delete (deleted_at) like core entities:
+    list_versions excludes them; version_number computation also excludes them
+    (so a v2 delete frees the "v2" slot for reuse, mirroring the shot/version rule).
+    """
+
+    model = CharacterVersion
+
+    def list_for_character(self, character_id: str) -> list[CharacterVersion]:
+        stmt = (
+            select(CharacterVersion)
+            .where(
+                CharacterVersion.character_id == character_id,
+                CharacterVersion.deleted_at.is_(None),
+            )
+            .order_by(CharacterVersion.version_number.asc())
+        )
+        return list(self.session.scalars(stmt))
+
+    def next_version_number(self, character_id: str) -> int:
+        return self.next_sequence("character_id", character_id, "version_number")
 
 
 class ShotCharacterRepository(SQLAlchemyRepository[ShotCharacter]):

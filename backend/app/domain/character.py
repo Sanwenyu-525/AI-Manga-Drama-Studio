@@ -60,5 +60,34 @@ class CharacterRead(BaseModel):
     status: str
     revision: int
     shot_count: int = 0  # shots currently referencing this character
+    master_version_id: str | None = None  # P2-T008: authoritative MASTER pointer
+    created_at: str
+    updated_at: str
+
+
+class CharacterVersionCreate(BaseModel):
+    """Create a new character visual version (P2-T007).
+
+    asset_id must reference a live Asset that belongs to the same project as the
+    character (the representative/参考 image for this visual version).
+    """
+
+    asset_id: str
+    name: str | None = Field(default=None, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+
+
+class CharacterVersionRead(BaseModel):
+    """Character visual version DTO (api-event-contract §20 / P2-T007)."""
+
+    id: str
+    character_id: str
+    version_number: int
+    asset_id: str
+    name: str | None
+    description: str | None
+    status: str  # active | stale | archived
+    checksum: str | None
+    is_master: bool = False  # True when this is the character's MASTER pointer target
     created_at: str
     updated_at: str

@@ -5,6 +5,7 @@ Routers delegate here; agents delegate here; services never depend on LangGraph/
 
 from app.services.asset_service import AssetService
 from app.services.character_service import CharacterService
+from app.services.character_version_service import CharacterVersionService
 from app.services.episode_service import EpisodeService
 from app.services.generation_service import GenerationService
 from app.services.project_service import ProjectService
@@ -18,6 +19,7 @@ from app.services.workflow_service import WorkflowService
 __all__ = [
     "AssetService",
     "CharacterService",
+    "CharacterVersionService",
     "EpisodeService",
     "GenerationService",
     "ProjectService",
