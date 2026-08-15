@@ -1,5 +1,10 @@
 # Current Sprint
 
+> **Sprint 01 完成（2026-08-20）**：8 项 P0 任务全部完成（P1-E1-T01/T02、P1-E2-T01/T02、
+> P1-E3-T01/T02、P1-E4-T01、P1-E6-T01），见 [Completed](completed.md)。
+> 遗留 P0（P1-E2-T03 完成链原子化、P1-E4-T02 Event Gateway）与 P1 任务（P1-E4-T03 关联日志）
+> 排入下一个 Stabilization Sprint。
+
 ## Sprint 01 — Project State Correctness & Runtime Stabilization
 
 **Sprint Goal**：先保护唯一 Project State，再让 Generation/Agent 的关键运行语义可验证。完成后，小说分析不会静默写错字段，Agent 不会越界或在取消后继续修改，真实 ComfyUI 能进入受控验证，Generation 崩溃恢复有明确实现基础。
