@@ -48,4 +48,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Cargo check (Tauri shell)
-        run: cd apps/desktop && cargo check
+        run: cd apps/desktop/src-tauri && cargo check
