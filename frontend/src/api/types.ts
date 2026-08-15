@@ -238,6 +238,7 @@ export interface Character {
   status: string;
   revision: number;
   shot_count: number;
+  master_version_id: string | null; // P2-T008: authoritative MASTER pointer
   created_at: string;
   updated_at: string;
 }
@@ -477,4 +478,126 @@ export interface ProvenanceRead {
   parent_asset_id: string | null;
   ancestors: string[]; // retry chain, oldest first, excluding this generation
 }
+
+// --- P6: character / location visual-version DTOs (P2-T007/T008/T009) & asset/tree ---
+// Backend: backend/app/domain/character.py, location.py, asset.py, readmodels.py.
+
+export interface CharacterVersionCreate {
+  asset_id: string;
+  name?: string | null;
+  description?: string | null;
+}
+
+export interface CharacterVersion {
+  id: string;
+  character_id: string;
+  version_number: number;
+  asset_id: string;
+  name: string | null;
+  description: string | null;
+  status: string; // active | stale | archived
+  checksum: string | null;
+  is_master: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Location {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  visual_prompt: string | null;
+  status: string;
+  revision: number;
+  master_version_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LocationCreate {
+  name: string;
+  description?: string | null;
+  visual_prompt?: string | null;
+  status?: string;
+}
+
+export interface LocationVersionCreate {
+  asset_id: string;
+  name?: string | null;
+  description?: string | null;
+}
+
+export interface LocationVersion {
+  id: string;
+  location_id: string;
+  version_number: number;
+  asset_id: string;
+  name: string | null;
+  description: string | null;
+  status: string; // active | stale | archived
+  checksum: string | null;
+  is_master: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssetRead {
+  id: string;
+  project_id: string;
+  type: string;
+  name: string | null;
+  file_path: string | null;
+  thumbnail_path: string | null;
+  mime_type: string | null;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+  file_size: number | null;
+  meta: Record<string, unknown> | null;
+  version_group_id: string | null;
+  version_number: number | null;
+  status: string;
+  source_type: string;
+  checksum: string | null;
+  generation_id: string | null;
+  parent_asset_id: string | null;
+  created_at: string;
+}
+
+// --- P2-T011 / P6-T016: project tree (asset browser aggregation source) ---
+
+export interface ShotTreeItem {
+  id: string;
+  shot_number: number;
+  shot_type: string;
+  status: string;
+  dirty_state: string;
+  revision: number;
+  active_image_version: number | null;
+  active_video_version: number | null;
+  active_prompt_version_id: string | null;
+}
+
+export interface SceneTreeItem {
+  id: string;
+  scene_number: number;
+  name: string | null;
+  shot_count: number;
+  shots: ShotTreeItem[];
+}
+
+export interface EpisodeTreeItem {
+  id: string;
+  episode_number: number;
+  title: string | null;
+  scene_count: number;
+  scenes: SceneTreeItem[];
+}
+
+export interface ProjectTreeRead {
+  project: Project;
+  episodes: EpisodeTreeItem[];
+}
+
 

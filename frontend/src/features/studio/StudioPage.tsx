@@ -15,6 +15,8 @@ import { WorkspaceHost, SceneEmptyState } from "../../components/workspace/Works
 import { AIDirectorPanel } from "../director/AIDirectorPanel";
 import { GenerationQueue } from "../generation/GenerationQueue";
 import { ShotInspector } from "../storyboard/ShotInspector";
+import { StoryboardView } from "../storyboard/StoryboardView";
+import { AssetBrowserView } from "../assets/AssetBrowserView";
 import { ProjectExplorer } from "./ProjectExplorer";
 
 // Studio context handed to the workspace child routes (URL-driven views).
@@ -28,7 +30,6 @@ interface StudioContext {
 // tabbed WorkspaceHost (P6-T004), and panel widths/heights are resizable + persisted.
 export function StudioPage() {
   const { projectId = "" } = useParams();
-  const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
   const setProject = useSelectionStore((state) => state.setProject);
@@ -128,9 +129,15 @@ export function StudioPage() {
             aria-disabled={!storyboardPath}
             onClick={(event) => { if (!storyboardPath) event.preventDefault(); }}
             title={storyboardPath ? "返回分镜视图" : "先选择一个场景"}
-          ><SquaresFour size={17} /> 分镜</Link>
-          <button className={rightPanelTab === "director" ? "active" : ""} onClick={() => setRightPanelTab("director")} title="打开 AI Director"><MagicWand size={17} /> 导演画布</button>
-          <button onClick={() => navigate("/assets", { state: { fromProject: projectId } })} title="全局素材库"><ImageSquare size={17} /> 素材</button>
+          >
+            <SquaresFour size={17} /> 分镜
+          </Link>
+          <Link to={`/projects/${projectId}/assets`} className={location.pathname.includes("/assets") ? "active" : ""} title="项目资产库">
+            <ImageSquare size={17} /> 素材
+          </Link>
+          <button className={rightPanelTab === "director" ? "active" : ""} onClick={() => setRightPanelTab("director")} title="打开 AI Director">
+            <MagicWand size={17} /> 导演画布
+          </button>
         </nav>
         <div className="studio-statuses">
           <span className="connection-status"><Circle size={9} weight="fill" /> {provider?.name ?? "Provider"}</span>
@@ -203,6 +210,12 @@ export function StoryboardWorkspace() {
   }, [sceneId, projectId, openScene]);
   if (!sceneId) return <SceneEmptyState />;
   return <WorkspaceHost projectId={projectId} activeEpisode={undefined} />;
+}
+
+// ---------- Workspace: 资产浏览 (asset browser + inspector, P6-T016/T017) ----------
+export function AssetWorkspace() {
+  const { projectId = "" } = useParams();
+  return <AssetBrowserView projectId={projectId} />;
 }
 
 function useStudio(): StudioContext {

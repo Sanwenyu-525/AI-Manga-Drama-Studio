@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CaretDown, CaretLineLeft, CaretRight, Check, FilmStrip, FolderOpen, ImageSquare, MapPin, PencilSimple, Plus, SlidersHorizontal, Trash, UsersThree, X } from "@phosphor-icons/react";
+import { CaretDown, CaretLineLeft, CaretRight, Check, FilmStrip, FolderOpen, ImageSquare, MapPin, PencilSimple, Plus, SlidersHorizontal, Star, Trash, UsersThree, X } from "@phosphor-icons/react";
 import { ProjectSettingsModal } from "../settings/ProjectSettingsModal";
+import { EntityVersionBlock } from "../libraries/EntityVersionBlock";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type {
@@ -10,6 +11,8 @@ import type {
   CharacterUpdatePatch,
   Episode,
   EpisodeUpdateRequest,
+  Location,
+  LocationCreate,
   Scene,
   SceneUpdateRequest,
 } from "../../api/types";
@@ -185,18 +188,16 @@ export function ProjectExplorer({ projectId, onCollapse }: { projectId: string; 
       </div>
 
       <CharactersSection projectId={projectId} />
-
-      <div className="tree-section quiet-section">
-        <div className="tree-section-title"><MapPin size={18} /> 场景资产</div>
-        <span className="tree-muted-item">镜头生成后自动归档</span>
-      </div>
+      <LocationsSection projectId={projectId} />
 
       <ProjectSettingsModal projectId={projectId} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
 
-// Characters block (P1 Character Management, frontend-ux §219): list + inline create/edit/delete.
+// Characters block (P1 Character Management + P6-T013 Character Library +
+// P6-T014 Set MASTER): library of character cards; each card marks the MASTER
+// version and expands into the shared EntityVersionBlock (versions + upload + MASTER).
 function CharactersSection({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -241,11 +242,12 @@ function CharactersSection({ projectId }: { projectId: string }) {
 
   return (
     <div className="tree-section quiet-section">
-      <div className="tree-section-title"><UsersThree size={18} /> 角色</div>
+      <div className="tree-section-title"><UsersThree size={18} /> 角色 <span className="tree-section-badge">库</span></div>
       {(characters ?? []).map((character) => (
         <CharacterRow
           key={character.id}
           character={character}
+          projectId={projectId}
           expanded={expandedId === character.id}
           onToggle={() => setExpandedId(expandedId === character.id ? null : character.id)}
           onSave={(patch) => updateCharacter.mutate({ id: character.id, revision: character.revision, patch })}
@@ -283,6 +285,94 @@ function CharactersSection({ projectId }: { projectId: string }) {
   );
 }
 
+// Locations block (P6-T015 Location Library): same card + EntityVersionBlock pattern.
+function LocationsSection({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+
+  const { data: locations } = useQuery({
+    queryKey: queryKeys.locations(projectId),
+    queryFn: () => api.get<Location[]>("/projects/" + projectId + "/locations"),
+  });
+
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.locations(projectId) });
+  };
+
+  const createLocation = useMutation({
+    mutationFn: (name: string) => {
+      const body: LocationCreate = { name };
+      return api.post<Location>("/projects/" + projectId + "/locations", body);
+    },
+    onSuccess: (location) => {
+      invalidate();
+      setCreating(false);
+      setNewName("");
+      setExpandedId(location.id);
+    },
+  });
+
+  const deleteLocation = useMutation({
+    mutationFn: (id: string) => api.delete("/locations/" + id),
+    onSuccess: () => {
+      invalidate();
+      setExpandedId(null);
+    },
+  });
+
+  return (
+    <div className="tree-section quiet-section">
+      <div className="tree-section-title"><MapPin size={18} /> 地点 <span className="tree-section-badge">库</span></div>
+      {(locations ?? []).map((location) => {
+        const isOpen = expandedId === location.id;
+        return (
+          <div key={location.id} className="tree-item">
+            <button className={"tree-row child " + (isOpen ? "active" : "")} onClick={() => setExpandedId(isOpen ? null : location.id)}>
+              <MapPin size={14} />
+              <span className="tree-label">{location.name}</span>
+              {location.master_version_id && <span className="badge ok master-badge"><Star size={11} weight="fill" /> MASTER</span>}
+            </button>
+            {isOpen && (
+              <div className="char-editor">
+                <EntityVersionBlock kind="location" entityId={location.id} projectId={projectId} />
+                <div className="char-editor-actions location-delete">
+                  <button className="btn danger tiny" disabled={deleteLocation.isPending} onClick={() => {
+                    if (window.confirm("删除地点「" + location.name + "」？历史场景引用会保留。")) deleteLocation.mutate(location.id);
+                  }}><Trash size={13} /> 删除</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {!locations?.length && !creating && <span className="tree-muted-item">还没有地点 · 手动添加或等 AI 分析建立</span>}
+
+      {creating ? (
+        <div className="char-create-row">
+          <input
+            autoFocus
+            value={newName}
+            placeholder="地点名（必填）"
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && newName.trim()) createLocation.mutate(newName.trim());
+              if (e.key === "Escape") setCreating(false);
+            }}
+          />
+          <button className="icon-button ok" disabled={!newName.trim() || createLocation.isPending} onClick={() => createLocation.mutate(newName.trim())} title="保存">
+            <Check size={14} />
+          </button>
+          <button className="icon-button" onClick={() => setCreating(false)} title="取消"><X size={14} /></button>
+        </div>
+      ) : (
+        <button className="tree-add-row" onClick={() => setCreating(true)}><Plus size={14} /> 地点</button>
+      )}
+    </div>
+  );
+}
+
 interface CharFormFields {
   name: string;
   alias: string;
@@ -295,6 +385,7 @@ interface CharFormFields {
 
 function CharacterRow({
   character,
+  projectId,
   expanded,
   onToggle,
   onSave,
@@ -302,6 +393,7 @@ function CharacterRow({
   saving,
 }: {
   character: Character;
+  projectId: string;
   expanded: boolean;
   onToggle: () => void;
   onSave: (patch: CharacterUpdatePatch) => void;
@@ -354,11 +446,14 @@ function CharacterRow({
       <button className="tree-row child" onClick={onToggle}>
         <UsersThree size={14} />
         <span className="tree-label">{character.name}{character.alias ? "（" + character.alias + "）" : ""}</span>
+        {character.master_version_id && <span className="badge ok master-badge"><Star size={11} weight="fill" /> MASTER</span>}
         <span className="tree-count">{character.shot_count}</span>
         {expanded && <PencilSimple size={13} />}
       </button>
       {expanded && (
         <div className="char-editor">
+          <div className="library-section-heading"><span className="section-kicker">视觉版本</span></div>
+          <EntityVersionBlock kind="character" entityId={character.id} projectId={projectId} />
           <label className="field"><span className="field-label">名称</span>
             <input value={active.name} onChange={(e) => setField("name", e.target.value)} />
           </label>

@@ -88,4 +88,8 @@ export const api = {
   put: <T>(path: string, body: unknown, options?: RequestOptions) => request<T>("PUT", path, body, options),
   patch: <T>(path: string, body: unknown, options?: RequestOptions) => request<T>("PATCH", path, body, options),
   delete: <T>(path: string, options?: RequestOptions) => request<T>("DELETE", path, undefined, options),
+  /** Multipart upload (P6 / P3-T003): the body is a FormData carrying the file
+   *  plus its form fields. request() detects FormData and omits Content-Type so
+   *  the browser sets the multipart boundary automatically. */
+  upload: <T>(path: string, form: FormData, options?: RequestOptions) => request<T>("POST", path, form, options),
 };
