@@ -31,6 +31,7 @@ EVENT_SCENE_CREATED = "scene.created"
 EVENT_SCENE_UPDATED = "scene.updated"
 EVENT_PROJECT_CREATED = "project.created"
 EVENT_PROJECT_UPDATED = "project.updated"
+EVENT_PROJECT_DELETED = "project.deleted"
 
 EVENT_ASSET_CREATED = "asset.created"
 

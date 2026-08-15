@@ -1,9 +1,11 @@
 """Project API (api-event-contract §9-12, mvp-spec §32)."""
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.core.errors import NotFoundError
 from app.domain.project import (
     ProjectBootstrapRead,
     ProjectCreate,
@@ -39,3 +41,30 @@ def update_project(project_id: str, data: ProjectUpdate, db: Session = Depends(g
 def get_bootstrap(project_id: str, db: Session = Depends(get_db)) -> ProjectBootstrapRead:
     """Workspace bootstrap (api-event-contract §103-104): summaries only."""
     return ProjectService(db).bootstrap(project_id)
+
+
+@router.post("/{project_id}/cover", response_model=ProjectRead)
+async def upload_cover(
+    project_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> ProjectRead:
+    """Upload/replace the project cover image (multipart; stored under the project dir)."""
+    service = ProjectService(db)
+    content = await file.read()
+    return service.save_cover(project_id, file.filename or "cover.png", content)
+
+
+@router.get("/{project_id}/cover")
+def get_cover(project_id: str, db: Session = Depends(get_db)) -> FileResponse:
+    path = ProjectService(db).cover_path(project_id)
+    if path is None:
+        raise NotFoundError("Project cover does not exist.", {"project_id": project_id})
+    return FileResponse(path)
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_200_OK)
+def delete_project(project_id: str, db: Session = Depends(get_db)) -> dict:
+    """Soft-delete the project and its episode/scene/shot/character tree."""
+    ProjectService(db).delete_project(project_id)
+    return {"id": project_id, "deleted": True}

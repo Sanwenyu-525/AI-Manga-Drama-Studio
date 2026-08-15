@@ -32,6 +32,7 @@ class ProjectRead(BaseModel):
     status: str
     aspect_ratio: str | None
     fps: int | None
+    cover_url: str | None = None
     created_at: str
     updated_at: str
 

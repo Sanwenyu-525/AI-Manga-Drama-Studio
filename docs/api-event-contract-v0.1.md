@@ -343,6 +343,7 @@ Response：
   "status": "draft",
   "aspect_ratio": "9:16",
   "fps": 24,
+  "cover_url": null,
   "created_at": "..."
 }
 ```
@@ -387,6 +388,37 @@ PATCH /api/v1/projects/{project_id}
 {
   "name": "新的项目名"
 }
+```
+
+---
+
+# 12.1 上传 / 读取 Project 封面
+
+```http
+POST /api/v1/projects/{project_id}/cover
+```
+
+multipart/form-data，字段 `file`（.png / .jpg / .jpeg / .webp / .gif，≤10 MB）。
+覆盖式存储：DB 只存相对路径（`cover<ext>`），文件落在项目目录
+`data/projects/{project_id}/cover.<ext>`。成功返回 ProjectRead（`cover_url` 更新）。
+
+```http
+GET /api/v1/projects/{project_id}/cover
+```
+
+返回封面图片文件；未上传时 404。
+
+# 12.2 删除 Project（软删除项目树）
+
+```http
+DELETE /api/v1/projects/{project_id}
+```
+
+软删除（`deleted_at`，database-v0.1 §41）并级联其 Episode / Scene / Shot / Character；
+删除后列表与各子资源不可见。返回：
+
+```json
+{ "id": "project_001", "deleted": true }
 ```
 
 ---
@@ -1342,6 +1374,53 @@ Response：
   "latency_ms": 12
 }
 ```
+
+---
+
+# 48.1 Workflow Catalog API（只读）
+
+工作流模板以 API 格式 JSON 入库（workflows/*.json，受 WORKFLOW_CATALOG 约束，
+见 backend-architecture §21 / §42）。前端只读展示目录与预检元数据，不做编辑。
+
+```http
+GET /api/v1/workflows
+```
+
+Response：
+
+```json
+[
+  {
+    "id": "default_image_api",
+
+    "file": "default_image_api.json",
+
+    "is_default": true,
+
+    "output_node_class": "SaveImage",
+
+    "required_placeholders": ["$PROMPT", "$SEED", "$WIDTH", "$HEIGHT"],
+
+    "exists": true,
+
+    "valid_json": true,
+
+    "node_count": 7,
+
+    "node_types": ["CLIPTextEncode", "KSampler", "SaveImage", "VAEDecode"],
+
+    "placeholder_tokens": ["$HEIGHT", "$NEGATIVE_PROMPT", "$PROMPT", "$SEED", "$WIDTH"]
+  }
+]
+```
+
+字段：
+
+- `id` / `file`：workflow_id 与模板文件名（WORKFLOW_CATALOG 约束）
+- `is_default`：默认生成使用的模板
+- `output_node_class`：preflight 要求恰好一个输出节点（SaveImage）
+- `required_placeholders`：preflight 必需的占位符；缺失时生成前失败
+- `node_types` / `placeholder_tokens`：模板结构清单（只读展示用）
 
 ---
 
@@ -3666,6 +3745,8 @@ Generation 与 Agent 生命周期分离。
 /providers
 
 /providers/comfyui/test
+
+/workflows
 
 /health
 ```

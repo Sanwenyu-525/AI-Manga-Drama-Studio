@@ -20,6 +20,7 @@ class Project(Base):
     default_language: Mapped[str | None] = mapped_column(Text)
     aspect_ratio: Mapped[str | None] = mapped_column(Text)  # e.g. "9:16"
     fps: Mapped[int | None] = mapped_column()
+    cover_path: Mapped[str | None] = mapped_column(Text)  # relative path under projects/{id}/
     deleted_at: Mapped[str | None] = mapped_column(Text)  # soft delete (database-v0.1 §41)
     created_at: Mapped[str] = ts_created()
     updated_at: Mapped[str] = ts_updated()

@@ -1098,6 +1098,12 @@ Electron 开发成本最低。
 
 则选择 Tauri。
 
+> **实现注记（2026-08）**：桌面窗口使用**自定义标题栏**（`tauri.conf.json` 窗口 `decorations: false`；
+> 前端 `components/TitleBar.tsx` 提供拖拽区 `data-tauri-drag-region` 与最小化/最大化/关闭按钮，
+> 仅 Tauri 运行时渲染，浏览器构建保持原生浏览器 chrome）。相关 window 权限在
+> `src-tauri/capabilities/default.json`：`allow-start-dragging / allow-minimize /
+> allow-toggle-maximize / allow-close / allow-is-maximized`。
+
 ---
 
 # 28. 后端

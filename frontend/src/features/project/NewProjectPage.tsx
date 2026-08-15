@@ -31,7 +31,7 @@ export function NewProjectPage() {
     },
     onSuccess: (project) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-      navigate(`/projects/${project.id}`);
+      navigate(`/projects/${project.id}/script`);
     },
   });
 
@@ -39,7 +39,7 @@ export function NewProjectPage() {
     <div className="new-project-page">
       <header className="new-project-header">
         <Link to="/" className="icon-button" aria-label="返回项目"><ArrowLeft size={19} /></Link>
-        <span className="wordmark">AI MANGA DRAMA STUDIO</span>
+        <span className="wordmark"><img src="/assets/logo.png" alt="" className="app-logo" /> AI MANGA DRAMA STUDIO</span>
         <h1>新建项目</h1>
         <span />
       </header>
@@ -61,7 +61,7 @@ export function NewProjectPage() {
             <span className="field-label">画幅比例</span>
             <div className="segmented-control">
               {["9:16", "16:9", "1:1"].map((ratio) => (
-                <button key={ratio} className={aspectRatio === ratio ? "active" : ""} onClick={() => setAspectRatio(ratio)}>
+                <button type="button" key={ratio} className={aspectRatio === ratio ? "active" : ""} onClick={() => setAspectRatio(ratio)}>
                   {ratio}
                 </button>
               ))}
@@ -73,7 +73,7 @@ export function NewProjectPage() {
             <span className="field-label">帧率</span>
             <div className="segmented-control compact-segments">
               {[24, 25, 30].map((value) => (
-                <button key={value} className={fps === value ? "active" : ""} onClick={() => setFps(value)}>{value} FPS</button>
+                <button type="button" key={value} className={fps === value ? "active" : ""} onClick={() => setFps(value)}>{value} FPS</button>
               ))}
             </div>
           </div>
@@ -126,7 +126,7 @@ export function NewProjectPage() {
 
 function StartModeCard({ active, onClick, icon, title, description }: { active: boolean; onClick: () => void; icon: React.ReactNode; title: string; description: string }) {
   return (
-    <button className={`start-mode-card ${active ? "active" : ""}`} onClick={onClick}>
+    <button type="button" className={`start-mode-card ${active ? "active" : ""}`} onClick={onClick}>
       <span className="mode-icon">{icon}</span>
       {active && <Check className="mode-check" size={15} weight="bold" />}
       <strong>{title}</strong>

@@ -11,6 +11,7 @@ dependencies = [
     "langgraph>=1.2.11",
     "pillow>=12.3.0",
     "pydantic-settings>=2.15.0",
+    "python-multipart>=0.0.32",
     "sqlalchemy>=2.0.52",
     "uvicorn[standard]>=0.52.3",
     "websockets>=15.0",  # ComfyUI WS monitor (P1-E2-T01: explicit runtime dep)

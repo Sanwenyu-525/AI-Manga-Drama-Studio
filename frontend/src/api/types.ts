@@ -7,6 +7,7 @@ export interface Project {
   status: string;
   aspect_ratio: string | null;
   fps: number | null;
+  cover_url: string | null;
   created_at: string;
   updated_at: string;
 }

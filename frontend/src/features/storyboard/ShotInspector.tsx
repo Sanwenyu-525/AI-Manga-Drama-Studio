@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Aperture, ArrowSquareOut, CheckCircle, Clock, DotsThree, ImageSquare, MagicWand, VideoCamera } from "@phosphor-icons/react";
-import { Link } from "react-router-dom";
+import { Aperture, ArrowSquareOut, CheckCircle, Clock, DotsThree, ImageSquare, MagicWand, Trash, VideoCamera } from "@phosphor-icons/react";
+import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type { Character, GenerationRead, MediaVersionRead, Shot, ShotUpdatePatch } from "../../api/types";
@@ -12,8 +12,28 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 // Shot Inspector (frontend-ux §12-13): edit the selected shot, PATCH with optimistic revision.
 export function ShotInspector() {
   const activeShotId = useWorkspaceStore((s) => s.activeShotId);
+  const setActiveShot = useWorkspaceStore((s) => s.setActiveShot);
   const setRightPanelTab = useWorkspaceStore((s) => s.setRightPanelTab);
+  const clearShots = useSelectionStore((s) => s.clearShots);
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
 
   const { data: shot, isLoading } = useQuery({
     queryKey: activeShotId ? queryKeys.shot(activeShotId) : ["shot", "none"],
@@ -66,6 +86,24 @@ export function ShotInspector() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["generations", activeShotId] });
     },
+  });
+
+  const deleteShot = useMutation({
+    mutationFn: () => {
+      if (!activeShotId) throw new Error("no active shot");
+      return api.delete<{ deleted: boolean }>(`/shots/${activeShotId}`);
+    },
+    onSuccess: () => {
+      setMenuOpen(false);
+      setActiveShot(null);
+      clearShots();
+      if (sceneId) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.storyboard(sceneId) });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.shots(sceneId) });
+        void queryClient.invalidateQueries({ queryKey: ["scenes"] });
+      }
+    },
+    onError: (error) => setConflict(error instanceof Error ? error.message : String(error)),
   });
 
   const saveShot = useMutation({
@@ -146,7 +184,38 @@ export function ShotInspector() {
             <h2>Shot {String(shot.shot_number).padStart(3, "0")}</h2>
             <span className="ready-line"><CheckCircle size={15} weight="fill" /> {shot.status === "image_ready" ? "已出图" : "可编辑"} · rev {shot.revision}</span>
           </div>
-          <button className="icon-button" aria-label="更多操作"><DotsThree size={20} /></button>
+          <div className="shot-menu" ref={menuRef}>
+            <button className="icon-button" aria-label="更多操作" aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}><DotsThree size={20} /></button>
+            {menuOpen && (
+              <div className="shot-menu-popover" role="menu" aria-label="镜头操作">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    navigate(`/projects/${projectId}/shots/${activeShotId}/versions`);
+                  }}
+                >
+                  <ArrowSquareOut size={15} /> 全屏审片
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="danger"
+                  disabled={deleteShot.isPending}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    if (window.confirm(`删除 Shot ${String(shot.shot_number).padStart(3, "0")}？
+镜头与其生成版本将被软删除。`)) {
+                      deleteShot.mutate();
+                    }
+                  }}
+                >
+                  <Trash size={15} /> {deleteShot.isPending ? "删除中…" : "删除镜头"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="inspector-fact-grid">

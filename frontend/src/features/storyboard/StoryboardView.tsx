@@ -18,6 +18,7 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
   const setRightPanelTab = useWorkspaceStore((state) => state.setRightPanelTab);
   const [planOpId, setPlanOpId] = useState<string | null>(null);
   const [planError, setPlanError] = useState<Error | null>(null);
+  const [view, setView] = useState<"grid" | "list">("grid");
 
   const { data: storyboard, isLoading } = useQuery({
     queryKey: queryKeys.storyboard(sceneId),
@@ -74,12 +75,15 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
         </div>
         <div className="storyboard-summary">
           <span><CheckCircle size={16} /> 已出图 {readyCount}/{storyboard?.shots.length ?? 0}</span>
-          <div className="view-toggle"><button><ListBullets size={17} /></button><button className="active"><SquaresFour size={17} /></button></div>
+          <div className="view-toggle" role="tablist" aria-label="Storyboard 视图">
+            <button type="button" className={view === "grid" ? "active" : ""} aria-label="网格视图" title="网格视图" onClick={() => setView("grid")}><SquaresFour size={17} /></button>
+            <button type="button" className={view === "list" ? "active" : ""} aria-label="列表视图" title="列表视图" onClick={() => setView("list")}><ListBullets size={17} /></button>
+          </div>
         </div>
       </header>
 
       <div className="storyboard-toolbar">
-        <div className="continuity-score"><i style={{ width: `${storyboard?.shots.length ? Math.max(28, Math.round((readyCount / storyboard.shots.length) * 100)) : 0}%` }} /><span>制作进度</span></div>
+        <div className="continuity-score"><div className="continuity-track"><i style={{ width: `${storyboard?.shots.length ? Math.max(28, Math.round((readyCount / storyboard.shots.length) * 100)) : 0}%` }} /></div><span>制作进度</span></div>
         <div className="row gap">
           <button className="btn secondary" onClick={() => createShot.mutate()} disabled={createShot.isPending}><Plus size={15} /> 镜头</button>
           <button className="btn primary" disabled={generateShots.isPending || Boolean(planOpId)} onClick={() => generateShots.mutate()}>
@@ -103,32 +107,53 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
         </div>
       )}
 
-      <div className="shot-grid">
-        {storyboard?.shots.map((shot) => {
-          const isSelected = selectedShotId === shot.id;
-          const isGenerating = shot.active_generation && typeof shot.active_generation === "object";
-          return (
-            <button key={shot.id} className={`shot-card ${isSelected ? "selected" : ""} ${shot.status === "failed" ? "failed" : ""}`} onClick={() => handleSelect(shot.id)}>
-              <div className="shot-thumb">
-                {shot.thumbnail_url ? <img src={shot.thumbnail_url} alt={`Shot ${shot.shot_number}`} /> : <img src="/assets/manga-shot.png" alt="镜头占位参考" className="reference-fallback" />}
-                {isGenerating && <div className="shot-generating"><MagicWand size={18} /> GENERATING</div>}
-                <span className="shot-index">SH{String(shot.shot_number).padStart(2, "0")}</span>
-              </div>
-              <div className="shot-card-body">
-                <div className="shot-meta">
-                  <span className="shot-number">Shot {String(shot.shot_number).padStart(3, "0")}</span>
-                  <span className="shot-duration">{shot.duration != null ? `${shot.duration.toFixed(1)}s` : "—"}</span>
-                </div>
-                <p>{SHOT_TYPE_LABELS[shot.shot_type] ?? shot.shot_type}{shot.character_names.length ? ` · ${shot.character_names.join("、")}` : " · 待编辑"}</p>
-                <div className="shot-state-row">
+      {view === "list" ? (
+        <div className="shot-list" role="list" aria-label="镜头列表">
+          {storyboard?.shots.map((shot) => {
+            const isSelected = selectedShotId === shot.id;
+            return (
+              <button key={shot.id} type="button" role="listitem" className={`shot-row ${isSelected ? "selected" : ""} ${shot.status === "failed" ? "failed" : ""}`} onClick={() => handleSelect(shot.id)}>
+                <img className="shot-row-thumb" loading="lazy" src={shot.thumbnail_url ?? "/assets/manga-shot.png"} alt={`Shot ${shot.shot_number}`} />
+                <span className="shot-row-number">Shot {String(shot.shot_number).padStart(3, "0")}</span>
+                <span className="shot-row-type">{SHOT_TYPE_LABELS[shot.shot_type] ?? shot.shot_type}</span>
+                <span className="shot-row-cast">{shot.character_names.length ? shot.character_names.join("、") : "待编辑"}</span>
+                <span className="shot-row-duration">{shot.duration != null ? `${shot.duration.toFixed(1)}s` : "—"}</span>
+                <span className="shot-row-state">
                   <span className={`badge ${shot.status}`}>{statusText(shot.status)}</span>
                   {shot.dirty_state !== "clean" && <span className="badge warn">需重生成</span>}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="shot-grid">
+          {storyboard?.shots.map((shot) => {
+            const isSelected = selectedShotId === shot.id;
+            const isGenerating = shot.active_generation && typeof shot.active_generation === "object";
+            return (
+              <button key={shot.id} type="button" className={`shot-card ${isSelected ? "selected" : ""} ${shot.status === "failed" ? "failed" : ""}`} onClick={() => handleSelect(shot.id)}>
+                <div className="shot-thumb">
+                  {shot.thumbnail_url ? <img loading="lazy" src={shot.thumbnail_url} alt={`Shot ${shot.shot_number}`} /> : <img src="/assets/manga-shot.png" alt="镜头占位参考" className="reference-fallback" />}
+                  {isGenerating && <div className="shot-generating"><MagicWand size={18} /> GENERATING</div>}
+                  <span className="shot-index">SH{String(shot.shot_number).padStart(2, "0")}</span>
                 </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+                <div className="shot-card-body">
+                  <div className="shot-meta">
+                    <span className="shot-number">Shot {String(shot.shot_number).padStart(3, "0")}</span>
+                    <span className="shot-duration">{shot.duration != null ? `${shot.duration.toFixed(1)}s` : "—"}</span>
+                  </div>
+                  <p>{SHOT_TYPE_LABELS[shot.shot_type] ?? shot.shot_type}{shot.character_names.length ? ` · ${shot.character_names.join("、")}` : " · 待编辑"}</p>
+                  <div className="shot-state-row">
+                    <span className={`badge ${shot.status}`}>{statusText(shot.status)}</span>
+                    {shot.dirty_state !== "clean" && <span className="badge warn">需重生成</span>}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

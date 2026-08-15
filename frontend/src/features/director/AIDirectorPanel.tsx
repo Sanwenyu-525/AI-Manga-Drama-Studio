@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { Check, Circle, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { useAgentStore } from "../../stores/agentStore";
@@ -103,7 +104,7 @@ export function AIDirectorPanel() {
               <div className="plan-title">计划：{agent.objective}</div>
               {agent.tools.map((tool, i) => (
                 <div key={i} className={`plan-step ${tool.status}`}>
-                  <span className="plan-icon">{tool.status === "done" ? "✓" : tool.status === "failed" ? "✗" : tool.status === "running" ? "●" : "○"}</span>
+                  <span className="plan-icon">{tool.status === "done" ? <Check size={12} weight="bold" /> : tool.status === "failed" ? <X size={12} weight="bold" /> : <Circle size={12} weight={tool.status === "running" ? "fill" : "regular"} />}</span>
                   <span className="plan-tool">{tool.tool}</span>
                   {tool.detail && <span className="muted small">{tool.detail}</span>}
                 </div>
@@ -126,7 +127,7 @@ export function AIDirectorPanel() {
             disabled={busy}
           />
           <button className="btn primary" onClick={handleSubmit} disabled={busy || !input.trim()}>
-            {busy ? "…" : "发送"}
+            {busy ? "执行中…" : "发送"}
           </button>
         </div>
       </div>

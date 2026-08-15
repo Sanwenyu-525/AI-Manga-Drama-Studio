@@ -29,20 +29,24 @@ export function VersionReviewPage() {
 
   const selected = versions?.find((version) => version.id === selectedId);
   const active = versions?.find((version) => version.is_active);
+  // Back to the shot's own storyboard scene (URL-driven), not just the project root.
+  const backToStoryboard = shot?.scene_id
+    ? `/projects/${projectId}/storyboard/${shot.scene_id}`
+    : `/projects/${projectId}`;
 
   return (
     <div className="version-review-page">
       <header className="review-topbar">
-        <Link to={`/projects/${projectId}`} className="icon-button" aria-label="返回工作台"><ArrowLeft size={19} /></Link>
+        <Link to={backToStoryboard} className="icon-button" aria-label="返回分镜"><ArrowLeft size={19} /></Link>
         <div><span className="eyebrow">VERSION REVIEW</span><strong>{project?.name ?? "项目"} · Shot {String(shot?.shot_number ?? 0).padStart(3, "0")}</strong></div>
-        <div className="review-top-actions"><span><ClockCounterClockwise size={16} /> 版本不可变</span><Link className="btn secondary compact" to={`/projects/${projectId}`}>返回分镜</Link></div>
+        <div className="review-top-actions"><span><ClockCounterClockwise size={16} /> 版本不可变</span><Link className="btn secondary compact" to={backToStoryboard}>返回分镜</Link></div>
       </header>
 
       <main className="version-review-layout">
         <aside className="version-sidebar">
           <div className="version-sidebar-head"><div><span className="eyebrow">GENERATED VERSIONS</span><h1>审片与定版</h1></div><SlidersHorizontal size={19} /></div>
           {isLoading && <p className="muted">正在读取版本…</p>}
-          {!isLoading && versions?.length === 0 && <div className="version-empty"><ImageSquare size={30} /><p>这个镜头还没有生成版本。</p><Link to={`/projects/${projectId}`} className="btn primary">返回生成图片</Link></div>}
+          {!isLoading && versions?.length === 0 && <div className="version-empty"><ImageSquare size={30} /><p>这个镜头还没有生成版本。</p><Link to={backToStoryboard} className="btn primary">返回生成图片</Link></div>}
           <div className="version-card-list">
             {versions?.map((version) => (
               <button key={version.id} className={`version-card ${selectedId === version.id ? "selected" : ""}`} onClick={() => setSelectedId(version.id)}>
@@ -68,7 +72,7 @@ export function VersionReviewPage() {
         <aside className="review-inspector">
           <span className="eyebrow">DECISION</span>
           <h2>{selected ? `V${selected.version_number}` : "未选择版本"}</h2>
-          <div className="review-status-card">
+          <div className={`review-status-card ${selected && !selected.is_active ? "candidate" : ""}`}>
             {selected?.is_active ? <><CheckCircle size={20} weight="fill" /><div><strong>当前生效版本</strong><span>Storyboard 已使用此版本</span></div></> : <><MagicWand size={20} /><div><strong>候选版本</strong><span>确认后只切换 active 指针</span></div></>}
           </div>
           <div className="review-meta-list">

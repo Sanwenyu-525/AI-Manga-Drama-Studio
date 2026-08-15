@@ -19,6 +19,7 @@ interface SelectionState {
   setProject: (projectId: string) => void;
   setEpisode: (episodeId: string) => void;
   setScene: (sceneId: string) => void;
+  clearScene: () => void;
   selectShot: (shotId: string) => void;
   clearShots: () => void;
   setWorkspace: (workspace: WorkspaceType) => void;
@@ -31,6 +32,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
   setEpisode: (episodeId) =>
     set((s) => ({ selection: { ...s.selection, episodeId, sceneId: undefined, shotIds: [] } })),
   setScene: (sceneId) => set((s) => ({ selection: { ...s.selection, sceneId, shotIds: [] } })),
+  clearScene: () => set((s) => ({ selection: { ...s.selection, sceneId: undefined, shotIds: [] } })),
   selectShot: (shotId) => set((s) => ({ selection: { ...s.selection, shotIds: [shotId] } })),
   clearShots: () => set((s) => ({ selection: { ...s.selection, shotIds: [] } })),
   setWorkspace: (workspace) => set((s) => ({ selection: { ...s.selection, workspace } })),

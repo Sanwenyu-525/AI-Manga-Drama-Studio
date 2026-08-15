@@ -121,7 +121,7 @@ AI Manga Drama Studio 已经具备真实的 MVP 闭环，而不是只有界面�
 
 - `frontend/src/features/script/EpisodePanel.tsx` 先调用 preview，确认时又发起 analyze；后端可能重新运行 LLM。
 - 用户审阅的 ScenePlan 与最终写入内容可能漂移。
-- UI 还承诺“自动创建角色”，现有分析流程没有这一行为；“替换原文”按钮无 handler。
+- UI 还承诺“自动创建角色”，现有分析流程没有这一行为；“替换原文”按钮无 handler（已修复：2026-08-15 接入本地 .txt/.md 文件导入，见 EpisodePanel）。
 
 #### A-10 Router 分层红线存在局部违例
 

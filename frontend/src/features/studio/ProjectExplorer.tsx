@@ -1,16 +1,39 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CaretDown, CaretRight, Check, FilmStrip, FolderOpen, FunnelSimple, ImageSquare, MapPin, PencilSimple, Plus, Trash, UsersThree, X } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, Check, FilmStrip, FolderOpen, ImageSquare, MapPin, PencilSimple, Plus, Trash, UsersThree, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type { Character, CharacterUpdatePatch, Episode, Scene } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
 
 export function ProjectExplorer({ projectId }: { projectId: string }) {
-  const selection = useSelectionStore((state) => state.selection);
+  const navigate = useNavigate();
   const setEpisode = useSelectionStore((state) => state.setEpisode);
   const setScene = useSelectionStore((state) => state.setScene);
   const queryClient = useQueryClient();
+  // 剧集树的展开/收起是 UI 状态，与选中解耦：再次点击已展开的剧集即可收起。
+  const [expandedEpisodeId, setExpandedEpisodeId] = useState<string | null>(null);
+
+  const openScript = (episodeId: string) => {
+    setEpisode(episodeId); // keep selection context for the AI Director
+    navigate(`/projects/${projectId}/script`);
+  };
+
+  const openStoryboard = (sceneId: string, episodeId?: string) => {
+    if (episodeId) setEpisode(episodeId); // scene belongs to this episode
+    setScene(sceneId); // keep selection context for the AI Director
+    navigate(`/projects/${projectId}/storyboard/${sceneId}`);
+  };
+
+  const toggleEpisode = (episode: Episode) => {
+    if (expandedEpisodeId === episode.id) {
+      setExpandedEpisodeId(null); // 收起（保持选中，工作区不变）
+    } else {
+      setExpandedEpisodeId(episode.id); // 展开并选中
+      openScript(episode.id);
+    }
+  };
 
   const { data: episodes } = useQuery({
     queryKey: queryKeys.episodes(projectId),
@@ -21,7 +44,7 @@ export function ProjectExplorer({ projectId }: { projectId: string }) {
     mutationFn: () => api.post<Episode>("/projects/" + projectId + "/episodes", { title: "第 " + ((episodes?.length ?? 0) + 1) + " 集" }),
     onSuccess: (episode) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(projectId) });
-      setEpisode(episode.id);
+      openScript(episode.id);
     },
   });
 
@@ -29,7 +52,7 @@ export function ProjectExplorer({ projectId }: { projectId: string }) {
     mutationFn: (episodeId: string) => api.post<Scene>("/episodes/" + episodeId + "/scenes", { name: "新场景" }),
     onSuccess: (scene) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.scenes(scene.episode_id) });
-      setScene(scene.id);
+      openStoryboard(scene.id, scene.episode_id);
     },
   });
 
@@ -37,7 +60,6 @@ export function ProjectExplorer({ projectId }: { projectId: string }) {
     <div className="explorer-tree">
       <div className="explorer-head">
         <span>资源树</span>
-        <FunnelSimple size={16} />
       </div>
 
       <div className="tree-section">
@@ -49,15 +71,20 @@ export function ProjectExplorer({ projectId }: { projectId: string }) {
           </div>
         ) : (
           episodes.map((episode) => {
-            const isOpen = selection.episodeId === episode.id;
+            const isOpen = expandedEpisodeId === episode.id;
             return (
               <div key={episode.id} className="tree-item">
-                <button className={"tree-row episode-row " + (isOpen ? "active" : "")} onClick={() => setEpisode(episode.id)}>
+                <button
+                  type="button"
+                  className={"tree-row episode-row " + (isOpen ? "active" : "")}
+                  aria-expanded={isOpen}
+                  onClick={() => toggleEpisode(episode)}
+                >
                   {isOpen ? <CaretDown size={14} /> : <CaretRight size={14} />}
                   <FilmStrip size={17} />
                   <span className="tree-label">第 {episode.episode_number} 集 · {episode.title || "未命名"}</span>
                 </button>
-                {isOpen && <EpisodeScenes episode={episode} onCreateScene={() => createScene.mutate(episode.id)} />}
+                {isOpen && <EpisodeScenes episode={episode} projectId={projectId} onCreateScene={() => createScene.mutate(episode.id)} />}
               </div>
             );
           })
@@ -274,18 +301,34 @@ function CharacterRow({
   );
 }
 
-function EpisodeScenes({ episode, onCreateScene }: { episode: Episode; onCreateScene: () => void }) {
+function EpisodeScenes({
+  episode,
+  projectId,
+  onCreateScene,
+}: {
+  episode: Episode;
+  projectId: string;
+  onCreateScene: () => void;
+}) {
+  const navigate = useNavigate();
   const selection = useSelectionStore((state) => state.selection);
+  const setEpisode = useSelectionStore((state) => state.setEpisode);
   const setScene = useSelectionStore((state) => state.setScene);
   const { data: scenes } = useQuery({
     queryKey: queryKeys.scenes(episode.id),
     queryFn: () => api.get<Scene[]>("/episodes/" + episode.id + "/scenes"),
   });
 
+  const openScene = (scene: Scene) => {
+    setEpisode(scene.episode_id); // scene belongs to this episode
+    setScene(scene.id); // keep selection context for the AI Director
+    navigate(`/projects/${projectId}/storyboard/${scene.id}`);
+  };
+
   return (
     <div className="tree-children">
       {scenes?.map((scene) => (
-        <button key={scene.id} className={"tree-row child " + (selection.sceneId === scene.id ? "active" : "")} onClick={() => setScene(scene.id)}>
+        <button key={scene.id} className={"tree-row child " + (selection.sceneId === scene.id ? "active" : "")} onClick={() => openScene(scene)}>
           <ImageSquare size={15} />
           <span className="tree-label">SC{String(scene.scene_number).padStart(2, "0")} · {scene.name ?? "场景"}</span>
           <span className="tree-count">{scene.shot_count}</span>

@@ -15,6 +15,9 @@ const queryClient = new QueryClient({
   },
 });
 
+// The window frame (custom TitleBar + routed content) lives in the router's
+// layout route so the TitleBar can navigate; in a plain browser the TitleBar
+// renders nothing and the frame keeps the same structure.
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>

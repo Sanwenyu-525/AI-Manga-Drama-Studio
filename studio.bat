@@ -8,6 +8,7 @@ set "HASARG=%~1"
 if /i "%~1"=="start"   goto :start
 if /i "%~1"=="stop"    goto :stop
 if /i "%~1"=="restart" goto :restart
+if /i "%~1"=="desktop" goto :desktop
 if /i "%~1"=="status"  goto :status
 if /i "%~1"=="logs"    goto :logs
 
@@ -21,19 +22,22 @@ echo.
 echo     1) 启动     (start)
 echo     2) 停止     (stop)
 echo     3) 重启     (restart)
-echo     4) 状态     (status)
-echo     5) 查看日志 (logs)
+echo     4) 桌面端   (desktop)
+echo     5) 状态     (status)
+echo     6) 查看日志 (logs)
 echo     0) 退出
 echo.
 set /p choice=  请选择:
 if "%choice%"=="1" goto :start
 if "%choice%"=="2" goto :stop
 if "%choice%"=="3" goto :restart
-if "%choice%"=="4" goto :status
-if "%choice%"=="5" goto :logs
+if "%choice%"=="4" goto :desktop
+if "%choice%"=="5" goto :status
+if "%choice%"=="6" goto :logs
 if /i "%choice%"=="start"   goto :start
 if /i "%choice%"=="stop"    goto :stop
 if /i "%choice%"=="restart" goto :restart
+if /i "%choice%"=="desktop" goto :desktop
 if /i "%choice%"=="status"  goto :status
 if /i "%choice%"=="logs"    goto :logs
 if "%choice%"=="0" goto :bye
@@ -53,6 +57,10 @@ goto :done
 
 :restart
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0studio.ps1" restart
+goto :done
+
+:desktop
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0studio.ps1" desktop
 goto :done
 
 :status

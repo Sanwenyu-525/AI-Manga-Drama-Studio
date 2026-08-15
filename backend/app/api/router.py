@@ -14,6 +14,7 @@ from app.api import (
     providers,
     scenes,
     shots,
+    workflows,
 )
 from app.events.ws import router as ws_router
 
@@ -29,4 +30,5 @@ api_router.include_router(generations.router)
 api_router.include_router(assets.router)
 api_router.include_router(providers.router)
 api_router.include_router(agents.router)
+api_router.include_router(workflows.router)
 api_router.include_router(ws_router)

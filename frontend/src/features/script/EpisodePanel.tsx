@@ -1,16 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { BookOpenText, Check, CheckCircle, CloudCheck, FileArrowUp, MagicWand, MapPin, Moon, Sparkle, UsersThree } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import type { Episode, Operation, ScenePlan } from "../../api/types";
-import { useSelectionStore } from "../../stores/selectionStore";
 import { useOperationPolling } from "../ai/useOperationPolling";
 
-export function EpisodePanel({ episode }: { episode: Episode }) {
+export function EpisodePanel({
+  episode,
+  onScenesCreated,
+}: {
+  episode: Episode;
+  onScenesCreated?: (sceneIds: string[]) => void;
+}) {
   const queryClient = useQueryClient();
-  const setScene = useSelectionStore((state) => state.setScene);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [sourceText, setSourceText] = useState(episode.source_text ?? "");
   const [preview, setPreview] = useState<ScenePlan[] | null>(null);
   const [activePlanIndex, setActivePlanIndex] = useState(0);
@@ -52,7 +57,7 @@ export function EpisodePanel({ episode }: { episode: Episode }) {
     (operation: Operation) => {
       const ids = (operation.result?.created_scene_ids as string[]) ?? [];
       void queryClient.invalidateQueries({ queryKey: queryKeys.scenes(episode.id) });
-      if (ids[0]) setScene(ids[0]);
+      if (ids[0]) onScenesCreated?.(ids);
       setCreateOpId(null);
     },
     (operation) => {
@@ -64,6 +69,16 @@ export function EpisodePanel({ episode }: { episode: Episode }) {
   const dirty = sourceText !== (episode.source_text ?? "");
   const activePlan = preview?.[activePlanIndex];
   const wordCount = useMemo(() => sourceText.replace(/\s/g, "").length, [sourceText]);
+
+  // 替换原文 (post-mvp-audit §124): import a local .txt/.md file into the editor.
+  // Content lands in the textarea first — the user reviews/saves it (real, recoverable).
+  const importFile = (file: File | undefined | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setSourceText(String(reader.result ?? ""));
+    reader.onerror = () => setPreviewError(new Error("文件读取失败，请重试。"));
+    reader.readAsText(file, "utf-8");
+  };
 
   return (
     <div className={`episode-panel ${preview ? "has-preview" : ""}`}>
@@ -85,7 +100,19 @@ export function EpisodePanel({ episode }: { episode: Episode }) {
         <section className="source-editor-column">
           <div className="column-header">
             <div><BookOpenText size={18} /><strong>小说原文</strong></div>
-            <button className="btn secondary compact"><FileArrowUp size={15} /> 替换原文</button>
+            <button className="btn secondary compact" onClick={() => fileRef.current?.click()} title="从本地 .txt/.md 文件导入小说原文">
+              <FileArrowUp size={15} /> 替换原文
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".txt,.md,text/plain"
+              hidden
+              onChange={(event) => {
+                importFile(event.target.files?.[0]);
+                event.target.value = ""; // allow re-importing the same file
+              }}
+            />
           </div>
           <textarea
             className="source-editor"
