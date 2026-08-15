@@ -25,5 +25,6 @@ class Episode(Base):
     analysis_key: Mapped[str | None] = mapped_column(Text)  # P1-E1-T01: idempotency key of the last episode analysis (source hash)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
     deleted_at: Mapped[str | None] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(nullable=False, default=1)  # optimistic concurrency
     created_at: Mapped[str] = ts_created()
     updated_at: Mapped[str] = ts_updated()

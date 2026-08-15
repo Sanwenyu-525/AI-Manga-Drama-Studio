@@ -4,7 +4,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CaretDown, CaretLineLeft, CaretRight, Check, FilmStrip, FolderOpen, ImageSquare, MapPin, PencilSimple, Plus, Trash, UsersThree, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { Character, CharacterUpdatePatch, Episode, Scene } from "../../api/types";
+import type {
+  Character,
+  CharacterUpdatePatch,
+  Episode,
+  EpisodeUpdateRequest,
+  Scene,
+  SceneUpdateRequest,
+} from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
@@ -62,9 +69,15 @@ export function ProjectExplorer({ projectId, onCollapse }: { projectId: string; 
   });
 
   const renameEpisode = useMutation({
-    mutationFn: ({ id, title }: { id: string; title: string }) =>
-      api.patch<Episode>(`/episodes/${id}`, { title }),
-    onSuccess: () => {
+    mutationFn: ({ id, revision, title }: { id: string; revision: number; title: string }) => {
+      const body: EpisodeUpdateRequest = { revision, patch: { title } };
+      return api.patch<Episode>(`/episodes/${id}`, body);
+    },
+    onSuccess: (episode) => {
+      // refresh local revision from the server response (optimistic concurrency)
+      void queryClient.setQueryData<Episode[]>(queryKeys.episodes(projectId), (prev) =>
+        (prev ?? []).map((e) => (e.id === episode.id ? { ...e, title: episode.title, revision: episode.revision, updated_at: episode.updated_at } : e)),
+      );
       void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(projectId) });
       setRenamingEpisodeId(null);
     },
@@ -117,11 +130,11 @@ export function ProjectExplorer({ projectId, onCollapse }: { projectId: string; 
                       placeholder="剧集名称"
                       onChange={(e) => setEpisodeNameValue(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && episodeNameValue.trim()) renameEpisode.mutate({ id: episode.id, title: episodeNameValue.trim() });
+                        if (e.key === "Enter" && episodeNameValue.trim()) renameEpisode.mutate({ id: episode.id, revision: episode.revision, title: episodeNameValue.trim() });
                         if (e.key === "Escape") setRenamingEpisodeId(null);
                       }}
                     />
-                    <button className="icon-button ok" disabled={!episodeNameValue.trim() || renameEpisode.isPending} onClick={() => renameEpisode.mutate({ id: episode.id, title: episodeNameValue.trim() })} title="保存名称"><Check size={14} /></button>
+                    <button className="icon-button ok" disabled={!episodeNameValue.trim() || renameEpisode.isPending} onClick={() => renameEpisode.mutate({ id: episode.id, revision: episode.revision, title: episodeNameValue.trim() })} title="保存名称"><Check size={14} /></button>
                     <button className="icon-button" onClick={() => setRenamingEpisodeId(null)} title="取消"><X size={14} /></button>
                   </div>
                 ) : (
@@ -402,9 +415,15 @@ function EpisodeScenes({
   };
 
   const renameScene = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) =>
-      api.patch<Scene>(`/scenes/${id}`, { name }),
-    onSuccess: () => {
+    mutationFn: ({ id, revision, name }: { id: string; revision: number; name: string }) => {
+      const body: SceneUpdateRequest = { revision, patch: { name } };
+      return api.patch<Scene>(`/scenes/${id}`, body);
+    },
+    onSuccess: (scene) => {
+      // refresh local revision from the server response
+      void queryClient.setQueryData<Scene[]>(queryKeys.scenes(episode.id), (prev) =>
+        (prev ?? []).map((s) => (s.id === scene.id ? { ...s, name: scene.name, revision: scene.revision, updated_at: scene.updated_at } : s)),
+      );
       void queryClient.invalidateQueries({ queryKey: queryKeys.scenes(episode.id) });
       void queryClient.invalidateQueries({ queryKey: ["scenes"] });
       setRenamingSceneId(null);
@@ -440,11 +459,11 @@ function EpisodeScenes({
                 placeholder="场景名称"
                 onChange={(e) => setSceneNameValue(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && sceneNameValue.trim()) renameScene.mutate({ id: scene.id, name: sceneNameValue.trim() });
+                  if (e.key === "Enter" && sceneNameValue.trim()) renameScene.mutate({ id: scene.id, revision: scene.revision, name: sceneNameValue.trim() });
                   if (e.key === "Escape") setRenamingSceneId(null);
                 }}
               />
-              <button className="icon-button ok" disabled={!sceneNameValue.trim() || renameScene.isPending} onClick={() => renameScene.mutate({ id: scene.id, name: sceneNameValue.trim() })} title="保存名称"><Check size={14} /></button>
+              <button className="icon-button ok" disabled={!sceneNameValue.trim() || renameScene.isPending} onClick={() => renameScene.mutate({ id: scene.id, revision: scene.revision, name: sceneNameValue.trim() })} title="保存名称"><Check size={14} /></button>
               <button className="icon-button" onClick={() => setRenamingSceneId(null)} title="取消"><X size={14} /></button>
             </div>
           ) : (

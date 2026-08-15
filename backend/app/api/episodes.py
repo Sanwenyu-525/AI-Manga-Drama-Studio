@@ -5,13 +5,22 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_llm
 from app.domain.analysis import ScenePlan
-from app.domain.episode import EpisodeCreate, EpisodeRead, EpisodeUpdate
+from app.domain.episode import (
+    EpisodeCreate,
+    EpisodeRead,
+    EpisodeUpdateRequest,
+)
 from app.llm.gateway import LLMGateway
 from app.operations.store import operation_store
 from app.services import EpisodeService
 from app.services.script_service import ScriptService
 
 router = APIRouter(tags=["episodes"])
+
+# Route ordering note: FastAPI matches in declaration order. Literal prefixes
+# ("/episodes/{id}/analyze", "/episodes/{id}/scenes", ...) must be declared BEFORE
+# the bare "/episodes/{episode_id}" GET/PATCH/DELETE below is a concern — but bare
+# PATCH/DELETE only match the exact one-segment path, so no shadowing occurs.
 
 
 @router.post(
@@ -34,8 +43,12 @@ def get_episode(episode_id: str, db: Session = Depends(get_db)) -> EpisodeRead:
 
 
 @router.patch("/episodes/{episode_id}", response_model=EpisodeRead)
-def update_episode(episode_id: str, data: EpisodeUpdate, db: Session = Depends(get_db)) -> EpisodeRead:
-    return EpisodeService(db).update_episode(episode_id, data)
+def update_episode(
+    episode_id: str,
+    data: EpisodeUpdateRequest,
+    db: Session = Depends(get_db),
+) -> EpisodeRead:
+    return EpisodeService(db).update_episode(episode_id, data.revision, data.patch)
 
 
 @router.delete("/episodes/{episode_id}", status_code=status.HTTP_200_OK)

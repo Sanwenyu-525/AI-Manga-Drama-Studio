@@ -4,7 +4,7 @@ import { ArrowRight, Camera, Check, Clock, FolderOpen, PencilSimple, Plus, Play,
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { Project } from "../../api/types";
+import type { Project, ProjectUpdateRequest } from "../../api/types";
 
 const statusLabel: Record<string, string> = {
   active: "制作中",
@@ -71,8 +71,10 @@ export function ProjectHome() {
   });
 
   const renameProject = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) =>
-      api.patch<Project>(`/projects/${id}`, { name }),
+    mutationFn: ({ id, revision, name }: { id: string; revision: number; name: string }) => {
+      const body: ProjectUpdateRequest = { revision, patch: { name } };
+      return api.patch<Project>(`/projects/${id}`, body);
+    },
     onSuccess: () => {
       invalidateProjects();
       setRenamingId(null);
@@ -167,11 +169,11 @@ export function ProjectHome() {
                           value={renameValue}
                           onChange={(e) => setRenameValue(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter" && renameValue.trim()) renameProject.mutate({ id: project.id, name: renameValue.trim() });
+                            if (e.key === "Enter" && renameValue.trim()) renameProject.mutate({ id: project.id, revision: project.revision, name: renameValue.trim() });
                             if (e.key === "Escape") setRenamingId(null);
                           }}
                         />
-                        <button className="icon-button ok" disabled={!renameValue.trim() || renameProject.isPending} onClick={() => renameProject.mutate({ id: project.id, name: renameValue.trim() })} title="保存名称"><Check size={14} /></button>
+                        <button className="icon-button ok" disabled={!renameValue.trim() || renameProject.isPending} onClick={() => renameProject.mutate({ id: project.id, revision: project.revision, name: renameValue.trim() })} title="保存名称"><Check size={14} /></button>
                         <button className="icon-button" onClick={() => setRenamingId(null)} title="取消"><X size={14} /></button>
                       </div>
                     ) : (
