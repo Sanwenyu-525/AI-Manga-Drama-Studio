@@ -4,13 +4,15 @@ Rules:
 - update_shot() increments revision (optimistic concurrency, api-event-contract §21/§88).
 - All mutations publish domain events AFTER commit (red line: commit then publish).
 - No provider/model knowledge here (red line: ShotService never knows concrete models).
+- Character assignment lives in the shot_characters link table (database-v0.1 §11);
+  character_ids are validated against the owning project (cross-project refs are rejected).
 """
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
-from app.db.models import Episode, Scene, Shot
+from app.db.models import Character, Episode, Scene, Shot, ShotCharacter
 from app.domain.scene import SceneSummary
 from app.domain.shot import (
     ShotCreate,
@@ -26,7 +28,7 @@ from app.events.bus import (
     StudioEvent,
     bus,
 )
-from app.repositories import SceneRepository, ShotRepository
+from app.repositories import SceneRepository, ShotCharacterRepository, ShotRepository
 
 DIRTY_FIELDS = {
     "image_prompt",
@@ -38,10 +40,11 @@ DIRTY_FIELDS = {
     "action",
     "emotion",
     "duration",
+    "character_ids",
 }
 
 
-def _to_read(s: Shot) -> ShotRead:
+def _to_read(s: Shot, character_ids: list[str] | None = None) -> ShotRead:
     return ShotRead(
         id=s.id,
         scene_id=s.scene_id,
@@ -56,6 +59,7 @@ def _to_read(s: Shot) -> ShotRead:
         emotion=s.emotion,
         dialogue=s.dialogue,
         image_prompt=s.image_prompt,
+        character_ids=character_ids or [],
         status=s.status,
         dirty_state=s.dirty_state,
         revision=s.revision,
@@ -64,7 +68,7 @@ def _to_read(s: Shot) -> ShotRead:
     )
 
 
-def _to_summary(s: Shot) -> ShotSummary:
+def _to_summary(s: Shot, character_names: list[str] | None = None) -> ShotSummary:
     return ShotSummary(
         id=s.id,
         shot_number=s.shot_number,
@@ -73,6 +77,7 @@ def _to_summary(s: Shot) -> ShotSummary:
         status=s.status,
         dirty_state=s.dirty_state,
         thumbnail_url=None,  # resolved per-shot in get_storyboard (needs DB lookups)
+        character_names=character_names or [],
     )
 
 
@@ -81,6 +86,7 @@ class ShotService:
         self.session = session
         self.repo = ShotRepository(session)
         self.scenes = SceneRepository(session)
+        self.links = ShotCharacterRepository(session)
 
     def create_shot(self, scene_id: str, data: ShotCreate) -> ShotRead:
         scene = self.scenes.get(scene_id)
@@ -105,6 +111,10 @@ class ShotService:
             revision=1,
         )
         self.repo.add(shot)
+        self.session.flush()  # assign shot.id before link rows reference it (autoflush=False)
+        if data.character_ids:
+            self._validate_characters(data.character_ids, scene)
+            self._replace_characters(shot, data.character_ids)
         self.session.commit()
         bus.publish(
             StudioEvent(
@@ -114,19 +124,22 @@ class ShotService:
                 project_id=self._project_id_of(scene),
             )
         )
-        return _to_read(shot)
+        return _to_read(shot, data.character_ids)
 
     def get_shot(self, shot_id: str) -> ShotRead:
         shot = self.repo.get(shot_id)
         if shot is None:
             raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
-        return _to_read(shot)
+        ids, _ = self._character_data([shot_id])
+        return _to_read(shot, ids.get(shot_id, []))
 
     def list_shots(self, scene_id: str) -> list[ShotRead]:
         scene = self.scenes.get(scene_id)
         if scene is None:
             raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
-        return [_to_read(s) for s in self.repo.list_for_scene(scene_id)]
+        shots = self.repo.list_for_scene(scene_id)
+        ids, _ = self._character_data([s.id for s in shots])
+        return [_to_read(s, ids.get(s.id, [])) for s in shots]
 
     def update_shot(self, shot_id: str, revision: int, patch: ShotUpdate) -> ShotRead:
         """Optimistic concurrency update: revision must match; every mutation bumps revision."""
@@ -156,6 +169,11 @@ class ShotService:
             if value is not None:
                 setattr(shot, field, value)
                 changed.append(field)
+        if patch.character_ids is not None:
+            scene = self.session.get(Scene, shot.scene_id)
+            self._validate_characters(patch.character_ids, scene)
+            self._replace_characters(shot, patch.character_ids)
+            changed.append("character_ids")
         if changed:
             shot.revision += 1
             if any(f in DIRTY_FIELDS for f in changed):
@@ -171,7 +189,8 @@ class ShotService:
                     payload={"revision": shot.revision, "changed_fields": changed, "source": "user"},
                 )
             )
-        return _to_read(shot)
+        ids, _ = self._character_data([shot_id])
+        return _to_read(shot, ids.get(shot_id, []))
 
     def delete_shot(self, shot_id: str) -> None:
         shot = self.repo.get(shot_id)
@@ -201,7 +220,8 @@ class ShotService:
             shot.shot_order = index
             shot.shot_number = index
         self.session.commit()
-        return [_to_read(s) for s in self.repo.list_for_scene(scene_id)]
+        ids, _ = self._character_data(list(shots))
+        return [_to_read(s, ids.get(s.id, [])) for s in self.repo.list_for_scene(scene_id)]
 
     def get_storyboard(self, scene_id: str) -> StoryboardRead:
         """Aggregate endpoint payload (api-event-contract §101-102) — avoids N+1 on the grid."""
@@ -211,15 +231,69 @@ class ShotService:
         episode = self.session.get(Episode, scene.episode_id)
         shots = self.repo.list_for_scene(scene_id)
         thumbnails = self._thumbnail_urls(shots)
+        _, names = self._character_data([s.id for s in shots])
         summaries = []
         for s in shots:
-            summary = _to_summary(s)
+            summary = _to_summary(s, names.get(s.id, []))
             summary.thumbnail_url = thumbnails.get(s.id)
             summaries.append(summary)
         return StoryboardRead(
             scene=SceneSummary(id=scene.id, scene_number=scene.scene_number, name=scene.name),
             shots=summaries,
         )
+
+    # --- character assignment (database-v0.1 §11) ---
+
+    def _validate_characters(self, character_ids: list[str], scene: Scene | None) -> None:
+        """Characters must exist (not deleted) and belong to the shot's project."""
+        from app.core.errors import ValidationError
+
+        if not character_ids:
+            return
+        characters = {
+            c.id: c
+            for c in self.session.scalars(
+                select(Character).where(Character.id.in_(character_ids))
+            )
+        }
+        unknown = [cid for cid in character_ids if cid not in characters]
+        if unknown:
+            raise NotFoundError("Character does not exist.", {"character_ids": unknown})
+        project_id = self._project_id_of(scene) if scene else None
+        foreign = [cid for cid in character_ids if characters[cid].project_id != project_id]
+        if foreign:
+            raise ValidationError(
+                "Character belongs to another project.",
+                {"character_ids": foreign, "project_id": project_id},
+            )
+
+    def _replace_characters(self, shot: Shot, character_ids: list[str]) -> None:
+        """Replace the shot's character links (ephemeral link rows, no version history)."""
+        self.links.delete_for_shot(shot.id)
+        for character_id in character_ids:
+            self.session.add(ShotCharacter(shot_id=shot.id, character_id=character_id))
+
+    def _character_data(self, shot_ids: list[str]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+        """(shot_id → character_ids, shot_id → character_names) — soft-deleted characters
+        keep their name as history; links are ordered by insertion."""
+        if not shot_ids:
+            return {}, {}
+        links = self.links.list_for_shots(shot_ids)
+        if not links:
+            return {}, {}
+        character_ids = {l.character_id for l in links}
+        characters = {
+            c.id: c.name
+            for c in self.session.scalars(select(Character).where(Character.id.in_(character_ids)))
+        }
+        ids_map: dict[str, list[str]] = {}
+        names_map: dict[str, list[str]] = {}
+        for link in links:
+            ids_map.setdefault(link.shot_id, []).append(link.character_id)
+            names_map.setdefault(link.shot_id, []).append(
+                characters.get(link.character_id, link.character_id)
+            )
+        return ids_map, names_map
 
     def _thumbnail_urls(self, shots: list[Shot]) -> dict[str, str | None]:
         """Map shot_id → thumbnail URL via the shot's active image version (Stage C)."""

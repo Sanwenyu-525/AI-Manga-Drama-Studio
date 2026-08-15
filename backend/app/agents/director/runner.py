@@ -166,6 +166,15 @@ def cancel_run(run_id: str) -> AgentRunRead:
     return _to_read(run)
 
 
+def active_run_count(project_id: str) -> int:
+    """In-flight runs for a project (bootstrap payload, contract §103)."""
+    return sum(
+        1
+        for run in _runs.values()
+        if run["project_id"] == project_id and run["status"] in ("created", "running", "waiting_approval")
+    )
+
+
 def resume_run(run_id: str) -> AgentRunRead:
     """MVP has no interrupt/approval flow yet — resume exists for contract compatibility."""
     run = _runs.get(run_id)

@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api import (
     agents,
     assets,
+    characters,
     episodes,
     generations,
     health,
@@ -22,6 +23,7 @@ api_router.include_router(projects.router)
 api_router.include_router(episodes.router)
 api_router.include_router(scenes.router)
 api_router.include_router(shots.router)
+api_router.include_router(characters.router)
 api_router.include_router(operations.router)
 api_router.include_router(generations.router)
 api_router.include_router(assets.router)

@@ -3566,6 +3566,10 @@ Generation 与 Agent 生命周期分离。
 
 /shots/{id}
 
+/characters
+
+/characters/{id}
+
 /agent/director/runs
 
 /agent/runs/{id}
@@ -3619,6 +3623,12 @@ generation.completed
 generation.failed
 
 asset.created
+
+character.created
+
+character.updated
+
+character.deleted
 
 provider.connected
 

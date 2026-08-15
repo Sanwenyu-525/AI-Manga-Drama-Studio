@@ -654,3 +654,19 @@ textarea { resize: vertical; line-height: 1.55; }
 .director-input .btn {
   white-space: nowrap;
 }
+
+/* --- P1 Character Management (ProjectExplorer inline editor + ShotInspector picker) --- */
+.char-create-row { display: flex; gap: 6px; padding: 6px 8px; }
+.char-create-row input { flex: 1; min-width: 0; }
+.char-editor { margin: 2px 8px 10px 22px; padding: 10px; border: 1px solid var(--hairline); border-radius: 8px; background: var(--overlay); display: flex; flex-direction: column; gap: 8px; }
+.char-editor .field { margin: 0; }
+.char-editor-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.char-editor-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.btn.tiny { padding: 4px 10px; font-size: 12px; }
+.btn.danger { background: transparent; color: var(--danger, #e5484d); border: 1px solid color-mix(in srgb, var(--danger, #e5484d) 40%, transparent); }
+.btn.danger:hover { background: color-mix(in srgb, var(--danger, #e5484d) 12%, transparent); }
+.char-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.char-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--hairline); border-radius: 999px; font-size: 12px; cursor: pointer; color: var(--muted); }
+.char-chip:has(input:checked) { border-color: var(--amber); color: var(--ink); background: var(--amber-dim); }
+.char-chip input { accent-color: var(--amber); }
+.muted.small { font-size: 12px; color: var(--faint); }

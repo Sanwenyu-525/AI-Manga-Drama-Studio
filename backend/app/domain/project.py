@@ -1,7 +1,10 @@
-"""Project DTOs (api-event-contract §9-12)."""
+"""Project DTOs (api-event-contract §9-12, §103-104)."""
+
+from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.domain.character import CharacterSummary
 from app.domain.common import ProjectStatus
 
 
@@ -31,3 +34,23 @@ class ProjectRead(BaseModel):
     fps: int | None
     created_at: str
     updated_at: str
+
+
+class EpisodeSummary(BaseModel):
+    """Lightweight episode for bootstrap (contract §103)."""
+
+    id: str
+    episode_number: int
+    title: str | None = None
+    scene_count: int = 0
+
+
+class ProjectBootstrapRead(BaseModel):
+    """Workspace bootstrap (api-event-contract §103-104): summaries only, never full payloads."""
+
+    project: ProjectRead
+    episodes: list[EpisodeSummary]
+    characters: list[CharacterSummary]
+    providers: list[dict[str, Any]]
+    active_generations: int
+    active_agent_runs: int

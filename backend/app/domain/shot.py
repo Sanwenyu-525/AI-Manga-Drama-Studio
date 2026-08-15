@@ -9,6 +9,7 @@ from app.domain.scene import SceneSummary
 class ShotCreate(BaseModel):
     shot_number: int | None = Field(default=None, ge=1)  # auto-assigned if omitted
     shot_type: ShotType = "medium"
+    character_ids: list[str] = Field(default_factory=list)
     camera_angle: str | None = None
     camera_movement: str | None = None
     lens: str | None = None
@@ -31,6 +32,7 @@ class ShotUpdate(BaseModel):
     emotion: str | None = None
     dialogue: str | None = None
     image_prompt: str | None = None
+    character_ids: list[str] | None = None  # None = keep; list = replace all
     status: ShotStatus | None = None
     dirty_state: DirtyState | None = None
 
@@ -70,6 +72,7 @@ class ShotRead(BaseModel):
     emotion: str | None
     dialogue: str | None
     image_prompt: str | None
+    character_ids: list[str] = Field(default_factory=list)
     status: str
     dirty_state: str
     revision: int

@@ -1,12 +1,20 @@
-"""ProjectService (backend-architecture §11, mvp-spec §23)."""
+"""ProjectService (backend-architecture §11, mvp-spec §23, contract §103-104 bootstrap)."""
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Project
-from app.domain.project import ProjectCreate, ProjectRead, ProjectUpdate
 from app.core.errors import NotFoundError
+from app.db.models import Episode, Generation, Project, Scene
+from app.domain.project import (
+    EpisodeSummary,
+    ProjectBootstrapRead,
+    ProjectCreate,
+    ProjectRead,
+    ProjectUpdate,
+)
 from app.events.bus import EVENT_PROJECT_CREATED, EVENT_PROJECT_UPDATED, StudioEvent, bus
 from app.repositories import ProjectRepository
+from app.services.character_service import CharacterService
 
 
 def _to_read(p: Project) -> ProjectRead:
@@ -75,3 +83,52 @@ class ProjectService:
             )
         )
         return _to_read(project)
+
+    def bootstrap(self, project_id: str) -> ProjectBootstrapRead:
+        """Workspace bootstrap (api-event-contract §103): summaries only — never full
+        shots/prompts/assets (contract §104)."""
+        project = self.repo.get(project_id)
+        if project is None:
+            raise NotFoundError("Project does not exist.", {"project_id": project_id})
+
+        episodes = self.session.execute(
+            select(Episode).where(Episode.project_id == project_id, Episode.deleted_at.is_(None))
+        ).scalars().all()
+        episode_ids = [ep.id for ep in episodes]
+        scene_counts: dict[str, int] = {}
+        if episode_ids:
+            rows = self.session.execute(
+                select(Scene.episode_id, func.count(Scene.id))
+                .where(Scene.episode_id.in_(episode_ids), Scene.deleted_at.is_(None))
+                .group_by(Scene.episode_id)
+            ).all()
+            scene_counts = {episode_id: count for episode_id, count in rows}
+
+        from app.agents.director.runner import active_run_count
+
+        active_generations = self.session.scalar(
+            select(func.count(Generation.id)).where(
+                Generation.project_id == project_id,
+                Generation.deleted_at.is_(None),
+                Generation.status.in_(("queued", "running", "retrying")),
+            )
+        ) or 0
+
+        from app.providers.registry import provider_status
+
+        return ProjectBootstrapRead(
+            project=_to_read(project),
+            episodes=[
+                EpisodeSummary(
+                    id=ep.id,
+                    episode_number=ep.episode_number,
+                    title=ep.title,
+                    scene_count=scene_counts.get(ep.id, 0),
+                )
+                for ep in episodes
+            ],
+            characters=CharacterService(self.session).list_summaries(project_id),
+            providers=provider_status(),
+            active_generations=active_generations,
+            active_agent_runs=active_run_count(project_id),
+        )

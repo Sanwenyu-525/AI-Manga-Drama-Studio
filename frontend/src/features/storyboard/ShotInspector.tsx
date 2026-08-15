@@ -4,7 +4,7 @@ import { Aperture, ArrowSquareOut, CheckCircle, Clock, DotsThree, ImageSquare, M
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { GenerationRead, MediaVersionRead, Shot, ShotUpdatePatch } from "../../api/types";
+import type { Character, GenerationRead, MediaVersionRead, Shot, ShotUpdatePatch } from "../../api/types";
 import { SHOT_TYPES, SHOT_TYPE_LABELS } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -35,12 +35,28 @@ export function ShotInspector() {
         emotion: shot.emotion ?? "",
         dialogue: shot.dialogue ?? "",
         image_prompt: shot.image_prompt ?? "",
+        character_ids: shot.character_ids ?? [],
       });
       setConflict(null);
     }
   }, [shot]);
 
   const sceneId = shot?.scene_id;
+  const projectId = useSelectionStore((state) => state.selection.projectId);
+
+  const { data: characters } = useQuery({
+    queryKey: projectId ? queryKeys.characters(projectId) : ["characters", "none"],
+    queryFn: () => api.get<Character[]>(`/projects/${projectId}/characters`),
+    enabled: !!projectId,
+  });
+
+  const toggleCharacter = (id: string) => {
+    setForm((f) => {
+      const current = f.character_ids ?? shot?.character_ids ?? [];
+      const next = current.includes(id) ? current.filter((c) => c !== id) : [...current, id];
+      return { ...f, character_ids: next };
+    });
+  };
 
   const generate = useMutation({
     mutationFn: () => {
@@ -55,7 +71,13 @@ export function ShotInspector() {
   const saveShot = useMutation({
     mutationFn: (patch: Partial<ShotUpdatePatch>) => {
       if (!activeShotId || !shot) throw new Error("no active shot");
-      return api.patch<Shot>(`/shots/${activeShotId}`, { revision: shot.revision, patch });
+      // character_ids is list-replace semantics on the backend: only send it when
+      // the user actually changed the cast, so unrelated saves don't bump revision.
+      const body: Partial<ShotUpdatePatch> = { ...patch };
+      if (JSON.stringify(patch.character_ids ?? []) === JSON.stringify(shot.character_ids ?? [])) {
+        delete body.character_ids;
+      }
+      return api.patch<Shot>(`/shots/${activeShotId}`, { revision: shot.revision, patch: body });
     },
     onSuccess: (updated) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.shot(activeShotId!) });
@@ -86,7 +108,8 @@ export function ShotInspector() {
       (form.action ?? "") !== (shot.action ?? "") ||
       (form.emotion ?? "") !== (shot.emotion ?? "") ||
       (form.dialogue ?? "") !== (shot.dialogue ?? "") ||
-      (form.image_prompt ?? "") !== (shot.image_prompt ?? "")
+      (form.image_prompt ?? "") !== (shot.image_prompt ?? "") ||
+      JSON.stringify(form.character_ids ?? []) !== JSON.stringify(shot.character_ids ?? [])
     );
   }, [form, shot]);
 
@@ -189,6 +212,24 @@ export function ShotInspector() {
             value={form.dialogue ?? ""}
             onChange={(e) => setForm((f) => ({ ...f, dialogue: e.target.value }))}
           />
+        </Field>
+
+        <Field label="出场角色">
+          <div className="char-picker">
+            {(characters ?? []).map((c) => (
+              <label key={c.id} className="char-chip">
+                <input
+                  type="checkbox"
+                  checked={(form.character_ids ?? shot.character_ids ?? []).includes(c.id)}
+                  onChange={() => toggleCharacter(c.id)}
+                />
+                {c.name}
+              </label>
+            ))}
+            {!characters?.length && (
+              <span className="muted small">项目还没有角色 · 在左侧资源树「角色」区创建</span>
+            )}
+          </div>
         </Field>
 
         <Field label="Image Prompt">

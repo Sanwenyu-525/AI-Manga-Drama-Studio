@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.domain.project import ProjectCreate, ProjectRead, ProjectUpdate
+from app.domain.project import ProjectBootstrapRead, ProjectCreate, ProjectRead, ProjectUpdate
 from app.services import ProjectService
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -28,3 +28,9 @@ def get_project(project_id: str, db: Session = Depends(get_db)) -> ProjectRead:
 @router.patch("/{project_id}", response_model=ProjectRead)
 def update_project(project_id: str, data: ProjectUpdate, db: Session = Depends(get_db)) -> ProjectRead:
     return ProjectService(db).update_project(project_id, data)
+
+
+@router.get("/{project_id}/bootstrap", response_model=ProjectBootstrapRead)
+def get_bootstrap(project_id: str, db: Session = Depends(get_db)) -> ProjectBootstrapRead:
+    """Workspace bootstrap (api-event-contract §103-104): summaries only."""
+    return ProjectService(db).bootstrap(project_id)

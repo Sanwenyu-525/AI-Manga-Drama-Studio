@@ -61,6 +61,7 @@ export interface Shot {
   emotion: string | null;
   dialogue: string | null;
   image_prompt: string | null;
+  character_ids: string[];
   status: string;
   dirty_state: string;
   revision: number;
@@ -99,6 +100,7 @@ export interface ShotUpdatePatch {
   emotion: string | null;
   dialogue: string | null;
   image_prompt: string | null;
+  character_ids?: string[];
   status: string;
   dirty_state: string;
 }
@@ -119,6 +121,81 @@ export interface ProviderStatus {
   status: string;
   capabilities: Record<string, boolean>;
   base_url?: string;
+}
+
+// --- P1: character DTOs (database-v0.1 §7, api-event-contract §20/§88) ---
+
+export interface Character {
+  id: string;
+  project_id: string;
+  name: string;
+  alias: string | null;
+  gender: string | null;
+  age_description: string | null;
+  appearance: string | null;
+  personality: string | null;
+  visual_prompt: string | null;
+  negative_prompt: string | null;
+  default_costume_id: string | null;
+  status: string;
+  revision: number;
+  shot_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CharacterCreate {
+  name: string;
+  alias?: string | null;
+  gender?: string | null;
+  age_description?: string | null;
+  appearance?: string | null;
+  personality?: string | null;
+  visual_prompt?: string | null;
+  negative_prompt?: string | null;
+  status?: string;
+}
+
+export interface CharacterUpdatePatch {
+  name?: string;
+  alias?: string | null;
+  gender?: string | null;
+  age_description?: string | null;
+  appearance?: string | null;
+  personality?: string | null;
+  visual_prompt?: string | null;
+  negative_prompt?: string | null;
+  status?: string;
+}
+
+export interface CharacterUpdateRequest {
+  revision: number;
+  patch: CharacterUpdatePatch;
+}
+
+export interface CharacterSummary {
+  id: string;
+  name: string;
+  alias: string | null;
+  status: string;
+}
+
+// --- bootstrap (api-event-contract §103-104) ---
+
+export interface BootstrapEpisode {
+  id: string;
+  episode_number: number;
+  title: string | null;
+  scene_count: number;
+}
+
+export interface ProjectBootstrap {
+  project: Project;
+  episodes: BootstrapEpisode[];
+  characters: CharacterSummary[];
+  providers: ProviderStatus[];
+  active_generations: number;
+  active_agent_runs: number;
 }
 
 // --- Stage B: AI planning DTOs (mvp-spec §55-57) ---

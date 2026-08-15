@@ -153,6 +153,13 @@ export class EventRouter {
           void this.queryClient.invalidateQueries({ queryKey: ["shots"] });
         }
         break;
+      case "character.created":
+      case "character.updated":
+      case "character.deleted":
+        if (event.project_id) {
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.characters(event.project_id) });
+        }
+        break;
       case "scene.created":
         void this.queryClient.invalidateQueries({ queryKey: ["scenes"] });
         break;
