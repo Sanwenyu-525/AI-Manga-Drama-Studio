@@ -1,0 +1,4 @@
+# Tauri requires the MSVC toolchain on Windows (wry/webview2-com emit MSVC
+# .drectve directives that the GNU ld cannot parse → "export ordinal too large").
+[toolchain]
+channel = "stable-x86_64-pc-windows-msvc"

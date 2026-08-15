@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.aimanga.studio",
   "build": {
-    "beforeDevCommand": "npm --prefix ../../frontend run dev",
+    "beforeDevCommand": "node dev-keepalive.cjs",
     "devUrl": "http://127.0.0.1:17821",
     "beforeBuildCommand": "npm --prefix ../../frontend run build",
     "frontendDist": "../../frontend/dist"
@@ -27,11 +27,11 @@
     "active": true,
     "targets": "all",
     "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons-v2/32x32.png",
+      "icons-v2/128x128.png",
+      "icons-v2/128x128@2x.png",
+      "icons-v2/icon.icns",
+      "icons-v2/icon.ico"
     ]
   }
 }
