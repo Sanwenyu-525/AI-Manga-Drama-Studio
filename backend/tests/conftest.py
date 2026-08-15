@@ -54,3 +54,6 @@ def client(session_factory) -> Generator[TestClient]:
     from app.providers import registry as provider_registry
 
     provider_registry.reset_providers()
+    from app.services.provider_health_service import reset_provider_health
+
+    reset_provider_health()

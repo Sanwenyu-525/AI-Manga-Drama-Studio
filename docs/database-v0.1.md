@@ -1155,6 +1155,10 @@ Continuity Engine 可以判断：
 
 # 23. Workflow 表
 
+> **已落地（P4-T004）**：编辑型 `workflows` 全量表（编辑器/上传/变更集）本期不建；
+> 落地为只读注册表 `workflow_templates` + `workflow_versions`（见下表后的 P4-T004 说明）。
+> 本表保留原始设计参考。
+
 ```sql
 workflows
 ```
@@ -1234,11 +1238,34 @@ parameter_schema 示例：
     "field": "text"
   },
 
-  "seed": {
-    "node": "18",
-    "field": "seed"
-  }
-}
+> **P4-T004 已落地（2026-08）：WorkflowTemplate 目录注册表（只读，YAGNI）**
+> 上文 `workflows` / `comfyui_workflows` 的完整编辑器/上传/差异比对 **本期不做**。
+> 落地的是**只读目录注册表**：把本地 `workflows/*.json`（API 格式模板）幂等扫描并
+> 快照入库，供 Resolver 解析、目录 API 与版本列表使用（哈希快照，替换差异比对）。
+
+`workflow_templates`（每个 workflow_id 模板一行）：
+
+```text
+id                    TEXT PK（UUID）
+name                  TEXT
+workflow_type         TEXT（image | video，按文件名/约定推断，默认 image）
+workflow_id           TEXT（JSON 文件 id，即 settings.workflows_dir 下文件名 stem，如 default_image_api）
+active_version_id     TEXT（权威活动版本指针 → workflow_versions.id）
+created_at / updated_at
+-- UNIQUE (workflow_id, workflow_type)
+```
+
+`workflow_versions`（不可变哈希快照；文件内容变化产生 vN+1 并重新激活）：
+
+```text
+id                    TEXT PK（UUID）
+template_id           TEXT FK → workflow_templates.id（ON DELETE CASCADE）
+version_number        INTEGER（从 1 递增）
+file_hash             TEXT（模板文件 SHA-256）
+file_path             TEXT（相对 workflows_dir 的文件名）
+status                TEXT（active | superseded | archived）
+created_at
+-- UNIQUE (template_id, version_number)
 ```
 
 ---
