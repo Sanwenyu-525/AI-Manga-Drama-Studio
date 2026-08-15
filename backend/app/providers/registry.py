@@ -1,10 +1,20 @@
-"""ProviderRegistry (backend-architecture §17, §37; mvp-spec §65).
+"""ProviderRegistry (backend-architecture §17, §37; mvp-spec §65; P4-T002).
 
-Selects the image provider by canonical provider id: "mock" | "comfyui".
-P1-E2-T01: the persisted generation.provider IS the executed implementation —
-get_image_provider(provider_id) resolves the id the worker must use, and an
-unknown id raises ValidationError (422) instead of silently falling back.
-Future: video/vision/audio registries + provider capabilities (contract §130-131).
+Generalizes the previous single-type (image) registry into a multi-type registry:
+each media/LLM producer type has its own providerId -> adapter map, all resolvable
+by canonical id. Unknown ids ALWAYS raise ValidationError (422) — never a silent
+fallback. The existing get_image_provider() signature is preserved so current
+callers (GenerationService / worker) are untouched.
+
+Types / canonical provider ids:
+  image    : mock | comfyui          (existing, unchanged)
+  video    : mock                     (MVP placeholder -> "unavailable", fails fast)
+  workflow : comfyui                  (WorkflowProviderAdapter over WorkflowMapper)
+  llm      : fake | openai            (LlmProviderAdapter = LLMGateway, via factory)
+
+provider_status() now emits every registered provider with complete capabilities
+(image_generation / reference_image / video_generation / text_generation), merged
+with the ProviderHealthService health block in api/providers.py (backward compatible).
 """
 
 from __future__ import annotations
@@ -15,20 +25,38 @@ from app.core.logging import get_logger
 from app.providers.image.base import ImageProvider
 from app.providers.image.comfyui import ComfyUIProvider
 from app.providers.image.mock import MockImageProvider
+from app.providers.llm import LlmProviderAdapter, create_gateway, reset_gateway
+from app.providers.video import VideoProviderProtocol, VideoProviderUnavailable
+from app.providers.workflow import ComfyUIWorkflowProviderAdapter, WorkflowProviderAdapter
 
 logger = get_logger("providers.registry")
 
+# Canonical provider-id sets per type.
 IMAGE_PROVIDERS = ("mock", "comfyui")
+VIDEO_PROVIDERS = ("mock",)
+WORKFLOW_PROVIDERS = ("comfyui",)
+LLM_PROVIDERS = ("fake", "openai")
 
+# --- image ---
 _image_providers: dict[str, ImageProvider] = {}
 _comfyui_provider: ComfyUIProvider | None = None
 
+# --- video (MVP: mock placeholder is "unavailable") ---
+_video_providers: dict[str, VideoProviderProtocol] = {}
 
+# --- workflow ---
+_workflow_providers: dict[str, WorkflowProviderAdapter] = {}
+
+# --- llm ---
+_llm_providers: dict[str, LlmProviderAdapter] = {}
+
+
+# ------------------------------ image ------------------------------
 def get_image_provider(provider_id: str | None = None) -> ImageProvider:
-    """Resolve a canonical provider id → the implementation that will actually run.
+    """Resolve a canonical image provider id -> the implementation that will actually run.
 
-    provider_id=None → studio default (settings.image_provider). Unknown ids raise
-    ValidationError — callers (GenerationService) surface it as a 422 before queuing.
+    provider_id=None -> studio default (settings.image_provider). Unknown ids raise
+    ValidationError (422). Signature preserved for existing callers.
     """
     pid = provider_id or settings.image_provider
     if pid not in IMAGE_PROVIDERS:
@@ -56,23 +84,132 @@ def get_comfyui_provider() -> ComfyUIProvider:
     return _comfyui_provider
 
 
+# ------------------------------ video ------------------------------
+def get_video_provider(provider_id: str | None = None) -> VideoProviderProtocol:
+    """Resolve a canonical video provider id.
+
+    MVP: only "mock" is registered, and it is an *unavailable* placeholder — calling it
+    raises a clear error. Unknown ids raise ValidationError (422). This keeps the API
+    surface ready for real video engines without silently pretending video works.
+    """
+    pid = provider_id or "mock"
+    if pid not in VIDEO_PROVIDERS:
+        raise ValidationError(
+            "Unknown video provider.",
+            {"provider": pid, "supported": list(VIDEO_PROVIDERS)},
+        )
+    cached = _video_providers.get(pid)
+    if cached is not None:
+        return cached
+    provider = VideoProviderUnavailable()
+    logger.info("video provider: %s (MVP placeholder — unavailable; image only)", pid)
+    _video_providers[pid] = provider
+    return provider
+
+
+# ----------------------------- workflow ----------------------------
+def get_workflow_provider(provider_id: str | None = None) -> WorkflowProviderAdapter:
+    """Resolve the workflow adapter (builds ComfyUI workflows for a canonical id).
+
+    Business code builds workflows only through this adapter — never by touching the
+    template dir directly (P4-T001). Unknown id -> ValidationError (422).
+    """
+    pid = provider_id or "comfyui"
+    if pid not in WORKFLOW_PROVIDERS:
+        raise ValidationError(
+            "Unknown workflow provider.",
+            {"provider": pid, "supported": list(WORKFLOW_PROVIDERS)},
+        )
+    cached = _workflow_providers.get(pid)
+    if cached is not None:
+        return cached
+    provider: WorkflowProviderAdapter = ComfyUIWorkflowProviderAdapter()
+    logger.info("workflow provider: %s (WorkflowMapper adapter)", pid)
+    _workflow_providers[pid] = provider
+    return provider
+
+
+# ------------------------------- llm -------------------------------
+def get_llm_provider(provider_id: str | None = None) -> LlmProviderAdapter:
+    """Resolve an LLM adapter id -> a concrete LLMGateway (via app.llm.factory).
+
+    provider_id=None -> settings.llm_mode default. Unknown id -> ValidationError (422).
+    """
+    pid = provider_id or settings.llm_mode
+    if pid not in LLM_PROVIDERS:
+        raise ValidationError(
+            "Unknown llm provider.",
+            {"provider": pid, "supported": list(LLM_PROVIDERS)},
+        )
+    if pid not in _llm_providers:
+        # fake/openai share a single cached gateway via the existing factory.
+        _llm_providers[pid] = create_gateway()
+    return _llm_providers[pid]
+
+
+# --------------------------- capabilities --------------------------
+# Complete capability map per canonical (type, provider_id) — contract §47 / §130-131.
+_CAPABILITIES: dict[str, dict[str, bool]] = {
+    "image.mock": {"image_generation": True, "reference_image": False},
+    "image.comfyui": {"image_generation": True, "reference_image": True},
+    "video.mock": {"video_generation": False},  # registered but unavailable (MVP)
+    "workflow.comfyui": {"workflow": True},
+    "llm.fake": {"text_generation": True},
+    "llm.openai": {"text_generation": True},
+}
+
+
 def provider_status() -> list[dict]:
-    """Provider status DTO (contract §47)."""
-    providers = [
+    """Provider status DTO for every registered type (contract §47).
+
+    Backward compatible: image entries keep their legacy id/name/type/status/
+    capabilities/base_url fields; new video/workflow/llm entries are additive.
+    """
+    providers: list[dict] = [
         {
             "id": "mock",
             "name": "Mock Image Provider",
             "type": "image",
             "status": "connected",
-            "capabilities": {"image_generation": True, "reference_image": False},
+            "capabilities": dict(_CAPABILITIES["image.mock"]),
         },
         {
             "id": "comfyui_local",
             "name": "Local ComfyUI",
             "type": "image",
             "status": "unknown",
-            "capabilities": {"image_generation": True, "reference_image": True},
+            "capabilities": dict(_CAPABILITIES["image.comfyui"]),
             "base_url": settings.comfyui_url,
+        },
+        # MVP video placeholder — visible capability, explicitly unavailable.
+        {
+            "id": "video_mock",
+            "name": "Mock Video Provider (unavailable)",
+            "type": "video",
+            "status": "unavailable",
+            "capabilities": dict(_CAPABILITIES["video.mock"]),
+        },
+        {
+            "id": "workflow_comfyui",
+            "name": "ComfyUI Workflow Adapter",
+            "type": "workflow",
+            "status": "connected",
+            "capabilities": dict(_CAPABILITIES["workflow.comfyui"]),
+        },
+        {
+            "id": "llm_fake",
+            "name": "Fake LLM Gateway",
+            "type": "llm",
+            "status": "active" if settings.llm_mode == "fake" else "unknown",
+            "capabilities": dict(_CAPABILITIES["llm.fake"]),
+        },
+        {
+            "id": "llm_openai",
+            "name": "OpenAI-compatible LLM Gateway",
+            "type": "llm",
+            "status": "active" if settings.llm_mode == "openai" else "unknown",
+            "capabilities": dict(_CAPABILITIES["llm.openai"]),
+            "base_url": settings.llm_base_url,
         },
     ]
     if settings.image_provider == "comfyui":
@@ -84,4 +221,8 @@ def reset_providers() -> None:
     """Reset cached providers (used by tests)."""
     global _comfyui_provider
     _image_providers.clear()
+    _video_providers.clear()
+    _workflow_providers.clear()
+    _llm_providers.clear()
     _comfyui_provider = None
+    reset_gateway()

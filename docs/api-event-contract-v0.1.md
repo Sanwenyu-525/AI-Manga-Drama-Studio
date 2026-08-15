@@ -1371,6 +1371,15 @@ GET /api/v1/providers
 > P4-T003：每个 provider 附带 `health` 块（向后兼容——保留 id/name/type/status/
 > capabilities/base_url 旧字段）。`health.status` ∈ available | unavailable | degraded；
 > Mock 恒 available；ComfyUI 为最近一次探测缓存（未探测时为 unavailable）。
+>
+> P4-T002：`GET /providers` 已泛化为多类型（image / video / workflow / llm），每个
+> 条目带完整 `capabilities`（新增字段，不破坏旧字段；前端按 capabilities 判定按钮，
+> 见 §130）。新增条目 id 与 image 区分：`video_mock`（video，MVP 恒 `status:"unavailable"`）、
+> `workflow_comfyui`、`llm_fake`、`llm_openai`。
+>
+> P4-T001：视频生成在 MVP 明确拒绝，见 §41 —— `POST /shots/{id}/generations` 传
+> `type=video` 返回 422（code `VALIDATION_ERROR`，supported=["image"]），不会静默
+> 排队后再到 provider 才失败；VideoProvider 协议/注册已存在但为 unavailable 占位。
 
 ---
 
@@ -3510,11 +3519,17 @@ capabilities
 {
   "image_generation": true,
 
-  "image_edit": false,
+  "reference_image": true,
 
-  "reference_image": true
+  "video_generation": false,
+
+  "text_generation": true
 }
 ```
+
+> P4-T002：capabilities 由 ProviderRegistry 按 (type, id) 输出，覆盖 image_generation /
+> reference_image / video_generation / text_generation；MVP 的 video_generation 恒为
+> false（视频 provider 为 unavailable 占位，生成显式拒绝），前端据此禁用视频按钮。
 
 ---
 

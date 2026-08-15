@@ -1646,6 +1646,15 @@ ImageProvider / VideoProvider
 ComfyUI / External API
 ```
 
+> **P4-T001 / P4-T002（已落地）**：ProviderRegistry 已泛化为多类型注册（image /
+> video / workflow / llm），每类型 providerId → adapter 适配器。业务层只消费适配器
+> 协议（ImageProvider、VideoProviderProtocol、WorkflowProviderAdapter、
+> LlmProviderAdapter），不触碰具体实现或模板目录。未知 id 一律 ValidationError(422)；
+> mock 视频 provider 为 unavailable 占位（注册存在、调用即显式失败），MVP 视频生成在
+> GenerationService 边界 fail-fast 422，绝不静默排队后在 provider 才失败。已落地文件：
+> providers/image/base.py、providers/video/（base + unavailable）、providers/workflow/、
+> providers/llm/、providers/registry.py。
+
 ---
 
 # 37.1 Generation 状态机与 Worker 语义（P1-E2-T02）
