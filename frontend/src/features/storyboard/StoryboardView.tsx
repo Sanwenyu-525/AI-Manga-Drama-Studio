@@ -9,6 +9,8 @@ import { SHOT_TYPE_LABELS } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useOperationPolling } from "../ai/useOperationPolling";
+import { useEditorTabsStore } from "../../stores/editorTabsStore";
+import { VirtualizedShotGrid } from "./VirtualizedShotGrid";
 
 export function StoryboardView({ sceneId }: { sceneId: string }) {
   const queryClient = useQueryClient();
@@ -16,6 +18,8 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
   const selectShot = useSelectionStore((state) => state.selectShot);
   const setActiveShot = useWorkspaceStore((state) => state.setActiveShot);
   const setRightPanelTab = useWorkspaceStore((state) => state.setRightPanelTab);
+  const openShot = useEditorTabsStore((state) => state.openShot);
+  const projectId = useSelectionStore((state) => state.selection.projectId);
   const [planOpId, setPlanOpId] = useState<string | null>(null);
   const [planError, setPlanError] = useState<Error | null>(null);
   const [view, setView] = useState<"grid" | "list">("grid");
@@ -127,32 +131,14 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
           })}
         </div>
       ) : (
-        <div className="shot-grid">
-          {storyboard?.shots.map((shot) => {
-            const isSelected = selectedShotId === shot.id;
-            const isGenerating = shot.active_generation && typeof shot.active_generation === "object";
-            return (
-              <button key={shot.id} type="button" className={`shot-card ${isSelected ? "selected" : ""} ${shot.status === "failed" ? "failed" : ""}`} onClick={() => handleSelect(shot.id)}>
-                <div className="shot-thumb">
-                  {shot.thumbnail_url ? <img loading="lazy" src={shot.thumbnail_url} alt={`Shot ${shot.shot_number}`} /> : <img src="/assets/manga-shot.png" alt="镜头占位参考" className="reference-fallback" />}
-                  {isGenerating && <div className="shot-generating"><MagicWand size={18} /> GENERATING</div>}
-                  <span className="shot-index">SH{String(shot.shot_number).padStart(2, "0")}</span>
-                </div>
-                <div className="shot-card-body">
-                  <div className="shot-meta">
-                    <span className="shot-number">Shot {String(shot.shot_number).padStart(3, "0")}</span>
-                    <span className="shot-duration">{shot.duration != null ? `${shot.duration.toFixed(1)}s` : "—"}</span>
-                  </div>
-                  <p>{SHOT_TYPE_LABELS[shot.shot_type] ?? shot.shot_type}{shot.character_names.length ? ` · ${shot.character_names.join("、")}` : " · 待编辑"}</p>
-                  <div className="shot-state-row">
-                    <span className={`badge ${shot.status}`}>{statusText(shot.status)}</span>
-                    {shot.dirty_state !== "clean" && <span className="badge warn">需重生成</span>}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+        <VirtualizedShotGrid
+          shots={storyboard?.shots ?? []}
+          selectedShotId={selectedShotId}
+          onSelect={handleSelect}
+          onOpenShot={(shot) => {
+            if (projectId) openShot({ projectId, shotId: shot.id, title: `Shot ${String(shot.shot_number).padStart(3, "0")}`, sceneId });
+          }}
+        />
       )}
     </div>
   );

@@ -407,13 +407,24 @@ input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: defau
 .flow-ribbon b { color: var(--faint); }
 
 /* Studio shell */
-.app-shell { height: 100vh; display: grid; grid-template-columns: 300px minmax(540px, 1fr) 380px; grid-template-rows: 55px minmax(0, 1fr) 104px; grid-template-areas: "top top top" "explorer workspace right" "explorer dock right"; background: var(--abyss); transition: grid-template-rows .18s ease, grid-template-columns .18s ease; }
-.app-shell.explorer-collapsed { grid-template-columns: 30px minmax(540px, 1fr) 380px; }
-.app-shell.right-collapsed { grid-template-columns: 300px minmax(540px, 1fr) 30px; }
-.app-shell.explorer-collapsed.right-collapsed { grid-template-columns: 30px minmax(540px, 1fr) 30px; }
+.app-shell { height: 100vh; display: grid; grid-template-columns: var(--explorer-w, 300px) 5px minmax(0, 1fr) 5px var(--right-w, 380px); grid-template-rows: 55px minmax(0, 1fr) 5px var(--dock-h, 104px); grid-template-areas: "top top top top top" "explorer v1 workspace v2 right" "explorer v1 h1 v2 right" "explorer v1 dock v2 right"; background: var(--abyss); transition: grid-template-rows .18s ease, grid-template-columns .18s ease; }
+.app-shell.explorer-collapsed { grid-template-columns: 30px 5px minmax(0, 1fr) 5px var(--right-w, 380px); }
+.app-shell.right-collapsed { grid-template-columns: var(--explorer-w, 300px) 5px minmax(0, 1fr) 5px 30px; }
+.app-shell.explorer-collapsed.right-collapsed { grid-template-columns: 30px 5px minmax(0, 1fr) 5px 30px; }
 .app-shell.explorer-collapsed .explorer { overflow: visible; border-right: 1px solid var(--hairline-soft); }
 .app-shell.right-collapsed .right-panel { overflow: visible; border-left: 1px solid var(--hairline-soft); }
-.app-shell.dock-expanded { grid-template-rows: 55px minmax(0, 1fr) 240px; }
+.app-shell.dock-expanded { grid-template-rows: 55px minmax(0, 1fr) 5px 240px; }
+.resize-handle { min-width: 0; min-height: 0; }
+.resize-handle--vertical { grid-area: v1; }
+.resize-handle--v2 { grid-area: v2; width: 1px; justify-self: stretch; }
+.resize-handle--horizontal { grid-area: h1; height: 1px; align-self: stretch; }
+.app-shell.explorer-collapsed .resize-handle--vertical { display: none; }
+.app-shell.right-collapsed .resize-handle--v2 { display: none; }
+.app-shell.dock-expanded .resize-handle--horizontal { display: none; }
+.resize-handle { cursor: default; }
+.resize-handle--vertical, .resize-handle--v2 { cursor: col-resize; }
+.resize-handle--horizontal { cursor: row-resize; }
+.resize-handle:hover, .resize-handle.is-dragging { background: rgba(232, 163, 61, .35); }
 .top-bar { grid-area: top; display: flex; align-items: stretch; border-bottom: 1px solid var(--hairline-soft); background: #12151b; }
 .studio-project-name { width: 300px; display: flex; align-items: center; gap: 10px; flex: 0 0 auto; padding: 0 20px; color: var(--amber); font-size: 15px; font-weight: 720; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .studio-project-name .app-logo { width: 22px; height: 22px; }
@@ -1141,3 +1152,38 @@ input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: defau
 .tree-row-rename input { height: 26px; padding: 2px 7px; font-size: 12px; }
 .tree-row-rename .icon-button { width: 24px; height: 24px; flex: none; }
 .tree-children .tree-row-rename { margin-left: -1px; }
+/* ============ P6 Studio Frontend Core ============ */
+
+/* P6-T004 Editor Tabs — center workspace tab bar + host */
+.workspace-host { height: 100%; min-width: 0; display: flex; flex-direction: column; }
+.workspace-host-body { flex: 1; min-height: 0; overflow: auto; }
+.workspace-host-body > .storyboard, .workspace-host-body > .inspector-center { height: 100%; }
+.editor-tabs { display: flex; align-items: stretch; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--hairline-soft); background: var(--abyss); overflow-x: auto; flex: none; }
+.editor-tab { display: inline-flex; align-items: center; gap: 6px; max-width: 200px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; padding: 7px 10px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.editor-tab:hover { color: var(--ink); background: var(--elevated); }
+.editor-tab.active { color: var(--amber); border-color: var(--hairline-soft); background: var(--panel); }
+.editor-tab-title { overflow: hidden; text-overflow: ellipsis; }
+.editor-tab-close { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border: 0; border-radius: 3px; background: transparent; color: inherit; cursor: pointer; }
+.editor-tab-close:hover { background: var(--overlay); color: var(--ink); }
+
+/* P6-T004 ShotInspector rendered full-bleed in a center tab */
+.inspector-center { max-width: 720px; margin: 0 auto; padding: 24px 26px 40px; }
+.inspector-center > .inspector { padding: 0; }
+
+/* P6-T008 Virtualized Shot Grid — native culling + bounded window */
+.shot-card { content-visibility: auto; contain-intrinsic-size: auto 200px; }
+.shot-grid-scroll { overflow-y: auto; height: 100%; }
+.shot-grid--virtual { padding-bottom: 40px; }
+.shot-grid-sentinel { padding: 16px; color: var(--faint); font-size: 11px; text-align: center; }
+
+/* P6-T002 Resizable Panel — handle affordance in the gutters */
+.resize-handle { background: transparent; }
+.resize-handle--vertical { grid-area: v1; }
+.resize-handle--v2 { grid-area: v2; }
+.resize-handle--horizontal { grid-area: h1; }
+.resize-handle--vertical, .resize-handle--v2 { cursor: col-resize; }
+.resize-handle--horizontal { cursor: row-resize; }
+.resize-handle:hover, .resize-handle.is-dragging { background: rgba(232, 163, 61, .35); }
+.app-shell.explorer-collapsed .resize-handle--vertical { display: none; }
+.app-shell.right-collapsed .resize-handle--v2 { display: none; }
+.app-shell.dock-expanded .resize-handle--horizontal { display: none; }

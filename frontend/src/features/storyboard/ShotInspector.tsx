@@ -11,7 +11,7 @@ import { VersionStrip } from "../versioning/VersionStrip";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 // Shot Inspector (frontend-ux §12-13): edit the selected shot, PATCH with optimistic revision.
-export function ShotInspector() {
+export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "center" }) {
   const activeShotId = useWorkspaceStore((s) => s.activeShotId);
   const setActiveShot = useWorkspaceStore((s) => s.setActiveShot);
   const setRightPanelTab = useWorkspaceStore((s) => s.setRightPanelTab);
@@ -155,7 +155,7 @@ export function ShotInspector() {
   if (!activeShotId) {
     return (
       <div className="panel-tab-content">
-        <PanelTabs active="inspector" onSwitch={setRightPanelTab} />
+        {variant !== "center" && <PanelTabs active="inspector" onSwitch={setRightPanelTab} />}
         <div className="placeholder-note inspector-empty">
           <ImageSquare size={32} />
           <h3>选择一个镜头</h3>
@@ -168,15 +168,15 @@ export function ShotInspector() {
   if (isLoading || !shot) {
     return (
       <div className="panel-tab-content">
-        <PanelTabs active="inspector" onSwitch={setRightPanelTab} />
+        {variant !== "center" && <PanelTabs active="inspector" onSwitch={setRightPanelTab} />}
         <p className="muted inspector-loading">正在读取镜头…</p>
       </div>
     );
   }
 
   return (
-    <div className="panel-tab-content">
-      <PanelTabs active="inspector" onSwitch={setRightPanelTab} />
+    <div className={variant === "center" ? "inspector-center" : "panel-tab-content"}>
+      {variant !== "center" && <PanelTabs active="inspector" onSwitch={setRightPanelTab} />}
 
       <div className="inspector">
         <div className="inspector-title-row">
