@@ -133,6 +133,8 @@ script_text
 
 summary
 
+analysis_key
+
 status
 
 created_at
@@ -145,6 +147,10 @@ updated_at
 ```text
 Project 1:N Episode
 ```
+
+analysis_key（P1-E1-T01）：最后一次剧集分析（analyze）的幂等键 —— 实际送入 LLM 的
+原文截断文本的 hash 前缀；同一 key 重复提交为 no-op，key 变化触发 AI 场景 replace。
+内部字段，不进 API。
 
 ---
 
@@ -179,12 +185,20 @@ description
 
 scene_order
 
+analysis_key
+
+storyboard_key
+
 status
 
 created_at
 
 updated_at
 ```
+
+analysis_key（P1-E1-T01）：所属剧集分析的幂等键；NOT NULL 表示 AI 创建的场景
+（replace 时软删除的目标）。storyboard_key：该场景最后一次分镜规划（generate-shots）
+的幂等键。均为内部字段，不进 API。
 
 ---
 
@@ -419,12 +433,17 @@ active_image_version_id
 
 active_video_version_id
 
+analysis_key
+
 status
 
 created_at
 
 updated_at
 ```
+
+analysis_key（P1-E1-T01）：分镜规划（generate-shots）的幂等键；NOT NULL 表示
+AI 创建的镜头（replace 时软删除的目标）。内部字段，不进 API。
 
 Shot status：
 

@@ -1397,6 +1397,8 @@ generate_scene_plans()
 generate_shot_plans()
 ```
 
+P1-E1-T01 补充：Plan 必须经 `app/services/plan_mapper.py` 显式映射后由 ScriptService 单事务批量写入（SceneService/ShotService 的批量方法不自行 commit）；同一输入重复确认幂等 no-op，输入变化执行显式 replace（保留手动行）。
+
 ---
 
 # 59. Analyze API

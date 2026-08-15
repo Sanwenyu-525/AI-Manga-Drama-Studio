@@ -8,6 +8,7 @@ from app.domain.common import SceneStatus
 class SceneCreate(BaseModel):
     name: str | None = None
     scene_number: int | None = Field(default=None, ge=1)
+    location_id: str | None = None  # free-text location (locations table is Phase 2)
     time_of_day: str | None = None
     lighting: str | None = None
     weather: str | None = None
@@ -17,6 +18,7 @@ class SceneCreate(BaseModel):
 
 class SceneUpdate(BaseModel):
     name: str | None = None
+    location_id: str | None = None
     time_of_day: str | None = None
     lighting: str | None = None
     weather: str | None = None
@@ -33,6 +35,7 @@ class SceneSummary(BaseModel):
 
 class SceneRead(SceneSummary):
     episode_id: str
+    location_id: str | None
     time_of_day: str | None
     lighting: str | None
     weather: str | None

@@ -401,6 +401,14 @@ POST /api/v1/episodes/{episode_id}/analyze
 202 Accepted
 ```
 
+幂等与替换语义（P1-E1-T01）：
+
+- 同一原文（analysis key = 实际送入 LLM 的原文截断文本的 hash）重复提交为幂等 no-op：
+  返回已落库场景，不重复创建、不再次调用 LLM。
+- 原文变化后再次提交执行 replace：软删除该剧集旧的 AI 场景及其镜头后重建；
+  手动创建的场景（无 analysis_key）始终保留。
+- 任一场景写入失败：整批回滚，不留下部分场景（all-or-nothing）。
+
 Response：
 
 ```json
@@ -428,9 +436,8 @@ Response：
   "type": "episode_analysis",
   "status": "completed",
   "result": {
-    "characters": [],
-    "locations": [],
-    "scenes": []
+    "scene_plans": [],
+    "created_scene_ids": []
   }
 }
 ```
@@ -473,6 +480,7 @@ DELETE /api/v1/scenes/{scene_id}
   "episode_id": "episode_001",
   "scene_number": 3,
   "name": "体育馆",
+  "location_id": "学校体育馆",
   "time_of_day": "night",
   "mood": "tense",
   "shot_count": 8,
@@ -505,6 +513,14 @@ Response：
   "status": "queued"
 }
 ```
+
+幂等与替换语义（P1-E1-T01）：
+
+- 同一场景上下文（storyboard key = 场景字段 + 剧集原文摘录的 hash）重复提交为
+  幂等 no-op：返回已落库镜头，不重复创建、不再次调用 LLM。
+- 场景上下文变化后再次提交执行 replace：软删除该场景旧的 AI 镜头后重建；
+  手动创建的镜头（无 analysis_key）始终保留。
+- 任一镜头写入失败：整批回滚，不留下部分镜头（all-or-nothing）。
 
 ---
 

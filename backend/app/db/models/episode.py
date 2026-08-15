@@ -22,6 +22,7 @@ class Episode(Base):
     source_text: Mapped[str | None] = mapped_column(Text)  # original novel/screenplay text
     script_text: Mapped[str | None] = mapped_column(Text)  # structured/rewritten script
     summary: Mapped[str | None] = mapped_column(Text)
+    analysis_key: Mapped[str | None] = mapped_column(Text)  # P1-E1-T01: idempotency key of the last episode analysis (source hash)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
     deleted_at: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[str] = ts_created()

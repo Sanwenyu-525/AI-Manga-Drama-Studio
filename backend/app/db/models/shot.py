@@ -53,6 +53,7 @@ class Shot(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
     dirty_state: Mapped[str] = mapped_column(Text, nullable=False, default="clean")
     revision: Mapped[int] = mapped_column(nullable=False, default=1)
+    analysis_key: Mapped[str | None] = mapped_column(Text)  # P1-E1-T01: storyboard key; NOT NULL marks AI-created shots
 
     deleted_at: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[str] = ts_created()

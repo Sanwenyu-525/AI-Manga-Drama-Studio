@@ -29,6 +29,7 @@ export interface Scene {
   episode_id: string;
   scene_number: number;
   name: string | null;
+  location_id: string | null;
   time_of_day: string | null;
   lighting: string | null;
   weather: string | null;

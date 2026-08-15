@@ -89,42 +89,90 @@ class ShotService:
         self.links = ShotCharacterRepository(session)
 
     def create_shot(self, scene_id: str, data: ShotCreate) -> ShotRead:
-        scene = self.scenes.get(scene_id)
-        if scene is None:
-            raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
-        shot_number = data.shot_number or self.repo.next_shot_number(scene_id)
-        shot = Shot(
-            scene_id=scene_id,
-            shot_number=shot_number,
-            shot_order=shot_number,
-            shot_type=data.shot_type,
-            camera_angle=data.camera_angle,
-            camera_movement=data.camera_movement,
-            lens=data.lens,
-            duration=data.duration,
-            action=data.action,
-            emotion=data.emotion,
-            dialogue=data.dialogue,
-            image_prompt=data.image_prompt,
-            status="draft",
-            dirty_state="clean",
-            revision=1,
-        )
-        self.repo.add(shot)
-        self.session.flush()  # assign shot.id before link rows reference it (autoflush=False)
-        if data.character_ids:
-            self._validate_characters(data.character_ids, scene)
-            self._replace_characters(shot, data.character_ids)
+        """Create ONE shot; commits and publishes shot.created (manual/API path)."""
+        shot = self.create_shots(scene_id, [data])[0]
         self.session.commit()
         bus.publish(
             StudioEvent(
                 event_type=EVENT_SHOT_CREATED,
                 entity_type="shot",
                 entity_id=shot.id,
-                project_id=self._project_id_of(scene),
+                project_id=self._project_id_of(shot),
             )
         )
         return _to_read(shot, data.character_ids)
+
+    def create_shots(
+        self,
+        scene_id: str,
+        datas: list[ShotCreate],
+        analysis_key: str | None = None,
+    ) -> list[Shot]:
+        """Batch create WITHOUT committing (P1-E1-T01: caller owns the transaction).
+
+        All-or-nothing: any error raises before commit; the caller rolls back and
+        nothing is persisted. analysis_key marks AI-created shots (replace policy).
+        """
+        scene = self.scenes.get(scene_id)
+        if scene is None:
+            raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
+        created: list[Shot] = []
+        for data in datas:
+            shot_number = data.shot_number or self.repo.next_shot_number(scene_id)
+            shot = Shot(
+                scene_id=scene_id,
+                shot_number=shot_number,
+                shot_order=shot_number,
+                shot_type=data.shot_type,
+                camera_angle=data.camera_angle,
+                camera_movement=data.camera_movement,
+                lens=data.lens,
+                duration=data.duration,
+                action=data.action,
+                emotion=data.emotion,
+                dialogue=data.dialogue,
+                image_prompt=data.image_prompt,
+                analysis_key=analysis_key,
+                status="draft",
+                dirty_state="clean",
+                revision=1,
+            )
+            self.repo.add(shot)
+            self.session.flush()  # assign shot.id before link rows reference it (autoflush=False)
+            if data.character_ids:
+                self._validate_characters(data.character_ids, scene)
+                self._replace_characters(shot, data.character_ids)
+            created.append(shot)
+        return created
+
+    def soft_delete_shots(self, scene_ids: list[str]) -> None:
+        """Soft-delete ALL live shots of the given scenes (no commit — caller owns the transaction)."""
+        if not scene_ids:
+            return
+        shots = self.session.scalars(
+            select(Shot).where(Shot.scene_id.in_(scene_ids), Shot.deleted_at.is_(None))
+        )
+        for shot in shots:
+            self.repo.delete(shot)
+
+    def soft_delete_ai_shots(self, scene_id: str) -> None:
+        """Soft-delete AI-created shots of one scene (analysis_key IS NOT NULL);
+        manual shots are preserved. No commit — caller owns the transaction."""
+        shots = self.session.scalars(
+            select(Shot).where(
+                Shot.scene_id == scene_id,
+                Shot.analysis_key.isnot(None),
+                Shot.deleted_at.is_(None),
+            )
+        )
+        for shot in shots:
+            self.repo.delete(shot)
+
+    def list_shots_with_key(self, scene_id: str, analysis_key: str) -> list[Shot]:
+        """Live shots of a scene created by a specific storyboard key (idempotency check)."""
+        return self.repo.list_ordered(
+            order_by="shot_order", scene_id=scene_id, analysis_key=analysis_key
+        )
 
     def get_shot(self, shot_id: str) -> ShotRead:
         shot = self.repo.get(shot_id)

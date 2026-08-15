@@ -21,6 +21,8 @@ class Scene(Base):
     mood: Mapped[str | None] = mapped_column(Text)
     description: Mapped[str | None] = mapped_column(Text)
     scene_order: Mapped[int | None] = mapped_column()
+    analysis_key: Mapped[str | None] = mapped_column(Text)  # P1-E1-T01: episode analysis key; NOT NULL marks AI-created scenes
+    storyboard_key: Mapped[str | None] = mapped_column(Text)  # P1-E1-T01: last shot-planning key of this scene
     status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
     deleted_at: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[str] = ts_created()

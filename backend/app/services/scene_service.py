@@ -16,6 +16,7 @@ def _to_read(scene: Scene, shot_count: int = 0) -> SceneRead:
         scene_number=scene.scene_number,
         name=scene.name,
         episode_id=scene.episode_id,
+        location_id=scene.location_id,
         time_of_day=scene.time_of_day,
         lighting=scene.lighting,
         weather=scene.weather,
@@ -36,33 +37,64 @@ class SceneService:
         self.episodes = EpisodeRepository(session)
 
     def create_scene(self, episode_id: str, data: SceneCreate) -> SceneRead:
-        episode = self.episodes.get(episode_id)
-        if episode is None:
-            raise NotFoundError("Episode does not exist.", {"episode_id": episode_id})
-        scene_number = data.scene_number or self.repo.next_scene_number(episode_id)
-        scene = Scene(
-            episode_id=episode_id,
-            scene_number=scene_number,
-            scene_order=scene_number,
-            name=data.name,
-            time_of_day=data.time_of_day,
-            lighting=data.lighting,
-            weather=data.weather,
-            mood=data.mood,
-            description=data.description,
-            status="draft",
-        )
-        self.repo.add(scene)
+        """Create ONE scene; commits and publishes scene.created (manual/API path)."""
+        scene = self.create_scenes(episode_id, [data])[0]
         self.session.commit()
+        episode = self.episodes.get(episode_id)
         bus.publish(
             StudioEvent(
                 event_type=EVENT_SCENE_CREATED,
                 entity_type="scene",
                 entity_id=scene.id,
-                project_id=episode.project_id,
+                project_id=episode.project_id if episode else None,
             )
         )
         return _to_read(scene)
+
+    def create_scenes(
+        self,
+        episode_id: str,
+        datas: list[SceneCreate],
+        analysis_key: str | None = None,
+    ) -> list[Scene]:
+        """Batch create WITHOUT committing (P1-E1-T01: caller owns the transaction).
+
+        All-or-nothing: any error raises before commit; the caller rolls back and
+        nothing is persisted. analysis_key marks AI-created scenes (replace policy).
+        """
+        episode = self.episodes.get(episode_id)
+        if episode is None:
+            raise NotFoundError("Episode does not exist.", {"episode_id": episode_id})
+        created: list[Scene] = []
+        for data in datas:
+            scene_number = data.scene_number or self.repo.next_scene_number(episode_id)
+            scene = Scene(
+                episode_id=episode_id,
+                scene_number=scene_number,
+                scene_order=scene_number,
+                name=data.name,
+                location_id=data.location_id,
+                time_of_day=data.time_of_day,
+                lighting=data.lighting,
+                weather=data.weather,
+                mood=data.mood,
+                description=data.description,
+                analysis_key=analysis_key,
+                status="draft",
+            )
+            self.repo.add(scene)
+            created.append(scene)
+        return created
+
+    def soft_delete_scenes(self, scene_ids: list[str]) -> None:
+        """Soft-delete scenes WITHOUT committing (P1-E1-T01: caller owns the transaction)."""
+        if not scene_ids:
+            return
+        scenes = self.session.scalars(
+            select(Scene).where(Scene.id.in_(scene_ids), Scene.deleted_at.is_(None))
+        )
+        for scene in scenes:
+            self.repo.delete(scene)
 
     def get_scene(self, scene_id: str) -> SceneRead:
         scene = self.repo.get(scene_id)
@@ -83,7 +115,7 @@ class SceneService:
         if scene is None:
             raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
         episode = self.episodes.get(scene.episode_id)
-        for field in ("name", "time_of_day", "lighting", "weather", "mood", "description", "status"):
+        for field in ("name", "location_id", "time_of_day", "lighting", "weather", "mood", "description", "status"):
             value = getattr(data, field)
             if value is not None:
                 setattr(scene, field, value)

@@ -684,6 +684,19 @@ LLMGateway
 
 但不要直接调用具体模型。
 
+P1-E1-T01（修复 AI 计划映射与批量写入事务）：
+
+- Plan → Domain Create 只经过单一显式 Mapper（app/services/plan_mapper.py），逐字段映射
+  （ScenePlan.title→name、location→location_id、time→time_of_day），禁止
+  `SceneCreate(**plan.model_dump())` 这类静默丢字段的写法。
+- ScriptService 持有事务（Unit of Work）：SceneService/ShotService 提供不自行 commit 的
+  批量方法（create_scenes / create_shots / soft_delete_*），由 ScriptService 一次性 commit
+  并在 commit 后发布事件；任一步失败整体 rollback（all-or-nothing）。
+- 幂等键：episodes.analysis_key / scenes.storyboard_key 对"实际送入 LLM 的输入"做 hash；
+  同一 key 重复确认返回已落库行（不重复调用 LLM）；key 变化时执行显式 replace
+  （软删除旧 AI 行后重建），手动行（analysis_key IS NULL）保留。
+- 遗留无 key 数据按手动行处理；历史重复检测属 P1-E1-T02。
+
 ---
 
 # 13. SceneService

@@ -141,7 +141,8 @@ export function EpisodePanel({ episode }: { episode: Episode }) {
             <ul>
               <li><CheckCircle size={16} /> 先预览，再确认创建</li>
               <li><CheckCircle size={16} /> 1000–3000 字效果最佳</li>
-              <li><CheckCircle size={16} /> 保留现有场景，不自动覆盖</li>
+              <li><CheckCircle size={16} /> 重复确认不重复创建场景</li>
+              <li><CheckCircle size={16} /> 原文变化时替换旧 AI 场景，手动场景保留</li>
             </ul>
           </section>
         )}
