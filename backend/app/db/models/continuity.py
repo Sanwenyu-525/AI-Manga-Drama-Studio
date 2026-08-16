@@ -1,0 +1,72 @@
+"""Continuity models (P8-T018/T019, T021..T026; database-v0.1 §20-21).
+
+P8-T018/T019: continuity_warnings is the durable store of both Rule-derived and
+Agent (semantic) warnings. The Agent NEVER flags issues / applies fixes directly —
+it produces structured warnings here, and fixes go through the P7 Proposal system
+(same WAITING_HUMAN approval flow), applied through ShotService.
+
+P8-T021..T026 (Video Bridge structure): shot_transitions anticipates how adjacent
+shots connect (LAST_TO_FIRST / REFERENCE_ONLY / CUT ...) and which frame assets are
+references. MVP video generation is NOT implemented — this is structure-only: the
+frame_*_asset_id columns stay NULL until real frame extraction (T021-T023) exists.
+"""
+
+from sqlalchemy import ForeignKey, Index, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+from app.db.models.columns import ts_created, uuid_pk
+
+# Warning lifecycle (design continuity-engine §83: OPEN / ACKNOWLEDGED / ...).
+# Alpha keeps three states; IGNORED/INVALID map to acknowledged+resolved bookkeeping.
+WARNING_STATUSES = ("open", "acknowledged", "fixed")
+
+# Compliance with design §84: severity INFO / WARNING / ERROR (BLOCKING discouraged).
+WARNING_SEVERITIES = ("info", "warning", "error")
+
+# Transition modes for adjacent-shot connections (P8-T024..T026).
+TRANSITION_MODES = ("LAST_TO_FIRST", "REFERENCE_ONLY", "CUT")
+
+
+class ContinuityWarning(Base):
+    """One continuity issue flagged for a scene (rule or agent semantic, P8-T018)."""
+
+    __tablename__ = "continuity_warnings"
+    __table_args__ = (
+        Index("ix_continuity_warnings_scene_status", "scene_id", "status"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    scene_id: Mapped[str] = mapped_column(ForeignKey("scenes.id"), nullable=False, index=True)
+    shot_id: Mapped[str | None] = mapped_column(ForeignKey("shots.id"))
+    run_id: Mapped[str | None] = mapped_column(Text)  # continuity_check agent run that produced it
+    category: Mapped[str] = mapped_column(Text, nullable=False)  # costume|prop|location|time|emotion|visual_flow|...
+    severity: Mapped[str] = mapped_column(Text, nullable=False, default="warning")
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_json: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="open")
+    created_at: Mapped[str] = ts_created()
+    resolved_at: Mapped[str | None] = mapped_column(Text)
+
+
+class ShotTransition(Base):
+    """Adjacent-shot connection record (P8-T024..T026 structure; database-v0.1 §21).
+
+    Structure-only for MVP: no frame extraction / video generation yet, so the
+    frame_*_asset_id referential pointers default to NULL until P8-T021..T023 land.
+    """
+
+    __tablename__ = "shot_transitions"
+    __table_args__ = (
+        Index("ix_shot_transitions_scene", "scene_id"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    scene_id: Mapped[str] = mapped_column(ForeignKey("scenes.id"), nullable=False, index=True)
+    from_shot_id: Mapped[str] = mapped_column(ForeignKey("shots.id"), nullable=False, index=True)
+    to_shot_id: Mapped[str | None] = mapped_column(ForeignKey("shots.id"))  # NULL = scene boundary
+    mode: Mapped[str] = mapped_column(Text, nullable=False, default="CUT")
+    frame_from_asset_id: Mapped[str | None] = mapped_column(ForeignKey("assets.id"))
+    frame_to_asset_id: Mapped[str | None] = mapped_column(ForeignKey("assets.id"))
+    created_at: Mapped[str] = ts_created()

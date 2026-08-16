@@ -3,6 +3,7 @@
 from app.db.models.agent import AgentProposal, AgentRun
 from app.db.models.asset import Asset
 from app.db.models.character import Character, CharacterVersion, ShotCharacter
+from app.db.models.continuity import ContinuityWarning, ShotTransition
 from app.db.models.costume import Costume
 from app.db.models.episode import Episode
 from app.db.models.location import Location, LocationVersion
@@ -23,6 +24,7 @@ __all__ = [
     "Asset",
     "Character",
     "CharacterVersion",
+    "ContinuityWarning",
     "Costume",
     "Episode",
     "Location",
@@ -37,6 +39,7 @@ __all__ = [
     "Scene",
     "Shot",
     "ShotCharacter",
+    "ShotTransition",
     "ShotVisualSpec",
     "WorkflowTemplate",
     "WorkflowVersion",
