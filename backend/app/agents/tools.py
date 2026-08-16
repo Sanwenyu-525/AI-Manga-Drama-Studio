@@ -13,8 +13,10 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import StudioError
 from app.domain.agent import ToolOperation
+from app.db.models import AgentRun
 from app.services.context_service import ContextService
 from app.services.generation_service import GenerationService
+from app.services.proposal_service import ProposalService
 from app.services.shot_service import ShotService
 
 
@@ -52,6 +54,9 @@ class ToolResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
     data: dict | None = None
+    # P7-T013: update_shot now emits a Proposal instead of writing directly.
+    proposal_created: bool = False
+    proposal_id: str | None = None
 
 
 # Tool schemas keyed by tool name (validation + documentation, agent-director §31).
@@ -151,29 +156,78 @@ class ToolExecutor:
         )
 
     def _update_shot(self, args: dict) -> ToolResult:
-        """P1-E3-T02: report ACTUAL changed fields (diff before/after for the
-        requested non-None keys), not the requested ones; events carry source=agent
-        and run_id so the audit trail distinguishes user vs agent mutations."""
+        """P7-T012/13: update_shot NO LONGER writes directly — it produces a pending
+        AgentProposal; the run parks in WAITING_HUMAN and emits agent.approval.required.
+        A human approves/rejects it; apply happens ONLY through ShotService (never raw
+        ORM) guarded by a base_revision optimistic-concurrency check (P7-T016).
+
+        Idempotent on graph resume: if the run already has a DECIDED proposal for this
+        target, the step returns without re-creating (the human decision already
+        happened), so resume re-running execute_node doesn't double-propose."""
         schema = UpdateShotArgs.model_validate(args)
         shot = self._require_shot(schema.shot_id)
-        from app.domain.shot import ShotUpdate
-
         requested = {key: value for key, value in schema.patch.items() if value is not None}
-        before = {key: getattr(shot, key, None) for key in requested}
-        patch = ShotUpdate.model_validate(schema.patch)
-        updated = self.shots.update_shot(
-            schema.shot_id,
+        if not requested:
+            return ToolResult(
+                success=True,
+                entity_id=shot.id,
+                changed_fields=[],
+                data={"proposal_created": False, "message": "no change requested"},
+            )
+        run = self.session.get(AgentRun, self.run_id) if self.run_id else None
+        if run is None:
+            return ToolResult(
+                success=False,
+                error="update_shot requires a persisted agent run.",
+                data={"code": "AGENT_RUN_REQUIRED"},
+            )
+        # Already decided? (resume re-runs execute_node) — do not re-propose.
+        existing = self._existing_shot_proposal(run.id, shot.id)
+        if existing is not None:
+            return ToolResult(
+                success=True,
+                entity_id=shot.id,
+                changed_fields=[],
+                proposal_created=False,
+                proposal_id=existing.id,
+                data={
+                    "proposal_id": existing.id,
+                    "status": existing.status,
+                    "message": "already decided",
+                    "base_revision": existing.base_revision,
+                },
+            )
+        proposal = ProposalService(self.session).create_shot_proposal(
+            run,
+            shot.id,
             shot.revision,
-            patch,
-            source="agent",
-            run_id=self.run_id,
+            requested,
         )
-        changed_fields = [key for key, old in before.items() if getattr(updated, key, None) != old]
         return ToolResult(
             success=True,
-            entity_id=updated.id,
-            changed_fields=changed_fields,
-            data=updated.model_dump(),
+            entity_id=shot.id,
+            changed_fields=[],
+            proposal_created=True,
+            proposal_id=proposal.id,
+            data={
+                "proposal_id": proposal.id,
+                "status": "pending",
+                "base_revision": shot.revision,
+                "changes": requested,
+            },
+        )
+
+    def _existing_shot_proposal(self, run_id: str, shot_id: str):
+        """The latest proposal for (run, target) — used to avoid proposing twice when
+        execute_node re-runs after a resume."""
+        from sqlalchemy import select
+        from app.db.models import AgentProposal
+
+        return self.session.scalar(
+            select(AgentProposal)
+            .where(AgentProposal.run_id == run_id, AgentProposal.target_id == shot_id)
+            .order_by(AgentProposal.created_at.desc())
+            .limit(1)
         )
 
     def _generate_image(self, args: dict) -> ToolResult:

@@ -12,8 +12,9 @@ from __future__ import annotations
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 
-from app.agents.tools import ToolExecutor, ToolResult
+from app.agents.tools import ToolExecutor
 from app.core.logging import get_logger
 from app.db import session as db_session_module
 from app.domain.agent import DirectorPlan, ProductionIntent, ToolOperation
@@ -137,6 +138,17 @@ async def load_context_node(state: DirectorState) -> DirectorState:
             context["resolution_message"] = resolution.message
         if resolution.shot_id:
             context["shot"] = context_service.get_shot_context(resolution.shot_id)
+        # P7-T005/6/7: attach a budgeted, typed context via ContextResolver (shot_planning)
+        # so the resolver integration is exercised and the LLM gets a token-capped block.
+        from app.agents.context_resolver import ContextResolver
+
+        resolver = ContextResolver(session)
+        context["resolved_context"] = resolver.resolve(
+            "shot_planning",
+            project_id,
+            shot_id=resolution.shot_id,
+            scene_id=scene_id,
+        )
 
     return {**state, "context": context}
 
@@ -190,6 +202,7 @@ async def execute_node(state: DirectorState) -> DirectorState:
         }
 
     results: list[dict[str, Any]] = []
+    status = state.get("status", "running")
 
     factory = db_session_module.session_factory_provider()
     with factory() as session:
@@ -203,6 +216,7 @@ async def execute_node(state: DirectorState) -> DirectorState:
             # P1-E3-T02: tool boundary cancel check — stop before the NEXT tool,
             # no new side effects after cancellation.
             if _cancelled(state):
+                status = "cancelled"
                 break
             # resolve symbolic references ('shot_number:N') to real ids (context node resolved them)
             args = dict(step.arguments)
@@ -211,7 +225,7 @@ async def execute_node(state: DirectorState) -> DirectorState:
                 args["shot_id"] = resolved_shot_id
             op = ToolOperation(tool=step.tool, arguments=args)
             _publish(EVENT_AGENT_TOOL_STARTED, state, {"tool": op.tool, "target": {"type": "shot", "id": op.arguments.get("shot_id")}})
-            result: ToolResult = executor.execute(op)
+            result = executor.execute(op)
             _publish(
                 EVENT_AGENT_TOOL_COMPLETED,
                 state,
@@ -219,7 +233,24 @@ async def execute_node(state: DirectorState) -> DirectorState:
             )
             results.append({"tool": op.tool, "arguments": op.arguments, "result": result.model_dump()})
 
-    return {**state, "tool_results": results}
+            # P7-T013: update_shot emitted a Proposal and parked the run in
+            # WAITING_HUMAN. Suspend the graph for a human decision; the resume
+            # value ({\"decision\": \"approve\"|\"reject\"}) is returned here.
+            if result.proposal_created:
+                status = "waiting_human"
+                decision = interrupt(
+                    {
+                        "reason": "awaiting human approval",
+                        "proposal_ids": [result.proposal_id],
+                        "target_id": result.entity_id,
+                    }
+                )
+                # Record the human decision on the tool result for the audit trail.
+                results[-1]["decision"] = (decision or {}).get("decision") if isinstance(decision, dict) else decision
+                # After approval we continue to the NEXT planned step (if any,
+                # e.g. generate_image); rejection simply skips the mutation.
+
+    return {**state, "status": status, "tool_results": results}
 
 
 async def review_node(state: DirectorState) -> DirectorState:
@@ -227,6 +258,22 @@ async def review_node(state: DirectorState) -> DirectorState:
     _stage(state, "review")
     results = state.get("tool_results") or []
     plan = state.get("plan") or {}
+
+    # P7-T017: a run suspended awaiting a human decision must keep waiting_human —
+    # review must never silently complete it.
+    if state.get("status") == "waiting_human":
+        return {
+            **state,
+            "status": "waiting_human",
+            "final_result": {
+                "summary": "等待人工审批。",
+                "tool_count": len(results),
+                "failed": 0,
+                "generation_submitted": 0,
+                "details": results,
+                "clarification": None,
+            },
+        }
 
     # P1-E3-T02: a cancelled run keeps its cancelled status — review must never
     # overwrite it with completed/failed (contradictory terminal states).
@@ -279,8 +326,11 @@ def _summarize(results: list[dict[str, Any]]) -> str:
     for r in results:
         tool = r["tool"]
         if tool == "update_shot":
-            fields = r["result"].get("changed_fields") or []
-            parts.append(f"已修改镜头 {r['arguments'].get('shot_id', '')[-4:]}（{', '.join(fields)}）" if fields else "镜头无实际变化")
+            if r["result"].get("proposal_created"):
+                parts.append("已提交镜头修改方案待审批")
+            else:
+                fields = r["result"].get("changed_fields") or []
+                parts.append(f"已修改镜头 {r['arguments'].get('shot_id', '')[-4:]}（{', '.join(fields)}）" if fields else "镜头无实际变化")
         elif tool == "generate_image":
             parts.append("已提交图片生成任务（不等待完成）")
         elif tool == "get_shot":
@@ -290,7 +340,10 @@ def _summarize(results: list[dict[str, Any]]) -> str:
 
 # ---------- graph ----------
 
-def build_director_graph():
+def build_director_graph(checkpointer=None):
+    """Compile the Director graph. P7-T004: a persisted checkpointer keeps the
+    execution state (thread_id = run_id) across the proposal interrupt so a run
+    can be resumed after a WAITING_HUMAN pause (and after restart)."""
     builder = StateGraph(DirectorState)
     builder.add_node("understand", understand_node)
     builder.add_node("load_context", load_context_node)
@@ -303,7 +356,21 @@ def build_director_graph():
     builder.add_edge("plan", "execute")
     builder.add_edge("execute", "review")
     builder.add_edge("review", END)
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)
 
 
-director_graph = build_director_graph()
+def _default_checkpointer():
+    """A module-scoped SqliteCheckpointSaver on the app data dir.
+
+    In tests the client fixture overrides session_factory_provider, but the
+    checkpointer path is fixed to the app data dir. To keep tests isolated we
+    build the graph with a checkpointer lazily; tests that need resume use
+    build_director_graph(checkpointer=...) with an in-memory/file-backed saver.
+    """
+    from app.agents.checkpointers.sqlite_saver import SqliteCheckpointSaver
+    from app.core.config import settings
+
+    return SqliteCheckpointSaver(settings.data_dir / "agent_checkpoints.db")
+
+
+director_graph = build_director_graph(checkpointer=_default_checkpointer())
