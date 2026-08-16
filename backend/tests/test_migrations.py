@@ -40,6 +40,7 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
         "character_versions",  # P2-T007/T008
         "locations", "location_versions", "costumes",  # P2-T009/T010
         "agent_runs", "agent_proposals",  # P7-T001/T012
+        "continuity_warnings", "shot_transitions",  # P8-T018/T019 + T024..T026
         "alembic_version",
     ):
         assert expected in tables, f"missing table {expected}"
@@ -49,6 +50,12 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
     # P7-T012 agent_proposals columns
     proposal_cols = _table_columns(engine, "agent_proposals")
     assert {"id", "run_id", "tool", "target_type", "target_id", "base_revision", "changes_json", "status", "created_at", "decided_at"} <= proposal_cols
+    # P8-T018 continuity_warnings columns
+    warning_cols = _table_columns(engine, "continuity_warnings")
+    assert {"id", "project_id", "scene_id", "shot_id", "run_id", "category", "severity", "message", "evidence_json", "status", "created_at", "resolved_at"} <= warning_cols
+    # P8-T024..T026 shot_transitions columns
+    transition_cols = _table_columns(engine, "shot_transitions")
+    assert {"id", "scene_id", "from_shot_id", "to_shot_id", "mode", "frame_from_asset_id", "frame_to_asset_id", "created_at"} <= transition_cols
     # ADR-001: media_versions merged into assets (self-versioning)
     assert "media_versions" not in tables
 
@@ -109,6 +116,10 @@ def test_downgrade_and_upgrade_round_trip(tmp_path: Path) -> None:
     assert "master_version_id" in _table_columns(engine, "characters")
     assert {"locations", "location_versions", "costumes"} <= table_names
     assert "master_version_id" in _table_columns(engine, "locations")
+    # P8 continuity tables survive the round trip
+    assert {"continuity_warnings", "shot_transitions"} <= table_names
+    assert "resolved_at" in _table_columns(engine, "continuity_warnings")
+    assert "frame_to_asset_id" in _table_columns(engine, "shot_transitions")
     engine.dispose()
 
 
