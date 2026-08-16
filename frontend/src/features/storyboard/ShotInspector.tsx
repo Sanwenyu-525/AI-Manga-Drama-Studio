@@ -9,6 +9,7 @@ import { SHOT_TYPES, SHOT_TYPE_LABELS } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { VersionStrip } from "../versioning/VersionStrip";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { ShotContinuityCard } from "../continuity/ShotContinuityCard";
 
 // Shot Inspector (frontend-ux §12-13): edit the selected shot, PATCH with optimistic revision.
 export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "center" }) {
@@ -333,6 +334,8 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
         {generate.isError && <p className="error-text">生成失败：{String(generate.error)}</p>}
 
         <ShotVersions shotId={shot.id} projectId={useSelectionStore.getState().selection.projectId} />
+
+        <ShotContinuityCard shotId={shot.id} />
       </div>
     </div>
   );

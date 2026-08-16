@@ -11,6 +11,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useOperationPolling } from "../ai/useOperationPolling";
 import { useEditorTabsStore } from "../../stores/editorTabsStore";
 import { VirtualizedShotGrid } from "./VirtualizedShotGrid";
+import { SceneWarningBadge } from "../continuity/SceneWarningBadge";
 
 export function StoryboardView({ sceneId }: { sceneId: string }) {
   const queryClient = useQueryClient();
@@ -79,6 +80,7 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
         </div>
         <div className="storyboard-summary">
           <span><CheckCircle size={16} /> 已出图 {readyCount}/{storyboard?.shots.length ?? 0}</span>
+          <SceneWarningBadge sceneId={sceneId} />
           <div className="view-toggle" role="tablist" aria-label="Storyboard 视图">
             <button type="button" className={view === "grid" ? "active" : ""} aria-label="网格视图" title="网格视图" onClick={() => setView("grid")}><SquaresFour size={17} /></button>
             <button type="button" className={view === "list" ? "active" : ""} aria-label="列表视图" title="列表视图" onClick={() => setView("list")}><ListBullets size={17} /></button>
