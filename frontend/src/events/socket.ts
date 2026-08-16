@@ -137,6 +137,36 @@ export class EventRouter {
         agent.runFailed("已取消");
         break;
 
+      // ---- P7-T019/020/021: proposal + human-interrupt events ----
+      // approval/proposal payloads carry run_id (and possibly proposal_id); when
+      // missing we fall back to invalidating by prefix so the panel still refreshes.
+      case "agent.approval.required": {
+        const runId = (event.payload.run_id as string | undefined) ?? agent.runId ?? null;
+        agent.approvalRequired(runId ?? "", event.payload.tool as string | undefined, event.payload.changes);
+        if (runId) this.invalidateProposals(runId);
+        break;
+      }
+      case "agent.run.updated": {
+        const updRunId = (event.payload.run_id as string | undefined) ?? event.entity_id ?? agent.runId;
+        if (event.payload.status === "WAITING_HUMAN" || event.payload.status === "waiting_human") {
+          agent.setRunStatus("waiting_human");
+        }
+        if (updRunId) this.invalidateProposals(updRunId);
+        break;
+      }
+      case "agent.proposal.created":
+      case "agent.proposal.approved":
+      case "agent.proposal.rejected":
+      case "agent.proposal.conflict": {
+        const propRunId = (event.payload.run_id as string | undefined) ?? event.entity_id ?? agent.runId;
+        if (propRunId) this.invalidateProposals(propRunId);
+        else {
+          void this.queryClient.invalidateQueries({ queryKey: ["proposals"] });
+          void this.queryClient.invalidateQueries({ queryKey: ["agentRun"] });
+        }
+        break;
+      }
+
       // ---- generation events (contract §64-67) ----
       case "generation.queued":
       case "generation.started":
@@ -211,6 +241,13 @@ export class EventRouter {
     void this.queryClient.invalidateQueries({ queryKey: ["shots"] });
     void this.queryClient.invalidateQueries({ queryKey: ["generations"] });
     void this.queryClient.invalidateQueries({ queryKey: ["versions"] });
+  }
+
+  // P7-T019/020: a proposal/approval event arrived — refresh the run detail + its
+  // proposals so the review cards and conflict state stay current.
+  private invalidateProposals(runId: string): void {
+    void this.queryClient.invalidateQueries({ queryKey: queryKeys.agentRun(runId) });
+    void this.queryClient.invalidateQueries({ queryKey: queryKeys.proposals(runId) });
   }
 }
 

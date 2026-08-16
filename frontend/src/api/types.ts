@@ -376,10 +376,23 @@ export interface AgentPlanStep {
   arguments: Record<string, unknown>;
 }
 
+export type AgentRunStatus =
+  | "idle"
+  | "thinking"
+  | "planning"
+  | "executing"
+  | "reviewing"
+  | "cancelling"
+  | "cancelled"
+  | "WAITING_HUMAN"
+  | "waiting_human"
+  | "completed"
+  | "failed";
+
 export interface AgentRunRead {
   id: string;
   project_id: string;
-  status: string;
+  status: AgentRunStatus;
   current_stage: string | null;
   plan: {
     objective: string;
@@ -390,8 +403,41 @@ export interface AgentRunRead {
   approval: Record<string, unknown> | null;
   change_set_id: string | null;
   result: Record<string, unknown> | null;
+  /** P7-T020: proposals awaiting (or in) human review, inlined on the run detail. */
+  pending_proposals?: AgentProposal[];
   created_at: string;
   updated_at: string;
+}
+
+// --- P7-T020/021: Director proposal DTOs (api-event-contract §100-102).
+// Backend Proposal system ships in the same merge batch; the changes field is
+// implemented here against BOTH agreed shapes (normalized by the panel parser):
+//     1. object map  { image_prompt: { from: "旧", to: "新" } }
+//     2. single item { field: "image_prompt", from: "旧", to: "新" }
+
+export type AgentProposalStatus = "pending" | "approved" | "rejected" | "conflict";
+
+/** Normalized per-field change (output of normalizeProposalChanges). */
+export interface AgentProposalFieldChange {
+  field: string;
+  from: unknown;
+  to: unknown;
+}
+
+/** Raw changes payload — supports either backend shape, normalized before render. */
+export type AgentProposalChanges =
+  | Record<string, { from: unknown; to: unknown }>
+  | { field: string; from: unknown; to: unknown };
+
+export interface AgentProposal {
+  id: string;
+  tool: string;
+  target_type: string;
+  target_id: string;
+  base_revision: number | null;
+  changes: AgentProposalChanges;
+  status: AgentProposalStatus;
+  created_at?: string | null;
 }
 
 export const SHOT_TYPES = [

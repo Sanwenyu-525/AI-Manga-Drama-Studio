@@ -24,6 +24,9 @@ export type AgentStatus =
   | "planning"
   | "executing"
   | "reviewing"
+  | "cancelling"
+  | "cancelled"
+  | "waiting_human"
   | "completed"
   | "failed";
 
@@ -42,6 +45,12 @@ interface AgentState {
   toolCompleted: (tool: string, success: boolean, changedFields?: string[], error?: string) => void;
   runCompleted: (result: Record<string, unknown> | null) => void;
   runFailed: (error?: string) => void;
+  /** P7-T019/020: agent is paused awaiting human approval (WAITING_HUMAN). */
+  approvalRequired: (runId: string, tool?: string, changes?: unknown) => void;
+  /** P7-T020: update badge/status when a proposal change event arrives. */
+  setRunStatus: (status: AgentStatus) => void;
+  /** P7-T018: user resumed the run after review. */
+  resumeRun: () => void;
   reset: () => void;
 }
 
@@ -106,6 +115,31 @@ export const useAgentStore = create<AgentState>((set) => ({
       status: "failed",
       result: { error },
       messages: [...s.messages, { role: "assistant", content: `执行失败：${error ?? "未知错误"}` }],
+    })),
+
+  // P7-T019: WAITING_HUMAN — the run is paused awaiting human review.
+  approvalRequired: (runId, tool, changes) =>
+    set((s) => ({
+      runId,
+      status: "waiting_human",
+      result: null,
+      messages: [
+        ...s.messages,
+        {
+          role: "assistant",
+          content: `AI 导演需要审批${tool ? `（工具：${tool}）` : ""}${changes ? "：镜头提案已生成" : ""}，请审批后继续。`,
+        },
+      ],
+    })),
+
+  // P7-T019/020: sync badge when a proposal/run event changes status.
+  setRunStatus: (status) => set({ status }),
+
+  // P7-T018: user resumed the run; execution proceeds (WS events refine it further).
+  resumeRun: () =>
+    set((s) => ({
+      status: "executing",
+      messages: [...s.messages, { role: "assistant", content: "已继续执行…" }],
     })),
 
   reset: () => set({ runId: null, status: "idle", objective: null, steps: [], tools: [], result: null }),

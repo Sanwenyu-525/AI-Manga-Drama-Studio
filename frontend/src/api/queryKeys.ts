@@ -18,6 +18,9 @@ export const queryKeys = {
   provenance: (assetId: string) => ["provenance", assetId] as const,
   jobs: (projectId: string) => ["jobs", projectId] as const,
   job: (jobId: string) => ["job", jobId] as const,
+  /** P7-T019/020: agent run detail + its proposals (keyed by run). */
+  agentRun: (runId: string) => ["agentRun", runId] as const,
+  proposals: (runId: string) => ["proposals", runId] as const,
   projectAssets: (projectId: string, type?: string | null) => ["projectAssets", projectId, type ?? "all"] as const,
   asset: (assetId: string) => ["asset", assetId] as const,
 };
