@@ -23,4 +23,8 @@ export const queryKeys = {
   proposals: (runId: string) => ["proposals", runId] as const,
   projectAssets: (projectId: string, type?: string | null) => ["projectAssets", projectId, type ?? "all"] as const,
   asset: (assetId: string) => ["asset", assetId] as const,
+  /** P8-T020: scene continuity read + per-shot continuity-state + agent warning list. */
+  sceneContinuity: (sceneId: string) => ["sceneContinuity", sceneId] as const,
+  shotContinuity: (shotId: string) => ["shotContinuity", shotId] as const,
+  continuityWarnings: (sceneId: string) => ["continuityWarnings", sceneId] as const,
 };

@@ -228,6 +228,28 @@ export class EventRouter {
         void this.queryClient.invalidateQueries({ queryKey: ["jobs"] });
         void this.queryClient.invalidateQueries({ queryKey: ["job"] });
         break;
+      // ---- P8-T020: continuity warning events → invalidate scene/shots continuity ----
+      // Payload may carry scene_id and/or shot_id; fall back to prefix invalidation so
+      // both the Scene Warning badge and the Shot Inspector panel stay fresh.
+      case "continuity.warning.created":
+      case "continuity.warning.acknowledged":
+      case "continuity.warning.fixed": {
+        const sceneId = event.payload.scene_id as string | undefined;
+        const shotId = event.payload.shot_id as string | undefined;
+        if (sceneId) {
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.sceneContinuity(sceneId) });
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.continuityWarnings(sceneId) });
+        }
+        if (shotId) {
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.shotContinuity(shotId) });
+        }
+        if (!sceneId && !shotId) {
+          void this.queryClient.invalidateQueries({ queryKey: ["sceneContinuity"] });
+          void this.queryClient.invalidateQueries({ queryKey: ["continuityWarnings"] });
+          void this.queryClient.invalidateQueries({ queryKey: ["shotContinuity"] });
+        }
+        break;
+      }
       case "scene.created":
         void this.queryClient.invalidateQueries({ queryKey: ["scenes"] });
         break;

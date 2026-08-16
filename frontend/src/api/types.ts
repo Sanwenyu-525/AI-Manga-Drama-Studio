@@ -702,3 +702,86 @@ export interface AssetListRead {
 }
 
 
+// --- P8-T020: Continuity state + warnings DTOs.
+// Implemented against the agreed Phase-8 continuity contract (parallel backend task
+// feature/P8-continuity-state + feature/P8-continuity-agent). All shapes stay loose
+// (optional fields) so a forward-loaded backend variant still renders.
+
+/** Per-character continuity snapshot (JSON state shape). */
+export interface CharacterState {
+  character_id?: string | null;
+  character_version_id?: string | null;
+  costume_id?: string | null;
+  position?: string | null;
+  orientation?: string | null;
+  action?: string | null;
+  emotion?: string | null;
+}
+
+/** Per-location environment continuity snapshot (JSON state shape). */
+export interface EnvironmentState {
+  location_id?: string | null;
+  time_of_day?: string | null;
+  lighting?: string | null;
+  weather?: string | null;
+  mood?: string | null;
+}
+
+/** Per-prop continuity snapshot (JSON state shape). */
+export interface PropState {
+  prop_id?: string | null;
+  holder_character_id?: string | null;
+  visible?: boolean | null;
+}
+
+/** Union of the JSON state shapes carried by a continuity snapshot. */
+export interface ContinuityState {
+  characters?: CharacterState[] | Record<string, CharacterState> | null;
+  environment?: EnvironmentState | null;
+  props?: PropState[] | Record<string, PropState> | null;
+  [key: string]: unknown;
+}
+
+export type ContinuitySeverity = "info" | "warning" | "error";
+
+/** One continuity warning (deterministic rule or agent semantic detection). */
+export interface ContinuityWarning {
+  id?: string;
+  category?: string | null;
+  severity: ContinuitySeverity | string;
+  message: string;
+  evidence?: unknown;
+  status?: string | null; // open | acknowledged | fixed
+  created_at?: string | null;
+}
+
+/** Per-shot continuity delta summary inside a scene read. */
+export interface ContinuityShotRead {
+  shot_id: string;
+  start_state?: ContinuityState | null;
+  end_state?: ContinuityState | null;
+  delta?: Record<string, unknown> | null;
+  state_hash?: string | null;
+  warnings?: ContinuityWarning[];
+}
+
+/** GET /scenes/{id}/continuity — scene-wide continuity read. */
+export interface ContinuitySceneRead {
+  scene_id: string;
+  base_state?: ContinuityState | null;
+  shots?: ContinuityShotRead[];
+  scene_warnings?: ContinuityWarning[];
+}
+
+/** GET /shots/{id}/continuity-state — single-shot continuity card. */
+export interface ContinuityShotReadCard extends Omit<ContinuityShotRead, "shot_id"> {
+  shot_id: string;
+}
+
+/** Agent continuity run trigger result (202 Accepted + run_id). */
+export interface AgentContinuityRun {
+  run_id?: string;
+  status?: string;
+  message?: string;
+}
+
