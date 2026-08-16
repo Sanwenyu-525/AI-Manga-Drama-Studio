@@ -600,4 +600,59 @@ export interface ProjectTreeRead {
   episodes: EpisodeTreeItem[];
 }
 
+// --- P6-T022/023/024: scene-generation Job + JobTask DTOs (api-event-contract §142) ---
+// Backend: backend/app/domain/job.py (P5-E1/E2).
+
+export type JobTaskType = "image" | "video";
+
+export interface JobTaskRead {
+  id: string;
+  job_id: string;
+  task_type: JobTaskType;
+  target_type: "shot";
+  target_id: string;
+  shot_id: string;
+  status: string;
+  priority: number;
+  progress: number;
+  generation_id: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobSummaryRead {
+  id: string;
+  project_id: string;
+  name: string;
+  job_type: string;
+  scene_id: string | null;
+  status: string;
+  progress: number;
+  error_summary: string | null;
+  task_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobRead extends JobSummaryRead {
+  task_status_counts: Record<string, number>;
+  tasks: JobTaskRead[];
+}
+
+export interface JobCreate {
+  scene_id: string;
+  name?: string | null;
+}
+
+// --- P6 (parallel backend task) asset listing/detail DTOs.
+// Backend asset.py DTO shape (GET /projects/{id}/assets → {total, items};
+// GET /assets/{id} → AssetRead). Implemented against the agreed convention while the
+// backend listing endpoint ships in the same merge batch.
+
+export interface AssetListRead {
+  total: number;
+  items: AssetRead[];
+}
+
 
