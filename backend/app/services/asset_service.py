@@ -24,6 +24,7 @@ from app.core.config import settings
 from app.core.errors import NotFoundError, ValidationError
 from app.core.logging import get_logger
 from app.db.models import Asset, Episode, Project, Scene, Shot
+from app.db.models.asset import ASSET_STATUSES, ASSET_TYPES
 from app.events.bus import EVENT_ASSET_CREATED, StudioEvent, bus
 from app.repositories import SceneRepository, ShotRepository
 
@@ -304,6 +305,56 @@ class AssetService:
         if asset is None or asset.deleted_at:
             raise NotFoundError("Asset does not exist.", {"asset_id": asset_id})
         return asset
+
+    def list_assets(
+        self,
+        *,
+        project_id: str,
+        limit: int = 50,
+        offset: int = 0,
+        asset_type: str | None = None,
+        status: str | None = None,
+        include_deleted: bool = False,
+    ) -> tuple[int, list[Asset]]:
+        """P6-B: paginated, filtered project-scope asset listing (live rows by default).
+
+        Returns (total, rows) ordered by created_at DESC (newest first). Asset-level
+        filter/status validation yields 422 (invalid type/status). Soft-deleted rows
+        are excluded unless include_deleted=True.
+        """
+        if self.session.get(Project, project_id) is None:
+            raise NotFoundError("Project does not exist.", {"project_id": project_id})
+
+        if asset_type is not None and asset_type not in set(ASSET_TYPES):
+            raise ValidationError(
+                "Invalid asset_type filter.",
+                {"asset_type": asset_type, "allowed": sorted(ASSET_TYPES)},
+            )
+        if status is not None and status not in set(ASSET_STATUSES):
+            raise ValidationError(
+                "Invalid status filter.",
+                {"status": status, "allowed": sorted(ASSET_STATUSES)},
+            )
+
+        conds = [Asset.project_id == project_id]
+        if not include_deleted:
+            conds.append(Asset.deleted_at.is_(None))
+        if asset_type:
+            conds.append(Asset.type == asset_type)
+        if status:
+            conds.append(Asset.status == status)
+
+        total = self.session.scalar(select(func.count()).select_from(Asset).where(*conds))
+        rows = list(
+            self.session.scalars(
+                select(Asset)
+                .where(*conds)
+                .order_by(Asset.created_at.desc(), Asset.id.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+        )
+        return int(total or 0), rows
 
     def absolute_path(self, asset: Asset) -> Path:
         if not asset.file_path:

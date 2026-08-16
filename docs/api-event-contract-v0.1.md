@@ -3920,6 +3920,14 @@ bootstrap 只返回顶层摘要、不返回全部 shot（§104）；tree/editor/
 
 /projects/{id}/assets/check-missing  （P3-T005：扫描项目资产，ready→missing，返回 {checked, missing}）
 
+--- P6-B（Asset Browser Read Models，P6-B-01/P6-B-02）---
+
+GET /projects/{id}/assets            （P6-B-01：项目级资产列表 {total, items}；分页 offset/limit 默认 limit=50 上限 200 + 过滤 asset_type=image|video、status=ready|missing|...、include_deleted=false 默认；只含 live 资产，非删排除；按 created_at 倒序；非法 type/status → 422）
+GET /assets/{id}                     （P6-B-02：单资产完整详情，供 Inspector；含 checksum/file_size + meta_json + generation_id + parent_asset_id + shot_id 引用摘要；404 不存在/已软删）
+
+DTO：AssetListItemRead{id,type,status,version_group_id,version_number,checksum,file_size,width,height,_
+created_at,file_path(项目相对路径),thumbnail_url} · AssetListRead{total,items[]} · AssetDetailRead{Id=AssetListItemRead 字段 + project_id + meta_json + generation_id + parent_asset_id + shot_id}
+
 --- P5（Job / JobTask，P5-E1/E2/E3）---
 
 POST /projects/{id}/jobs         （body {scene_id, name?} → 201 JobRead，含 tasks 摘要）

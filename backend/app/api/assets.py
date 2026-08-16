@@ -1,5 +1,7 @@
-"""Asset API (api-event-contract §44-46, P3-T003/T005).
+"""Asset API (api-event-contract §44-46, P3-T003/T005, P6-B).
 
+- GET /projects/{id}/assets          — P6-B: paginated/filtered project list ({total, items})
+- GET /assets/{id}                   — P6-B: single-asset detail (Inspector)
 - GET /assets/{id}/content · /assets/{id}/thumbnail  — content serving (§127 path safety)
 - POST /projects/{id}/assets/import       — P3-T003: external file → project-scope Asset
 - POST /projects/{id}/assets/check-missing — P3-T005: ready→missing detection summary
@@ -12,12 +14,12 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.domain.asset import AssetMissingCheckRead, AssetRead
+from app.domain.asset import AssetDetailRead, AssetListRead, AssetListItemRead, AssetMissingCheckRead, AssetRead
 from app.services.asset_service import AssetService
 
 router = APIRouter(prefix="/assets", tags=["assets"])
@@ -52,6 +54,73 @@ def _to_asset_read(asset) -> AssetRead:
         generation_id=asset.generation_id,
         parent_asset_id=asset.parent_asset_id,
         created_at=asset.created_at,
+    )
+
+
+def _thumbnail_url(asset_id: str) -> str:
+    return f"/api/v1/assets/{asset_id}/thumbnail"
+
+
+def _asset_dimensions(asset) -> tuple[int | None, int | None]:
+    """width/height from columns, falling back to meta_json when unset (P6-B)."""
+    width, height = asset.width, asset.height
+    if width is None or height is None:
+        try:
+            meta = json.loads(asset.meta_json) if asset.meta_json else None
+        except (ValueError, TypeError):
+            meta = None
+        if isinstance(meta, dict):
+            width = width if width is not None else meta.get("width") or meta.get("Width")
+            height = height if height is not None else meta.get("height") or meta.get("Height")
+    return width, height
+
+
+def _shot_ref(asset) -> str | None:
+    """Reference summary: shot_id carried in version_group_id (vg:shot:{id}:{PURPOSE})."""
+    if not asset.version_group_id or not asset.version_group_id.startswith("vg:shot:"):
+        return None
+    parts = asset.version_group_id.split(":")
+    return parts[2] if len(parts) >= 3 else None
+
+
+def _to_asset_list_item(asset) -> AssetListItemRead:
+    width, height = _asset_dimensions(asset)
+    return AssetListItemRead(
+        id=asset.id,
+        type=asset.type,
+        status=asset.status,
+        version_group_id=asset.version_group_id,
+        version_number=asset.version_number,
+        checksum=asset.checksum,
+        file_size=asset.file_size,
+        width=width,
+        height=height,
+        created_at=asset.created_at,
+        file_path=asset.file_path,
+        thumbnail_url=_thumbnail_url(asset.id) if asset.thumbnail_path else None,
+    )
+
+
+def _to_asset_detail(asset) -> AssetDetailRead:
+    width, height = _asset_dimensions(asset)
+    return AssetDetailRead(
+        id=asset.id,
+        project_id=asset.project_id,
+        type=asset.type,
+        status=asset.status,
+        version_group_id=asset.version_group_id,
+        version_number=asset.version_number,
+        checksum=asset.checksum,
+        file_size=asset.file_size,
+        width=width,
+        height=height,
+        created_at=asset.created_at,
+        file_path=asset.file_path,
+        thumbnail_url=_thumbnail_url(asset.id) if asset.thumbnail_path else None,
+        meta_json=asset.meta_json,
+        generation_id=asset.generation_id,
+        parent_asset_id=asset.parent_asset_id,
+        shot_id=_shot_ref(asset),
     )
 
 
@@ -115,3 +184,37 @@ def check_missing(project_id: str, db: Session = Depends(get_db)) -> AssetMissin
     """P3-T005: scan all assets of a project; returns {checked, missing} summary."""
     checked, missing = AssetService(db).check_missing_assets(project_id)
     return AssetMissingCheckRead(checked=checked, missing=missing)
+
+
+@project_assets.get("/{project_id}/assets", response_model=AssetListRead)
+def list_project_assets(
+    project_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    asset_type: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    include_deleted: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> AssetListRead:
+    """P6-B: paginated, filtered project-scope asset list ({total, items}).
+
+    Live (non-deleted) rows only by default; filters are validated in
+    AssetService (invalid type/status → 422). Order: created_at DESC.
+    """
+    service = AssetService(db)
+    total, rows = service.list_assets(
+        project_id=project_id,
+        limit=limit,
+        offset=offset,
+        asset_type=asset_type,
+        status=status,
+        include_deleted=include_deleted,
+    )
+    return AssetListRead(total=total, items=[_to_asset_list_item(a) for a in rows])
+
+
+@router.get("/{asset_id}", response_model=AssetDetailRead)
+def get_asset_detail(asset_id: str, db: Session = Depends(get_db)) -> AssetDetailRead:
+    """P6-B: single-asset full detail (Inspector). 404 when absent or soft-deleted."""
+    asset = AssetService(db).get_asset(asset_id)
+    return _to_asset_detail(asset)
