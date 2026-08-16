@@ -146,7 +146,24 @@ class CharacterVersionService:
                 },
             )
         )
+        # P8-T017: switching the character MASTER stales/recomputes every scene that
+        # references the character (design §119-123). Best-effort.
+        self._recompute_continuity(character_id)
         return _to_read(version, is_master=True)
+
+    def _recompute_continuity(self, character_id: str) -> None:
+        """P8-T017 hook — best-effort; a continuity failure never breaks activation."""
+        try:
+            from app.services.continuity_service import ContinuityService
+
+            ContinuityService(self.session).recompute_after_character_version_change(character_id)
+        except Exception:
+            from app.core.logging import get_logger
+
+            get_logger("continuity").exception(
+                "continuity recompute failed after character version activation",
+                character_id=character_id,
+            )
 
     # --- helpers ---
 

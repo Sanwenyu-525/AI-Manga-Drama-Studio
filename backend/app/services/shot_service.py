@@ -349,9 +349,26 @@ class ShotService:
                     },
                 )
             )
+        # P8-T017: a continuity-relevant shot edit invalidates the dirty range
+        # (this shot .. scene end) — recompute + mark active assets STALE (no regen).
+        self._recompute_continuity(shot)
         ids, _ = self._character_data([shot_id])
         spec = self._specs_for([shot_id]).get(shot_id)
         return _to_read(shot, ids.get(shot_id, []), spec)
+
+    def _recompute_continuity(self, shot: Shot) -> None:
+        """P8-T017 hook: dirty-range recompute + STALE on the affected shots. Best-effort
+        so a continuity failure never breaks the shot mutation itself."""
+        try:
+            from app.services.continuity_service import ContinuityService
+
+            ContinuityService(self.session).recompute_after_shot_change(shot.id)
+        except Exception:  # noqa: BLE001 — continuity is advisory, never mutate-fatal
+            from app.core.logging import get_logger
+
+            get_logger("continuity").exception(
+                "continuity recompute failed after shot change", shot_id=shot.id
+            )
 
     def delete_shot(self, shot_id: str) -> None:
         shot = self.repo.get(shot_id)

@@ -2,6 +2,7 @@
 
 from app.db.models.agent import AgentProposal, AgentRun
 from app.db.models.asset import Asset
+from app.db.models.continuity import SceneContinuityState, ShotContinuityState
 from app.db.models.character import Character, CharacterVersion, ShotCharacter
 from app.db.models.costume import Costume
 from app.db.models.episode import Episode
@@ -22,6 +23,8 @@ __all__ = [
     "AgentRun",
     "Asset",
     "Character",
+    "SceneContinuityState",
+    "ShotContinuityState",
     "CharacterVersion",
     "Costume",
     "Episode",

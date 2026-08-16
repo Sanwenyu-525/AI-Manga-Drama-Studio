@@ -200,7 +200,23 @@ class SceneService:
                 payload={"revision": scene.revision, "changed_fields": changed},
             )
         )
+        # P8-T017: a scene base edit recomputes the scene base + all shots and marks
+        # their active assets STALE (no regen).
+        self._recompute_continuity(scene.id)
         return _to_read(scene, shot_count=self._count_shots(scene_id))
+
+    def _recompute_continuity(self, scene_id: str) -> None:
+        """P8-T017 hook — best-effort; a continuity failure never breaks the scene edit."""
+        try:
+            from app.services.continuity_service import ContinuityService
+
+            ContinuityService(self.session).recompute_after_scene_change(scene_id)
+        except Exception:
+            from app.core.logging import get_logger
+
+            get_logger("continuity").exception(
+                "continuity recompute failed after scene change", scene_id=scene_id
+            )
 
     def delete_scene(self, scene_id: str) -> None:
         scene = self.repo.get(scene_id)
