@@ -1,17 +1,21 @@
 """Continuity API (api-event-contract §142 P8; continuity-engine-design §176).
 
-Three Phase-8 endpoints for the Continuity Engine view:
+Phase-8 endpoints:
 
-  GET  /api/v1/scenes/{scene_id}/continuity         → SceneContinuityRead
-  GET  /api/v1/shots/{shot_id}/continuity-state     → ShotContinuityRead
+  GET  /api/v1/scenes/{scene_id}/continuity          → SceneContinuityRead
+  GET  /api/v1/shots/{shot_id}/continuity-state      → ShotContinuityRead
   POST /api/v1/scenes/{scene_id}/continuity/recompute → ContinuityRecomputeRead
+  GET  /api/v1/scenes/{scene_id}/continuity-warnings → open warnings for the scene
+  POST /api/v1/continuity-warnings/{id}/acknowledge  → mark seen (stop re-flagging)
+  GET  /api/v1/scenes/{scene_id}/transitions         → shot_transitions (structure)
 
-Warnings returned here come from the rule-engine snapshot stored on each shot
-continuity row (shot_continuity_states.warnings_json, source=RULE). When the
-parallel continuation_warnings table (P8-continuity-agent) lands, the scene
-aggregation also merges its OPEN entries for the scene; until then warnings_json
-is authoritative.
+Warnings returned by the scene aggregate come from the rule-engine snapshot stored
+on each shot continuity row (shot_continuity_states.warnings_json, source=RULE),
+merged with OPEN entries of the continuity_warnings table (rule + agent semantic,
+P8-T018). The Agent check/fix entry points live in api/agents.py; this module only
+surfaces persisted state and warnings.
 """
+
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -20,10 +24,12 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.domain.continuity import (
     ContinuityRecomputeRead,
+    ContinuityWarningRead,
     SceneContinuityRead,
     ShotContinuityRead,
+    TransitionRead,
 )
-from app.services import ContinuityService
+from app.services.continuity_service import ContinuityService
 
 router = APIRouter(tags=["continuity"])
 
@@ -34,7 +40,7 @@ router = APIRouter(tags=["continuity"])
 )
 def get_scene_continuity(scene_id: str, db: Session = Depends(get_db)) -> SceneContinuityRead:
     data: dict[str, Any] = ContinuityService(db).get_scene_continuity(scene_id)
-    # merge the parallel continuity_warnings table (P8-B) if present — read-only probe
+    # merge the parallel continuity_warnings table (P8-B) entries — read-only probe
     data["shots"] = _merge_shadow_warnings(db, scene_id, data["shots"])
     return SceneContinuityRead(**data)
 
@@ -70,33 +76,33 @@ def recompute_scene_continuity(scene_id: str, db: Session = Depends(get_db)) -> 
 
 
 def _merge_shadow_warnings(db: Session, scene_id: str, shots: list[dict]) -> list[dict]:
-    """Compatibility with the parallel continuation_warnings table (P8-continuity-agent).
+    """Merge OPEN continuity_warnings table entries into each shot's warnings.
 
-    If that table exists, append its OPEN entries for this scene's shots to each shot's
-    warnings (deduping by warning id). If it does NOT exist (P8-B not yet merged), the
-    snapshot warnings_json stays authoritative and this is a no-op. Wrapped so any schema
-    drift degrades to the snapshot, never to a 500."""
+    The continuity_warnings table (P8-T018) holds rule + agent semantic warnings;
+    shot_continuity_states.warnings_json stays authoritative for rule snapshots.
+    Wrapped so any schema drift degrades to the snapshot, never to a 500.
+    """
     try:
         from sqlalchemy import text
 
         rows = db.execute(
             text(
-                "SELECT shot_id, rule_code, category, severity, message, id "
-                "FROM continuation_warnings "
-                "WHERE scene_id = :scene_id AND status = 'OPEN'"
+                "SELECT shot_id, category, severity, message, id "
+                "FROM continuity_warnings "
+                "WHERE scene_id = :scene_id AND status = 'open'"
             ),
             {"scene_id": scene_id},
         ).mappings().all()
-    except Exception:  # noqa: BLE001 — table not present yet (P8-B) or schema drift
+    except Exception:  # noqa: BLE001 — table not present yet or schema drift
         return shots
     if not rows:
         return shots
     by_shot: dict[str, list[dict]] = {}
     for row in rows:
         by_shot.setdefault(row["shot_id"], []).append({
-            "code": row["rule_code"],
+            "code": row["category"] or "RULE",
             "category": row["category"] or "RULE",
-            "severity": row["severity"] or "WARNING",
+            "severity": row["severity"] or "warning",
             "message": row["message"],
             "shot_id": row["shot_id"],
             "id": row["id"],
@@ -110,3 +116,21 @@ def _merge_shadow_warnings(db: Session, scene_id: str, shots: list[dict]) -> lis
             if "id" in w and w["id"] not in existing_codes:
                 shot["warnings"].append(w)
     return shots
+
+
+@router.get("/scenes/{scene_id}/continuity-warnings", response_model=list[ContinuityWarningRead])
+def list_scene_continuity_warnings(scene_id: str, db: Session = Depends(get_db)) -> list[ContinuityWarningRead]:
+    """Open (open + acknowledged, i.e. not-fixed) warnings for a scene, newest first."""
+    return ContinuityService(db).list_open_warnings(scene_id)
+
+
+@router.post("/continuity-warnings/{warning_id}/acknowledge", response_model=ContinuityWarningRead)
+def acknowledge_warning(warning_id: str, db: Session = Depends(get_db)) -> ContinuityWarningRead:
+    """Mark a warning acknowledged (read/seen) so it stops being repeatedly flagged."""
+    return ContinuityService(db).acknowledge(warning_id)
+
+
+@router.get("/scenes/{scene_id}/transitions", response_model=list[TransitionRead])
+def list_scene_transitions(scene_id: str, db: Session = Depends(get_db)) -> list[TransitionRead]:
+    """List shot_transitions for a scene (P8-T024..T026 structure only)."""
+    return ContinuityService(db).list_transitions(scene_id)

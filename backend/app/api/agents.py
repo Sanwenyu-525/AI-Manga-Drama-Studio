@@ -15,6 +15,7 @@ from app.domain.agent import (
     AgentRunRead,
     ProposalResumeRequest,
 )
+from app.domain.continuity import ContinuityCheckRequest, ContinuityFixRequest
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -70,3 +71,46 @@ def approve_proposal(proposal_id: str) -> AgentProposalRead:
 def reject_proposal(proposal_id: str) -> AgentProposalRead:
     """Reject a pending proposal: never applied, marked rejected (P7-T015)."""
     return gateway.reject_proposal(proposal_id)
+
+
+# ---------- P8-T018/T019: Continuity Agent ----------
+
+@router.post("/continuity/check", status_code=status.HTTP_202_ACCEPTED)
+async def continuity_check(body: ContinuityCheckRequest) -> dict:
+    """202 + run_id: run the Continuity Agent semantic check for a scene (P8-T018).
+
+    The check runs in the background; rules + LLM semantic warnings are persisted to
+    continuity_warnings and streamed via continuity.warning.created over WS. The
+    run is pollable via GET /agent/runs/{run_id}.
+    """
+    from app.agents.continuity.runner import create_check_run
+
+    run = create_check_run(body.scene_id)
+    return {"run_id": run.id, "status": "running"}
+
+
+@router.get("/continuity/runs/{run_id}")
+def get_continuity_check_run(run_id: str) -> dict:
+    """Load a continuity run's status/result (continuity_check or continuity_fix)."""
+    from app.agents.continuity.runner import check_result
+
+    return check_result(run_id)
+
+
+@router.post("/continuity/fix", response_model=AgentRunRead)
+def continuity_fix(body: ContinuityFixRequest) -> AgentRunRead:
+    """Trigger a fix for ONE continuity warning (P8-T019).
+
+    Creates a continuity_fix run with a pending Proposal; the run parks in
+    WAITING_HUMAN awaiting human approval. Approve/reject reuse the P7 proposal API
+    (POST /agent/proposals/{id}/approve|reject). This is the "separate" design: the
+    frontend first runs a check, then issues a fix per warning.
+    """
+    from app.agents.continuity.runner import create_fix_run
+    from app.agents.director.runner import _to_read, _session
+    from app.db.models import AgentRun
+
+    with _session() as session:
+        run = create_fix_run(body.warning_id, body.patch)
+        persisted = session.get(AgentRun, run.id)
+        return _to_read(session, persisted)

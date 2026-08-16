@@ -1277,6 +1277,14 @@ created_at
 updated_at
 ```
 
+> **Phase 8 落地状态（P8-A State，并行分支）**：`continuity_states` 由并行任务
+> P8-continuity-state 实现（State / Rules / Recompute + `shot_continuity_states`
+> 表，含 `warnings_json` 规则输出）。本任务（P8-continuity-agent）不重复建该表；
+> Continuity Agent 的 check 通过 `ContinuityService.list_state_for_scene()` 读取该
+> 状态（若该表未合入，则先用 shot 基础数据 + 规则函数占位，见
+> `app/services/continuity_service.py`），并额外落一张 `continuity_warnings` 表
+> 持久化规则 + 语义警告。
+
 ---
 
 # 21. Shot Transition
@@ -1325,6 +1333,20 @@ camera_move
 action_continuation
 ```
 
+> **Phase 8 落地状态（P8-T021..T026 Video Bridge 结构预留）**：MVP 视频生成未落地。
+> shot_transitions 表已建（迁移 a8b9c0d1e2f3），列为 id / scene_id / from_shot_id /
+> to_shot_id(NULL=场景边界) / mode(LAST_TO_FIRST|REFERENCE_ONLY|CUT|预留) /
+> frame_from_asset_id / frame_to_asset_id / created_at。mode 字段承接本设计中的
+> transition_type。帧提取（P8-T021..T023）与 Frame Asset 依赖视频生成，仅做结构
+> （frame_*_asset_id 到实际 Frame 资产前恒 NULL）；不做 ffprobe 帧提取（无视频源）。
+> 读 shots.previous_shot_id / next_shot_id 现有用法过渡到 transition 表时保持兼容
+> （本任务不改 shot 创建逻辑，仅建表 + 最小服务方法 list_transitions）。
+
+> **Phase 8 continuity_warnings 表**：本任务另建 continuity_warnings（迁移
+> a8b9c0d1e2f3）持久化规则 + Agent 语义警告：id / project_id / scene_id / shot_id /
+> run_id / category / severity(info|warning|error) / message / evidence_json /
+> status(open|acknowledged|fixed) / created_at / resolved_at。fix 复用 P7 Proposal
+> 审批流（approve 经 ShotService 应用并置 fixed）。
 ---
 
 # 22. Continuity Example

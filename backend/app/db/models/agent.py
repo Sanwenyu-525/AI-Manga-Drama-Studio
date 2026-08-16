@@ -18,7 +18,9 @@ from app.db.base import Base
 from app.db.models.columns import ts_created, ts_updated, uuid_pk
 
 # Run-level state machine (api-event-contract §26 + P7-T017 WAITING_HUMAN).
-RUN_RUN_TYPES = ("director",)
+# P8-T018: continuity_check runs the Continuity Agent semantic check;
+# P8-T019: continuity_fix runs a fix proposal for a specific warning.
+RUN_RUN_TYPES = ("director", "continuity_check", "continuity_fix")
 RUN_STATUSES = (
     "created",
     "running",

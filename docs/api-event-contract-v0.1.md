@@ -3980,6 +3980,23 @@ target_id(=shot_id),status,priority,progress,generation_id,error_message,created
 （P5-T019 SSE：MVP 已有 WS 事件网关 /api/v1/events，SSE 需求由该 WS 网关满足，不重复实现。）
 ```
 
+--- P8（Continuity Agent + Video Bridge 结构，api-event-contract §142 Continuity）---
+
+POST /agent/continuity/check                 （body {scene_id} → 202 + run_id：跑连续性语义 check，规则 + LLM 语义警告落 continuity_warnings，事件 WS 推送；轮询用 GET /agent/runs/{run_id}）
+GET  /agent/continuity/runs/{run_id}         （连续性 run 状态/结果 {run_id,status,result(error)warnings_created?,error}）
+POST /agent/continuity/fix                   （body {warning_id, patch?} → 该 warning 发起 fix run，run 进入 waiting_human，含 pending proposal；approve/reject 复用 POST /agent/proposals/{id}/approve|reject）
+GET  /scenes/{id}/continuity-warnings        （该场景 open 警告列表 {id,project_id,scene_id,shot_id?,run_id?,category,severity,message,evidence{},status,created_at,resolved_at?}）
+POST /continuity-warnings/{id}/acknowledge   （标记已读 → status=acknowledged，避免重复骚扰）
+GET  /scenes/{id}/transitions                （shot_transitions 结构列表 {id,scene_id,from_shot_id,to_shot_id?,mode,frame_from_asset_id?,frame_to_asset_id?,created_at}）
+
+DTO：SemanticWarning{scope:scene|shot,shot_id?,category,message,severity:info|warning|error,evidence{}} ·
+ContinuityWarningRead{id,project_id,scene_id,shot_id?,run_id?,category,severity,message,evidence{},status,created_at,resolved_at?} ·
+continuity.fix proposal 经 P7 Proposal 表（tool=continuity_fix，target_type=shot 走 ShotService 应用；
+target_type=continuity 仅置 warning fixed 不改域）。
+
+（P8 说明：先 check 后对具体 warning 发起 fix run —— 采用「分开」设计而非 /continuity/runs{auto_fix}，便于前端在
+Scene Warning / Shot Inspector 面板逐条处置。）
+
 ---
 
 # 143. MVP 必须实现的 Events
@@ -4065,6 +4082,11 @@ job.resumed
 job.task.updated   （payload: task_id/task_type/shot_id/status/generation_id）
 ```
 
+--- P8（Continuity Agent，api-event-contract §143）---
+
+continuity.warning.created       （payload: scene_id/shot_id?/category/severity/message/run_id?）
+continuity.warning.acknowledged  （payload: scene_id/shot_id?/category）
+continuity.warning.fixed         （payload: scene_id/shot_id?/category；fix 经 P7 proposal 批准应用后发出）
 ---
 
 # 144. MVP Integration Milestone 1
