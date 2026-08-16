@@ -181,6 +181,23 @@ export class EventRouter {
           void this.queryClient.invalidateQueries({ queryKey: queryKeys.characters(event.project_id) });
         }
         break;
+      // ---- P6-T022/023/024: job events → invalidate job list + detail queries ----
+      // The event envelope's project_id (when present) targets that project's list;
+      // detail rows are invalidated by prefix so recoverable status changes surface.
+      case "job.created":
+      case "job.updated":
+      case "job.completed":
+      case "job.failed":
+      case "job.cancelled":
+      case "job.paused":
+      case "job.resumed":
+      case "job.task.updated":
+        if (event.project_id) {
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.jobs(event.project_id) });
+        }
+        void this.queryClient.invalidateQueries({ queryKey: ["jobs"] });
+        void this.queryClient.invalidateQueries({ queryKey: ["job"] });
+        break;
       case "scene.created":
         void this.queryClient.invalidateQueries({ queryKey: ["scenes"] });
         break;
