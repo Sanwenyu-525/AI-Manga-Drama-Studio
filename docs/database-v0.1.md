@@ -1681,6 +1681,67 @@ AI 修改追踪
 
 ---
 
+# 29.1 AgentRun + AgentProposal（P7 已落地）
+
+P7 将 Agent Director Run 持久化为业务记录（agent_runs），并把 Agent 的"修改类"
+操作改为可人工审阅的 Proposal（agent_proposals），应用前必须经人工批准。
+
+```sql
+agent_runs
+```
+
+字段：
+
+```text
+id              -- PK (UUID)
+project_id      -- FK → projects.id
+run_type        -- 'director'
+status          -- created|running|waiting_human|completed|failed|cancelled|cancelling
+current_stage   -- graph 节点（understand|load_context|plan|execute|review）
+input_json      -- {message, selection}
+messages_json   -- agent 消息流水
+plan_json       -- DirectorPlan（冻结计划）
+result_json     -- final_result
+error_message
+started_at
+completed_at
+created_at
+updated_at
+```
+
+- LangGraph Checkpointer 以 thread_id = run_id 保存 graph 执行态；
+  agent_runs 保存业务态（红线：Checkpoint ≠ Project DB）。
+- ```waiting_human``` 表示该 run 因产生了待审批 Proposal 而挂起（T017）。
+
+---
+
+```sql
+agent_proposals
+```
+
+字段：
+
+```text
+id              -- PK
+run_id          -- FK → agent_runs.id
+tool            -- 'update_shot'
+target_type     -- 'shot'
+target_id       -- shot id
+base_revision   -- 提案时 shot.revision（乐观并发守卫，T016）
+changes_json    -- 结构化字段变更 {field: value}
+status          -- pending|approved|rejected|conflict|applied
+conflict_reason
+error_message
+created_at
+decided_at
+```
+
+流转：pending → approved|rejected；approved 后经 ShotService 应用（base_revision
+一致 → applied，不一致 → conflict，不覆盖用户编辑）。Agent 绝不直接写 Domain；
+应用必须走 ShotService（红线 §3）。
+
+---
+
 # 30. Workflow Run
 
 ```sql
