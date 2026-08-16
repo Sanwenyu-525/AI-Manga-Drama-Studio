@@ -665,6 +665,30 @@ input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: defau
 .queue-empty { height: 100%; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; }
 .queue-empty svg { color: var(--green); }
 
+/* P6-T022/023/024 — Jobs (scene-generation task queue) */
+.job-summary .failed-summary { color: var(--red); }
+.jobs-list { display: flex; flex-direction: column; gap: 6px; }
+.job-row { border: 1px solid var(--hairline-soft); border-radius: var(--radius); background: var(--elevated); }
+.job-row.open { border-color: var(--amber); }
+.job-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; user-select: none; }
+.job-chevron { color: var(--muted); display: inline-flex; flex: 0 0 auto; }
+.job-title { min-width: 150px; max-width: 220px; display: flex; flex-direction: column; gap: 2px; }
+.job-title strong { font-size: 11px; color: var(--ink); }
+.job-title span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.job-progress { flex: 1; max-width: 200px; min-width: 60px; }
+.recovery-badge { margin-left: 4px; }
+.job-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 10px; }
+.job-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.recovery-hint { display: inline-flex; align-items: center; gap: 6px; color: var(--amber); font-size: 10px; }
+.job-tasks { width: 100%; border-collapse: collapse; font-size: 10px; }
+.job-tasks th, .job-tasks td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--hairline-soft); }
+.job-tasks th { color: var(--muted); font-weight: 620; }
+.task-progress { display: inline-flex; align-items: center; gap: 6px; }
+.task-progress .progress-track { flex: 1; max-width: 90px; }
+.job-error { max-width: 180px; overflow: hidden; color: var(--red); text-overflow: ellipsis; white-space: nowrap; }
+.jobs-empty { padding: 8px 2px; color: var(--muted); font-size: 10px; }
+.badge.running, .badge.queued, .badge.paused, .badge.interrupted { color: var(--amber); border-color: rgba(232, 163, 61, .42); background: var(--amber-dim); }
+
 /* Version review */
 .version-review-page { position: relative; overflow: hidden; }
 .review-topbar { height: 58px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; border-bottom: 1px solid var(--hairline-soft); padding: 0 18px; background: #12151b; }

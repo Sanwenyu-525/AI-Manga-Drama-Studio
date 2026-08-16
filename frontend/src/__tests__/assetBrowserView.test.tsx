@@ -1,11 +1,11 @@
-// P6-T016/T017 — Asset Browser: aggregates the project media grid from the tree,
-// per-shot versions and character/location masters; supports type filtering and opens
-// an inspector with a provenance entry. Mocks the api client by path.
+// P6-T016/T017 — Asset Browser now lists from the server project-asset endpoint
+// (GET /projects/{id}/assets → {total, items}, type filter param); the inspector reads
+// GET /assets/{id}. Mocks the api client by path.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssetBrowserView } from "../features/assets/AssetBrowserView";
-import type { AssetVersionRead, Character, CharacterVersion, Location, ProjectTreeRead, Project, ProvenanceRead } from "../api/types";
+import type { AssetListRead, AssetRead } from "../api/types";
 import * as client from "../api/client";
 
 function makeWrapper() {
@@ -16,39 +16,54 @@ function makeWrapper() {
   return { qc, wrapper };
 }
 
-const project: Project = { id: "proj_1", name: "P", description: null, status: "active", aspect_ratio: null, fps: null, cover_url: null, revision: 1, created_at: "", updated_at: "" };
+function asset(over: Partial<AssetRead> & { id: string }): AssetRead {
+  return {
+    project_id: "proj_1",
+    type: "image",
+    name: null,
+    file_path: null,
+    thumbnail_path: null,
+    mime_type: "image/png",
+    width: 512,
+    height: 768,
+    duration: null,
+    file_size: 2048,
+    meta: null,
+    version_group_id: null,
+    version_number: 1,
+    status: "ready",
+    source_type: "generated",
+    checksum: "abcd1234efgh5678",
+    generation_id: null,
+    parent_asset_id: null,
+    created_at: "2026-08-01T00:00:00Z",
+    ...over,
+  };
+}
 
-const shotVersion: AssetVersionRead = {
-  id: "ast_1", shot_id: "shot_1", asset_id: "ast_1", media_type: "image", version_number: 1,
-  generation_id: null, is_active: true, status: "ready", notes: null, created_at: "2026-08-01T00:00:00Z",
-};
+const shotAsset = asset({ id: "ast_1", name: "EP01 · SC01 · SH001", source_type: "generated" });
+const charMaster = asset({ id: "ast_char_master", name: "沈亦 master", source_type: "character_master", version_number: 4, status: "active" });
+const video = asset({ id: "ast_video", type: "video", name: "clip vid", source_type: "generated" });
 
-const tree: ProjectTreeRead = {
-  project,
-  episodes: [{
-    id: "ep_1", episode_number: 1, title: null, scene_count: 1,
-    scenes: [{ id: "sc_1", scene_number: 1, name: null, shot_count: 1, shots: [{ id: "shot_1", shot_number: 1, shot_type: "medium", status: "ready", dirty_state: "clean", revision: 1, active_image_version: 1, active_video_version: null, active_prompt_version_id: null }] }],
-  }],
-};
-
-const characters: Character[] = [{ id: "char_1", project_id: "proj_1", name: "沈亦", alias: null, gender: null, age_description: null, appearance: null, personality: null, visual_prompt: null, negative_prompt: null, default_costume_id: null, status: "active", revision: 1, shot_count: 1, master_version_id: "cv1", created_at: "", updated_at: "" }];
-const charVersions: CharacterVersion[] = [{ id: "cv1", character_id: "char_1", version_number: 4, asset_id: "ast_char_master", name: null, description: null, status: "active", checksum: "1234", is_master: true, created_at: "", updated_at: "" }];
-const locations: Location[] = [];
-
-const provenance: ProvenanceRead = {
-  asset: { id: "ast_char_master", project_id: "proj_1", type: "image", name: "沈亦 master", file_path: "CHAR_1.png", mime_type: "image/png", width: 512, height: 768, status: "ready", source_type: "imported", version_group_id: null, version_number: 4, generation_id: null, parent_asset_id: null, meta: null, created_at: "" },
-  generation: null, inputs: [], retry_of: null, parent_asset_id: null, ancestors: [],
-};
+function list(): AssetListRead {
+  return { total: 3, items: [shotAsset, charMaster, video] };
+}
 
 function mockApi() {
   vi.spyOn(client.api, "get").mockImplementation((path: string) => {
-    if (path === "/projects/proj_1/tree") return Promise.resolve(tree);
-    if (path === "/projects/proj_1/characters") return Promise.resolve(characters);
-    if (path === "/projects/proj_1/locations") return Promise.resolve(locations);
-    if (path === "/shots/shot_1/versions") return Promise.resolve([shotVersion]);
-    if (path === "/characters/char_1/versions") return Promise.resolve(charVersions);
-    if (path === "/assets/ast_char_master/provenance") return Promise.resolve(provenance);
-    if (path === "/assets/ast_1/provenance") return Promise.resolve({ ...provenance, asset: { ...provenance.asset, id: "ast_1" } });
+    if (path.startsWith("/projects/proj_1/assets")) {
+      const t = /type=([a-z]+)/.exec(path);
+      if (t?.[1]) {
+        const filtered = list().items.filter((a) => a.type === t[1]);
+        return Promise.resolve({ total: filtered.length, items: filtered });
+      }
+      return Promise.resolve(list());
+    }
+    const m = /^\/assets\/(.+)$/.exec(path);
+    if (m) {
+      const found = list().items.find((a) => a.id === m[1]) ?? shotAsset;
+      return Promise.resolve(found);
+    }
     return Promise.resolve([]);
   });
 }
@@ -56,27 +71,37 @@ function mockApi() {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("AssetBrowserView", () => {
-  it("renders a grid of storyboard + MASTER reference assets with filters", async () => {
+  it("renders server-listed assets with source labels and MASTER flags", async () => {
     mockApi();
     const { wrapper } = makeWrapper();
     render(<AssetBrowserView projectId="proj_1" />, { wrapper });
     expect(await screen.findByText(/EP01 · SC01 · SH001/)).toBeTruthy();
-    expect(screen.getByText(/角色 · 沈亦/)).toBeTruthy();
-    // type filter tab exists and filters to character masters only
-    fireEvent.click(screen.getByText("角色"));
-    await waitFor(() => expect(screen.queryByText(/EP01 · SC01 · SH001/)).toBeNull());
-    expect(screen.getByText(/角色 · 沈亦/)).toBeTruthy();
+    expect(screen.getByText(/沈亦 master/)).toBeTruthy();
+    // the character MASTER tile shows the MASTER flag
+    expect(screen.getByTitle("沈亦 master · V4")).toBeTruthy();
   });
 
-  it("opens the inspector and shows the provenance entry button when selected", async () => {
+  it("server-side filters by type (video) and keeps the type-filter UI", async () => {
     mockApi();
     const { wrapper } = makeWrapper();
     render(<AssetBrowserView projectId="proj_1" />, { wrapper });
-    const card = await screen.findByTitle(/角色 · 沈亦/);
+    fireEvent.click(screen.getByText("视频"));
+    // after server filter, only the video asset remains
+    await waitFor(() => expect(screen.queryByText(/EP01 · SC01 · SH001/)).toBeNull());
+    expect(await screen.findByText(/clip vid/)).toBeTruthy();
+  });
+
+  it("opens the inspector and shows server detail fields after selection", async () => {
+    mockApi();
+    const { wrapper } = makeWrapper();
+    render(<AssetBrowserView projectId="proj_1" />, { wrapper });
+    const card = await screen.findByTitle("沈亦 master · V4");
     fireEvent.click(card);
-    expect(await screen.findByText(/沈亦 master/)).toBeTruthy();
-    // provenance button present once detail loads
-    const provenanceBtn = await screen.findByText("查看溯源");
-    expect(provenanceBtn).toBeTruthy();
+    // detail from GET /assets/{id} → status/version/file-size/checksum (async)
+    expect(await screen.findByText("生效")).toBeTruthy();
+    expect(screen.getByText("2.0 KB")).toBeTruthy();
+    expect(screen.getByText("abcd1234efgh5678")).toBeTruthy();
+    // provenance drawer button present
+    expect(await screen.findByText("查看溯源")).toBeTruthy();
   });
 });

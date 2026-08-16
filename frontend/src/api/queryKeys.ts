@@ -16,4 +16,8 @@ export const queryKeys = {
   projectTree: (projectId: string) => ["projectTree", projectId] as const,
   projectSettings: (projectId: string) => ["projectSettings", projectId] as const,
   provenance: (assetId: string) => ["provenance", assetId] as const,
+  jobs: (projectId: string) => ["jobs", projectId] as const,
+  job: (jobId: string) => ["job", jobId] as const,
+  projectAssets: (projectId: string, type?: string | null) => ["projectAssets", projectId, type ?? "all"] as const,
+  asset: (assetId: string) => ["asset", assetId] as const,
 };

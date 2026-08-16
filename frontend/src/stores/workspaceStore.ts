@@ -11,8 +11,8 @@ interface WorkspaceState {
   setActiveShot: (shotId: string | null) => void;
   rightPanelTab: "inspector" | "director";
   setRightPanelTab: (tab: "inspector" | "director") => void;
-  bottomDockTab: "queue" | "history";
-  setBottomDockTab: (tab: "queue" | "history") => void;
+  bottomDockTab: "queue" | "history" | "jobs";
+  setBottomDockTab: (tab: "queue" | "history" | "jobs") => void;
   bottomDockExpanded: boolean;
   setBottomDockExpanded: (expanded: boolean) => void;
   explorerCollapsed: boolean;
