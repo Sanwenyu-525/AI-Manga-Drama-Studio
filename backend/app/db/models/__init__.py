@@ -1,5 +1,6 @@
 """ORM models — import all models here so Base.metadata is complete (Alembic / create_all)."""
 
+from app.db.models.agent import AgentProposal, AgentRun
 from app.db.models.asset import Asset
 from app.db.models.character import Character, CharacterVersion, ShotCharacter
 from app.db.models.costume import Costume
@@ -17,6 +18,8 @@ from app.db.models.job import Job, JobTask, TaskDependency
 from app.db.models.workflow import WorkflowTemplate, WorkflowVersion
 
 __all__ = [
+    "AgentProposal",
+    "AgentRun",
     "Asset",
     "Character",
     "CharacterVersion",

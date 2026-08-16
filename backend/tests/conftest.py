@@ -46,9 +46,22 @@ def client(session_factory) -> Generator[TestClient]:
             session.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    # P7-T004: rebuild the Director graph with an ISOLATED (in-memory) checkpointer
+    # per test so proposal interrupt/resume never reads a shared/disk-backed store.
+    from app.agents.director import graph as director_graph_module
+    from app.agents.checkpointers.sqlite_saver import SqliteCheckpointSaver
+
+    original_director_graph = director_graph_module.director_graph
+
+    def _fresh_isolated_graph():
+        return director_graph_module.build_director_graph(checkpointer=SqliteCheckpointSaver())
+
+    director_graph_module.director_graph = _fresh_isolated_graph()
+
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+    director_graph_module.director_graph = original_director_graph
     db_session_module.session_factory_provider = original_provider
     llm_factory.reset_gateway()
     from app.providers import registry as provider_registry

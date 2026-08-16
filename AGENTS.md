@@ -87,7 +87,8 @@ GenerationService → Provider Interface → ComfyUI / API
 - ✅ **Stage C 完成（2026-08）**：assets/generations/media_versions 模型 + Alembic 迁移；ImageProvider 抽象（`STUDIO_IMAGE_PROVIDER=mock|comfyui`，MockImageProvider 默认 + ComfyUIClient/WorkflowMapper/WS 进度监控 + `workflows/default_image_api.json` 占位符模板）；GenerationService（create/retry/cancel/complete/fail）+ **DB-poll worker**（`generations` 表即队列，崩溃恢复免费，asyncio.Queue 跨线程不安全故弃用）；AssetService（项目相对存储 `EP01_SC03_SH005_IMG_V001`、缩略图、路径安全）；VersionService（**版本不可变**，V1/V2 共存，Set Active 只翻 is_active + shot.active_*_version_id）；API 全套（generations/assets/versions/providers/recent + `POST /providers/comfyui/test`）+ **WS `/api/v1/events` 网关**（EventBus→WS envelope+sequence）；前端 GenerationQueue（BottomDock）+ Inspector 生成按钮/版本浏览/大图预览 + WS EventRouter（Query invalidate）。验收：生成→回填 ShotCard→V2 共存（pytest 22 项）。
 - ✅ **Stage D 完成（2026-08）— MVP 闭环达成**：LangGraph Director Graph（Understand→LoadContext→Plan→Execute→Review 五节点，**Structured Planner + Deterministic Executor** 模式，LangGraph 只做编排、不碰 DB/Service 反依赖）；FakeLLM 规则解析（近景/特写/时长/情绪关键词 + 组合意图）+ ProductionIntent/DirectorPlan 结构化 schema；ToolExecutor 三工具（get_shot/update_shot/generate_image，`shot_number:N` 引用解析，走 Service 红线）；ContextService（Selection-aware 最小上下文）；Agent Run 内存存储 + API（`POST /api/v1/agent/director/runs` 202、GET runs/{id}、cancel、resume 占位）+ agent 事件流（run.started/plan.created/tool.started/tool.completed/run.completed/failed）；前端功能版 AI Director 面板（Selection 自动附带、消息流、计划卡片、工具进度）。验收：Scenario A（选中镜头"改成近景"→close_up rev+1）、B（"改成近景再生成"→update+generation 落库）、C（无 selection 不猜、要求澄清）全部通过（pytest 27 项）。
 - ✅ **P1 收尾完成（2026-08）— MVP 交付范围全清**：**Character Management**（database §7/§11：characters 身份表 + shot_characters 中间表 + Alembic 迁移；CharacterService CRUD + revision 乐观并发 + 软删除 + character.created/updated/deleted 事件；Shot 支持 character_ids 创建/替换关联，Storyboard 回填 character_names，跨项目角色校验 422/404；前端 ProjectExplorer 角色区：内联创建/编辑/删除 + shot_count，ShotInspector 出场角色多选，WS 事件 invalidate；`GET /api/v1/projects/{id}/characters`、`POST`、`GET/PATCH/DELETE /api/v1/characters/{id}`）+ **Project Bootstrap**（`GET /projects/{id}/bootstrap`，契约 §103-104：project/episodes(scene_count)/characters/providers/active_generations/active_agent_runs，只返回摘要）。验收：角色 CRUD + 镜头关联回填 + bootstrap（pytest 31 项）。
-- ⬜ **MVP 之后（Phase 2+）**：接真实 LLM（`STUDIO_LLM_MODE=openai`，LangChain ChatOpenAI 已就绪）；接真实 ComfyUI（`STUDIO_IMAGE_PROVIDER=comfyui`，workflow_mapper/WS 监控已就绪）；审批流（R2/R3 + interrupt + resume + ApprovalRequest）；ChangeSet/Undo；Continuity；Timeline；视频生成；多 Agent；云端
+- ✅ **P7（2026-08）— Director 持久化 + Proposal 审批流**：AgentRun 落库（agent_runs 表）；LangGraph SQLite Checkpointer（自定义 stdlib sqlite3 BaseCheckpointSaver，thread_id=run_id）；AgentGateway 形式化入口；ContextResolver + TokenBudget + ContextSchemas；**update_shot 改造为 Proposal 系统**（不再直写——生成 pending Proposal → run 进入 WAITING_HUMAN → agent.approval.required；approve 经 ShotService 应用 + base_revision 冲突守卫 → applied/conflict；reject 不应用）；resume 真实语义（approve/reject + proposal_ids）；proposal API（list/approve/reject）+ agent.proposal.* 事件。Scenario A/B 语义更新（update 需审批）。
+- ⬜ **MVP 之后（Phase 2+）**：接真实 LLM（`STUDIO_LLM_MODE=openai`，LangChain ChatOpenAI 已就绪）；接真实 ComfyUI（`STUDIO_IMAGE_PROVIDER=comfyui`，workflow_mapper/WS 监控已就绪）；ChangeSet/Undo；Continuity；Timeline；视频生成；多 Agent；云端
 
 ### MVP 三原则
 
@@ -138,6 +139,7 @@ GET  /api/v1/scenes/{id}/shots         PATCH /api/v1/shots/{id}
 POST /api/v1/shots/{id}/generations    (202)
 GET  /api/v1/generations/{id}          POST /api/v1/generations/{id}/retry|cancel
 POST /api/v1/agent/director/runs       POST /api/v1/agent/runs/{id}/resume
+GET  /api/v1/agent/runs/{id}/proposals  POST /api/v1/agent/proposals/{id}/approve|reject
 GET  /api/v1/providers                 POST /api/v1/providers/comfyui/test
 GET  /api/v1/health
 ```
@@ -147,6 +149,7 @@ GET  /api/v1/health
 ```
 shot.updated · agent.run.started · agent.plan.created · agent.approval.required
 agent.tool.started · agent.tool.completed · agent.run.completed · agent.run.failed
+agent.proposal.created · agent.proposal.approved · agent.proposal.rejected · agent.proposal.conflict
 generation.queued · generation.started · generation.progress · generation.completed · generation.failed
 asset.created · provider.connected · provider.disconnected
 ```

@@ -152,9 +152,18 @@ def test_agent_update_shot_syncs_spec(client: TestClient) -> None:
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         run = client.get(f"/api/v1/agent/runs/{run_id}").json()
-        if run["status"] in ("completed", "failed", "cancelled"):
+        if run["status"] in ("waiting_human", "waiting_approval", "completed", "failed", "cancelled"):
             break
         time.sleep(0.05)
+    # P7: update_shot parks in WAITING_HUMAN — approve to apply via ShotService
+    if run["status"] in ("waiting_human", "waiting_approval"):
+        assert len(run["pending_proposals"]) == 1
+        client.post(f"/api/v1/agent/runs/{run_id}/resume", json={"decision": "approve"})
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/v1/agent/runs/{run_id}").json()
+            if run["status"] in ("completed", "failed", "cancelled"):
+                break
+            time.sleep(0.05)
     assert run["status"] == "completed", run.get("result")
     updated = client.get(f"/api/v1/shots/{shot['id']}").json()
     assert updated["shot_type"] == "close_up"

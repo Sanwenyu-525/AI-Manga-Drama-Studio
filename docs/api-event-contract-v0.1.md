@@ -857,6 +857,8 @@ planning
 
 waiting_approval
 
+waiting_human
+
 executing
 
 reviewing
@@ -886,16 +888,26 @@ Ownership 与歧义（P1-E3-T01）：
 
 # 27. Agent Approval API
 
-当：
+当（P7）：
 
 ```text
-status = waiting_approval
+status = waiting_human（或等待审批时的 waiting_approval）
 ```
 
-调用：
+update_shot 现在只产生一个 pending 的 AgentProposal，run 进入 WAITING_HUMAN 并发出
+`agent.approval.required`（payload 含 proposal_id / changes）。人工可通过两条路径决策：
+
+- 恢复整个 run（继续 graph，如批准后运行后续 generate 步骤）：
 
 ```http
 POST /api/v1/agent/runs/{run_id}/resume
+```
+
+- 或按 proposal 决策：
+
+```http
+POST /api/v1/agent/proposals/{proposal_id}/approve
+POST /api/v1/agent/proposals/{proposal_id}/reject
 ```
 
 ---
@@ -938,20 +950,21 @@ Frontend 从 Event / Run API 获得：
 
 # 29. Resume Request
 
-```json
-{
-  "approval_id": "approval_001",
-  "decision": "approve"
-}
-```
-
-也可以：
+P7 语义（向后兼容：无 body / 空 body = approve-all-pending）：
 
 ```json
 {
-  "decision": "cancel"
+  "decision": "approve",
+  "proposal_ids": ["proposal_001"]
 }
 ```
+
+- `decision = "approve"`：批准（指定或全部）pending proposal，经 ShotService 应用
+  （base_revision 一致 → applied；不一致 → conflict，不覆盖用户编辑），然后继续被
+  中断的 graph（运行后续步骤，如 generate）。
+- `decision = "reject"`：拒绝 proposal（不应用），继续 graph。
+
+proposal_ids 省略时对 run 的所有 pending proposal 决策。
 
 ---
 
@@ -1740,6 +1753,8 @@ agent.approval.required
 
 agent.resumed
 
+agent.run.awaiting_approval
+
 agent.tool.started
 
 agent.tool.completed
@@ -1749,6 +1764,14 @@ agent.review.started
 agent.review.completed
 
 agent.change_set.created
+
+agent.proposal.created
+
+agent.proposal.approved
+
+agent.proposal.rejected
+
+agent.proposal.conflict
 
 agent.run.completed
 
