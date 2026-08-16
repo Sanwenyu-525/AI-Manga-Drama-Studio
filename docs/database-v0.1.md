@@ -1217,6 +1217,24 @@ V3 = Active   →  shots.active_image_asset_id = asset_c
 
 这是整个产品未来非常核心的数据。
 
+> **已落地（P8-T001~T017，迁移 a0b1c2d3e4f7）**：以下 `continuity_states` 原始设计保留为参考；
+> 实际以两张表落地（按 continuity-engine-design §11-45 Base+Delta 模型）：
+>
+> - `scene_continuity_states`：`scene_id` PK FK、`base_state_json`（环境 + 角色集合 + 道具）、
+>   `state_hash`、`computed_at`、`created_at`、`updated_at`（Scene Base State，§14）。
+> - `shot_continuity_states`：`shot_id` PK FK、`scene_id` FK（索引）、`start_state_json`、
+>   `end_state_json`、`delta_json`、`dependencies_json`、`state_hash`（Relevant State Hash §115-116）、
+>   `warnings_json`（规则警告快照）、`recomputed_at`、`created_at`、`updated_at`（Shot Delta / Start / End，§15-20）。
+>
+> JSON 状态结构（design §22-39）：`EnvironmentState {location_id, time_of_day, lighting, weather, mood}`、
+> `CharacterState {character_id, character_version_id, costume_id, position, orientation, action, emotion, physical}`、
+> `PropState {prop_id, holder_character_id, visible, position}`。
+> 规则引擎（T008-T014）纯函数清单：`COSTUME_CHANGED`、`CHARACTER_REFERENCE_OUTDATED`、
+> `LOCATION_CHANGED`、`PROP_HOLDER_CHANGED`、`PROP_DISAPPEARED`、`TIME_OF_DAY_CHANGED`、
+> `POSITION_JUMP`、`ORIENTATION_FLIP`。STALE 集成（T017）：角色 MASTER 切换 / 场景 base 变化 /
+> 前序 shot 修改 → 受影响的 active asset 标 `stale`（不自动 regenerate），触发点在
+> `CharacterVersionService.activate_version` / `SceneService.update_scene` / `ShotService.update_shot` 后。
+
 ```sql
 continuity_states
 ```

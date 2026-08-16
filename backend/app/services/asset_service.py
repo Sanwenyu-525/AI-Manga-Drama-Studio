@@ -235,6 +235,27 @@ class AssetService:
         logger.info("asset imported: %s -> %s (%d bytes)", dest_name, project_id, size)
         return asset
 
+    def mark_assets_stale(self, asset_ids: list[str]) -> int:
+        """P8-T017: mark the given assets as STALE (status change only — never
+        auto-regenerate; a user/Agent decides whether to regenerate). Returns the
+        number of assets actually flipped to stale. Idempotent."""
+        if not asset_ids:
+            return 0
+        from sqlalchemy import update
+
+        result = self.session.execute(
+            update(Asset)
+            .where(
+                Asset.id.in_(asset_ids),
+                Asset.deleted_at.is_(None),
+                Asset.status != "stale",
+            )
+            .values(status="stale")
+            .execution_options(synchronize_session=False)
+        )
+        self.session.commit()
+        return int(result.rowcount or 0)
+
     def check_missing_assets(self, project_id: str) -> tuple[int, int]:
         """P3-T005: scan a project's assets; mark ready assets whose file is
         missing as "missing" (record is KEPT, file untouched). Returns

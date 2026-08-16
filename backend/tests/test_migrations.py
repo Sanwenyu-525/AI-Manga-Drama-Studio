@@ -40,6 +40,7 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
         "character_versions",  # P2-T007/T008
         "locations", "location_versions", "costumes",  # P2-T009/T010
         "agent_runs", "agent_proposals",  # P7-T001/T012
+        "scene_continuity_states", "shot_continuity_states",  # P8-T001/T003
         "alembic_version",
     ):
         assert expected in tables, f"missing table {expected}"
@@ -89,6 +90,14 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
     assert "analysis_key" in _table_columns(engine, "episodes")
     assert {"analysis_key", "storyboard_key"} <= _table_columns(engine, "scenes")
     assert "analysis_key" in _table_columns(engine, "shots")
+
+    # P8 continuity state tables + columns
+    scene_cs = _table_columns(engine, "scene_continuity_states")
+    assert {"scene_id", "base_state_json", "state_hash", "computed_at", "created_at", "updated_at"} <= scene_cs
+    shot_cs = _table_columns(engine, "shot_continuity_states")
+    assert {"shot_id", "scene_id", "start_state_json", "end_state_json", "delta_json",
+            "dependencies_json", "state_hash", "warnings_json", "recomputed_at",
+            "created_at", "updated_at"} <= shot_cs
     engine.dispose()
 
 
@@ -109,6 +118,7 @@ def test_downgrade_and_upgrade_round_trip(tmp_path: Path) -> None:
     assert "master_version_id" in _table_columns(engine, "characters")
     assert {"locations", "location_versions", "costumes"} <= table_names
     assert "master_version_id" in _table_columns(engine, "locations")
+    assert {"scene_continuity_states", "shot_continuity_states"} <= table_names
     engine.dispose()
 
 

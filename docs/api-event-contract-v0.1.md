@@ -3875,6 +3875,18 @@ POST /scenes/{id}/shots   与 PATCH /shots/{id} 之 patch 可选 `characters: [{
 说明：这些 Read Model 与 bootstrap（§103 工作区启动摘要）和 storyboard（§101 单场景网格）互补——
 bootstrap 只返回顶层摘要、不返回全部 shot（§104）；tree/editor/inspector 提供完整导航与明细形状。
 
+--- P8（Continuity Engine，P8-T001~T017）---
+
+GET  /api/v1/scenes/{id}/continuity              （Scene Continuity 视图：base_state + 每个 shot 的 start/end/delta/state_hash/warnings）
+GET  /api/v1/shots/{id}/continuity-state         （单 shot：{shot_id, start_state, end_state, delta, state_hash, warnings}）
+POST /api/v1/scenes/{id}/continuity/recompute    （手动触发 dirty-range 重算，返回 {scene_id, recomputed_shots, total_shots, state_hash}）
+
+DTO：SceneContinuityRead{scene_id, base_state, base_state_hash, shots: ShotContinuityRead[]} ·
+ShotContinuityRead{shot_id, shot_number, start_state, end_state, delta, state_hash, warnings: ContinuityWarning[]} ·
+ContinuityRecomputeRead{scene_id, recomputed_from, recomputed_shots, total_shots, state_hash}
+warnings 来源 = shot_continuity_states.warnings_json（source=RULE）；并行 continuity_warnings 表（P8-B)落地后，
+场景聚合端点会合并该场景的 OPEN 条目（warnings_json 为准，兼容合并）。
+
 --- P2 之后的核心线 ---
 
 /agent/director/runs

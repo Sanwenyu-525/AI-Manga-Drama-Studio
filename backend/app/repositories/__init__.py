@@ -16,6 +16,10 @@ from app.db.models import (
     WorkflowTemplate,
     WorkflowVersion,
 )
+from app.repositories.continuity_repository import (
+    SceneContinuityRepository as SceneContinuityRepository,
+    ShotContinuityRepository as ShotContinuityRepository,
+)
 from app.repositories.base import SQLAlchemyRepository
 
 
