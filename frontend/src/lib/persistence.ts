@@ -15,7 +15,7 @@ export interface LayoutState {
   rightPanelCollapsed: boolean;
   bottomDockExpanded: boolean;
   rightPanelTab: "inspector" | "director";
-  bottomDockTab: "queue" | "history";
+  bottomDockTab: "queue" | "history" | "jobs";
 }
 
 export interface SelectionState {
@@ -64,7 +64,7 @@ export function sanitizeLayout(raw: Partial<LayoutState> | undefined): LayoutSta
     rightPanelCollapsed: Boolean(raw.rightPanelCollapsed ?? d.rightPanelCollapsed),
     bottomDockExpanded: Boolean(raw.bottomDockExpanded ?? d.bottomDockExpanded),
     rightPanelTab: raw.rightPanelTab === "director" ? "director" : "inspector",
-    bottomDockTab: raw.bottomDockTab === "history" ? "history" : "queue",
+    bottomDockTab: raw.bottomDockTab === "history" ? "history" : raw.bottomDockTab === "jobs" ? "jobs" : "queue",
   };
 }
 

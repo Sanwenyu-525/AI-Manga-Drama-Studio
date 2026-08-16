@@ -165,7 +165,7 @@ export function StudioPage() {
         : rightPanelTab === "inspector" ? <ShotInspector /> : <AIDirectorPanel />}
       </aside>
 
-      <footer className="bottom-dock"><GenerationQueue /></footer>
+      <footer className="bottom-dock"><GenerationQueue projectId={projectId} /></footer>
       <ResizeHandle axis="horizontal" label="调整底部面板高度" onDelta={onBottomDelta} onDragEnd={undefined} disabled={dockExpanded} />
     </div>
   );
