@@ -11,6 +11,7 @@ Covers (per task book):
 - Recompute idempotency
 """
 import io
+import time
 
 from PIL import Image
 from fastapi.testclient import TestClient
@@ -388,11 +389,6 @@ Covers:
 - target_type extension: existing update_shot proposals remain unaffected
 - shot_transitions list (structure)
 """
-
-import time
-
-from fastapi.testclient import TestClient
-
 
 def _make_scene(client: TestClient, n=2) -> dict:
     project = client.post("/api/v1/projects", json={"name": "P8Continuity"}).json()
