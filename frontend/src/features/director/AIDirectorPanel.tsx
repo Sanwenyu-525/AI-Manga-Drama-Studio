@@ -10,6 +10,8 @@ import { useAgentStore } from "../../stores/agentStore";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import type { AgentRunRead } from "../../api/types";
+import { isWaitingHuman } from "../../lib/agentProposals";
+import { ProposalReview } from "./ProposalReview";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "待命",
@@ -19,6 +21,8 @@ const STATUS_LABELS: Record<string, string> = {
   reviewing: "检查结果…",
   cancelling: "取消中…",
   cancelled: "已取消",
+  WAITING_HUMAN: "等待审批",
+  waiting_human: "等待审批",
   completed: "完成",
   failed: "失败",
 };
@@ -33,7 +37,10 @@ export function AIDirectorPanel() {
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+    // jsdom (tests) has no scrollTo on elements; guard so the effect is a no-op there.
+    if (typeof listRef.current?.scrollTo === "function") {
+      listRef.current.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+    }
   }, [agent.messages.length, agent.status]);
 
   const submitRun = useMutation({
@@ -65,6 +72,8 @@ export function AIDirectorPanel() {
   };
 
   const busy = submitRun.isPending || ["thinking", "planning", "executing", "reviewing"].includes(agent.status);
+  // P7-T019: true when the run is paused awaiting human approval (either backend casing).
+  const waitingHuman = isWaitingHuman(agent.status);
 
   return (
     <div className="panel-tab-content">
@@ -85,8 +94,20 @@ export function AIDirectorPanel() {
             当前：{selection.sceneId ? `Scene ${selection.sceneId.slice(-4)}` : "无场景"} ·{" "}
             {selection.shotIds.length > 0 ? `${selection.shotIds.length} 个镜头选中` : "未选中镜头"}
           </span>
-          <span className={`agent-status ${agent.status}`}>{STATUS_LABELS[agent.status] ?? agent.status}</span>
+          <span className={`agent-status ${waitingHuman ? "waiting_human" : agent.status}`}>
+            {STATUS_LABELS[waitingHuman ? "WAITING_HUMAN" : agent.status] ?? agent.status}
+          </span>
         </div>
+
+        {/* P7-T019/020/021: proposal review (shown while waiting + non-empty list) */}
+        {agent.runId && <ProposalReview runId={agent.runId} fallbackStatus={waitingHuman ? "WAITING_HUMAN" : null} />}
+
+        {/* P7-T019: visible hint when the run is paused for human approval */}
+        {waitingHuman && (
+          <div className="director-waiting-hint" role="status">
+            等待审批——请在上方 Proposal 卡片中批准或拒绝，或「继续执行」。
+          </div>
+        )}
 
         {/* message + plan stream */}
         <div className="director-stream" ref={listRef}>
