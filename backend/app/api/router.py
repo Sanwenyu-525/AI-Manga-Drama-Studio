@@ -6,6 +6,7 @@ from app.api import (
     agents,
     assets,
     characters,
+    continuity,
     costumes,
     episodes,
     generations,
@@ -31,6 +32,7 @@ api_router.include_router(projects.router)
 api_router.include_router(episodes.router)
 api_router.include_router(scenes.router)
 api_router.include_router(shots.router)
+api_router.include_router(continuity.router)
 api_router.include_router(readmodels.router)
 api_router.include_router(characters.router)
 api_router.include_router(locations.router)

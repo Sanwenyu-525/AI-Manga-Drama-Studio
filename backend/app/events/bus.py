@@ -82,6 +82,10 @@ EVENT_AGENT_PROPOSAL_CREATED = "agent.proposal.created"
 EVENT_AGENT_PROPOSAL_APPROVED = "agent.proposal.approved"
 EVENT_AGENT_PROPOSAL_REJECTED = "agent.proposal.rejected"
 EVENT_AGENT_PROPOSAL_CONFLICT = "agent.proposal.conflict"
+# P8-T018/T019: continuity warning lifecycle events.
+EVENT_CONTINUITY_WARNING_CREATED = "continuity.warning.created"
+EVENT_CONTINUITY_WARNING_ACKNOWLEDGED = "continuity.warning.acknowledged"
+EVENT_CONTINUITY_WARNING_FIXED = "continuity.warning.fixed"
 # P5-E2: job / task events (api-event-contract §143)
 EVENT_JOB_CREATED = "job.created"
 EVENT_JOB_UPDATED = "job.updated"

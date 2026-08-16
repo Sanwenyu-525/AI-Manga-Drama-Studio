@@ -16,6 +16,7 @@ from app.agents.fake_planner import parse_director_plan, parse_production_intent
 from app.core.logging import get_logger
 from app.domain.agent import DirectorPlan, ProductionIntent
 from app.domain.analysis import ScenePlan, ShotPlan
+from app.domain.continuity import SemanticWarning
 
 logger = get_logger("llm.fake")
 
@@ -63,9 +64,46 @@ class FakeLLMGateway:
             return self._scene_plans(prompt)  # type: ignore[return-value]
         if schema is ShotPlan:
             return self._shot_plans(prompt)  # type: ignore[return-value]
+        if schema is SemanticWarning:
+            return self._semantic_continuity_warnings(prompt)  # type: ignore[return-value]
         raise NotImplementedError(f"FakeLLMGateway.structured_list unsupported schema: {schema}")
 
     # --- deterministic heuristics ---
+
+    def _semantic_continuity_warnings(self, prompt: str) -> list:
+        """P8-T018 fake semantic path: parse the scene shot-state JSON and emit a
+        deterministic semantic warning (emotion/action across shot) so tests are
+        stable without a live model."""
+        import json as _json
+
+        from app.domain.continuity import SemanticWarning
+
+        try:
+            data = _json.loads(prompt)
+            states = data.get("scene_shots", [])
+        except Exception:  # noqa: BLE001
+            states = []
+        out = []
+        for idx, state in enumerate(states):
+            nxt = states[idx + 1] if idx + 1 < len(states) else None
+            if nxt is None:
+                break
+            cur_e = state.get("emotion")
+            nxt_e = nxt.get("emotion")
+            # heuristic: extreme emotion flip between adjacent shots = action_logic issue
+            if cur_e and nxt_e and cur_e != nxt_e and {cur_e, nxt_e} <= {"tense", "calm"}:
+                out.append(
+                    SemanticWarning(
+                        scope="shot",
+                        shot_id=nxt["shot_id"],
+                        category="action_logic",
+                        message="情绪在同一场景相邻镜头间剧烈翻转，语义衔接可疑。",
+                        severity="warning",
+                        evidence={"rule": "fake_emotion_flip", "from_emotion": cur_e, "to_emotion": nxt_e},
+                    )
+                )
+                break
+        return out
 
     def _scene_plans(self, prompt: str) -> list[ScenePlan]:
         # ~1 scene per 300 chars, 2..5 scenes; deterministic by text length

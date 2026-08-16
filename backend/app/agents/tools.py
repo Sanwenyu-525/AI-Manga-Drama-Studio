@@ -44,6 +44,18 @@ class GenerateImageArgs(BaseModel):
     height: int | None = None
 
 
+class ContinuityFixArgs(BaseModel):
+    """P8-T019: fix one continuity warning. patch is a shot field patch (Valid keys
+    follow update_shot); shot_id is optional (resolved from the warning)."""
+
+    warning_id: str
+    shot_id: str | None = None
+    patch: dict = Field(
+        default_factory=dict,
+        description="Valid keys: shot_type, camera_angle, camera_movement, duration, action, emotion, dialogue, image_prompt, status, dirty_state",
+    )
+
+
 class ToolResult(BaseModel):
     """Unified tool result (agent-director §32): never free-form natural language."""
 
@@ -65,6 +77,7 @@ TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
     "get_scene_shots": GetSceneShotsArgs,
     "update_shot": UpdateShotArgs,
     "generate_image": GenerateImageArgs,
+    "continuity_fix": ContinuityFixArgs,
 }
 
 
@@ -244,4 +257,55 @@ class ToolExecutor:
             entity_id=generation.id,
             created_entities=[generation.id],
             data={"generation_id": generation.id, "status": generation.status},
+        )
+
+    def _continuity_fix(self, args: dict) -> ToolResult:
+        """P8-T019: create a continuity fix PROPOSAL (never a direct write). The
+        proposal parks the run in WAITING_HUMAN; on human approve it applies via
+        ShotService and marks the warning fixed."""
+        from app.db.models import AgentRun, ContinuityWarning
+
+        schema = ContinuityFixArgs.model_validate(args)
+        warning = self.session.get(ContinuityWarning, schema.warning_id)
+        if warning is None:
+            return ToolResult(
+                success=False,
+                error="Continuity warning does not exist.",
+                data={"code": "ENTITY_NOT_FOUND"},
+            )
+        if warning.status in ("acknowledged", "fixed"):
+            return ToolResult(
+                success=False,
+                error="Warning is not open; no fix required.",
+                data={"code": "VALIDATION_ERROR", "status": warning.status},
+            )
+        shot_id = schema.shot_id or warning.shot_id
+        if shot_id:
+            self._require_shot(shot_id)
+        run = self.session.get(AgentRun, self.run_id) if self.run_id else None
+        if run is None:
+            return ToolResult(
+                success=False,
+                error="continuity_fix requires a persisted agent run.",
+                data={"code": "AGENT_RUN_REQUIRED"},
+            )
+        proposal = ProposalService(self.session).create_continuity_fix_proposal(
+            run,
+            schema.warning_id,
+            warning.scene_id,
+            shot_id,
+            schema.patch,
+        )
+        return ToolResult(
+            success=True,
+            entity_id=proposal.id,
+            proposal_created=True,
+            proposal_id=proposal.id,
+            data={
+                "proposal_id": proposal.id,
+                "status": "pending",
+                "target_type": proposal.target_type,
+                "target_id": proposal.target_id,
+                "warning_id": schema.warning_id,
+            },
         )
