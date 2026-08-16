@@ -76,6 +76,12 @@ EVENT_AGENT_CHANGE_SET_CREATED = "agent.change_set.created"
 EVENT_AGENT_RUN_COMPLETED = "agent.run.completed"
 EVENT_AGENT_RUN_FAILED = "agent.run.failed"
 EVENT_AGENT_RUN_CANCELLED = "agent.run.cancelled"
+EVENT_AGENT_RUN_AWAITING_APPROVAL = "agent.run.awaiting_approval"
+# P7-T012/13/15/16: proposal lifecycle events.
+EVENT_AGENT_PROPOSAL_CREATED = "agent.proposal.created"
+EVENT_AGENT_PROPOSAL_APPROVED = "agent.proposal.approved"
+EVENT_AGENT_PROPOSAL_REJECTED = "agent.proposal.rejected"
+EVENT_AGENT_PROPOSAL_CONFLICT = "agent.proposal.conflict"
 # P5-E2: job / task events (api-event-contract §143)
 EVENT_JOB_CREATED = "job.created"
 EVENT_JOB_UPDATED = "job.updated"

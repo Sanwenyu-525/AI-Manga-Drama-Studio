@@ -39,9 +39,16 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
         "generation_inputs", "generation_outputs",  # P3-T012/T013
         "character_versions",  # P2-T007/T008
         "locations", "location_versions", "costumes",  # P2-T009/T010
+        "agent_runs", "agent_proposals",  # P7-T001/T012
         "alembic_version",
     ):
         assert expected in tables, f"missing table {expected}"
+    # P7-T001 agent_runs columns
+    agent_run_cols = _table_columns(engine, "agent_runs")
+    assert {"id", "project_id", "run_type", "status", "current_stage", "input_json", "messages_json", "plan_json", "error_message", "started_at", "completed_at", "created_at", "updated_at"} <= agent_run_cols
+    # P7-T012 agent_proposals columns
+    proposal_cols = _table_columns(engine, "agent_proposals")
+    assert {"id", "run_id", "tool", "target_type", "target_id", "base_revision", "changes_json", "status", "created_at", "decided_at"} <= proposal_cols
     # ADR-001: media_versions merged into assets (self-versioning)
     assert "media_versions" not in tables
 

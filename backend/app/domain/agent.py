@@ -5,9 +5,26 @@ The Director uses the "Structured Planner + Deterministic Executor" pattern
 the graph executes it deterministically through Studio Services.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
-from typing import Literal
+# Agent run status constants (api-event-contract §26 + P7-T017).
+RUN_STATUS_CREATED = "created"
+RUN_STATUS_RUNNING = "running"
+RUN_STATUS_WAITING_APPROVAL = "waiting_approval"
+RUN_STATUS_WAITING_HUMAN = "waiting_human"  # P7-T017: run suspended awaiting human decision
+RUN_STATUS_COMPLETED = "completed"
+RUN_STATUS_FAILED = "failed"
+RUN_STATUS_CANCELLED = "cancelled"
+RUN_STATUS_CANCELLING = "cancelling"
+
+# Proposal status constants (design ai-director-agent §42-43, P7-T012).
+PROPOSAL_STATUS_PENDING = "pending"
+PROPOSAL_STATUS_APPROVED = "approved"
+PROPOSAL_STATUS_REJECTED = "rejected"
+PROPOSAL_STATUS_CONFLICT = "conflict"
+PROPOSAL_STATUS_APPLIED = "applied"
 
 
 class ToolOperation(BaseModel):
@@ -58,11 +75,46 @@ class AgentRunCreate(BaseModel):
 class AgentRunRead(BaseModel):
     id: str
     project_id: str
-    status: str  # created|running|waiting_approval|completed|failed|cancelled (contract §26)
+    status: str  # created|running|waiting_approval|waiting_human|completed|failed|cancelled (contract + P7)
     current_stage: str | None
     plan: DirectorPlan | None = None
     approval: dict | None = None
     change_set_id: str | None = None
     result: dict | None = None
+    # P7-T012: pending proposal summaries surfaced when the run is WAITING_HUMAN.
+    pending_proposals: list[dict] = Field(default_factory=list)
     created_at: str
     updated_at: str
+
+
+class AgentProposalRead(BaseModel):
+    """A structured, human-reviewable change proposed by the agent (P7-T012)."""
+
+    id: str
+    run_id: str
+    tool: str
+    target_type: str  # shot
+    target_id: str
+    base_revision: int
+    changes: dict = Field(default_factory=dict)
+    status: str
+    conflict_reason: str | None = None
+    error_message: str | None = None
+    created_at: str
+    decided_at: str | None = None
+
+
+class ProposalResumeRequest(BaseModel):
+    """Body for POST /agent/runs/{run_id}/resume (P7-T017/T018), backwards compatible."""
+
+    decision: Literal["approve", "reject"] = "approve"
+    proposal_ids: list[str] | None = Field(default=None)
+
+
+class ContextType(BaseModel):
+    """Structured LLM input validated before it reaches the provider (P7-T005/6/7)."""
+
+    context_type: Literal["story_planning", "shot_planning", "prompt"]
+    project_id: str
+    shot_id: str | None = None
+    scene_id: str | None = None
