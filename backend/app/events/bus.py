@@ -95,6 +95,15 @@ EVENT_JOB_CANCELLED = "job.cancelled"
 EVENT_JOB_PAUSED = "job.paused"
 EVENT_JOB_RESUMED = "job.resumed"
 EVENT_JOB_TASK_UPDATED = "job.task.updated"
+# P9: timeline + episode render events (api-event-contract §93.4)
+EVENT_TIMELINE_CREATED = "timeline.created"
+EVENT_TIMELINE_UPDATED = "timeline.updated"
+EVENT_TIMELINE_TRACK_UPDATED = "timeline.track.updated"
+EVENT_TIMELINE_CLIP_CREATED = "timeline.clip.created"
+EVENT_TIMELINE_CLIP_UPDATED = "timeline.clip.updated"
+EVENT_TIMELINE_CLIP_DELETED = "timeline.clip.deleted"
+EVENT_TIMELINE_RENDERED = "timeline.rendered"
+EVENT_TIMELINE_RENDER_FAILED = "timeline.render.failed"
 
 
 

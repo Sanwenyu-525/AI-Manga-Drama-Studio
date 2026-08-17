@@ -1856,50 +1856,82 @@ shot_01
 
 ---
 
-# 32. Timeline Item
+# 32. Timeline（Phase 9 — Timeline & Episode Render，2026-08 落地）
 
-后续做剪辑时间线时：
+逐集一支时间线（每支 Episode 恰好一条 Timeline），把生成好的 Shot/素材编排成可导出的整集视频。
+
+## 32.1 timelines
 
 ```sql
-timeline_items
+timelines
 ```
 
-字段：
+| 字段 | 说明 |
+|---|---|
+| id | TEXT PK（uuid v4） |
+| project_id | TEXT NOT NULL → projects.id |
+| episode_id | TEXT NOT NULL UNIQUE → episodes.id（一集一条） |
+| duration | REAL NULL（当前编辑总时长，可随剪辑自动重算） |
+| width / height | INTEGER NULL（成片分辨率，默认取自 Project） |
+| fps | REAL NULL（默认取自 Project.fps） |
+| status | TEXT NOT NULL DEFAULT 'DRAFT'：DRAFT / READY / RENDERED / RENDER_FAILED |
+| created_at / updated_at | TEXT ISO8601 UTC |
 
-```text
-id
+## 32.2 timeline_tracks
 
-episode_id
-
-track_type
-
-asset_id
-shot_id
-
-start_time
-
-end_time
-
-track_index
-
-metadata
+```sql
+timeline_tracks
 ```
 
-track_type：
+| 字段 | 说明 |
+|---|---|
+| id | TEXT PK |
+| timeline_id | TEXT NOT NULL → timelines.id（ON DELETE CASCADE） |
+| track_type | TEXT NOT NULL：VIDEO / VOICE / MUSIC / SFX / SUBTITLE |
+| name | TEXT NULL |
+| order_index | REAL NOT NULL（轨道纵向顺序，越小越靠上） |
+| locked | INTEGER NOT NULL DEFAULT 0（锁定后不可改内部 clip） |
+| muted | INTEGER NOT NULL DEFAULT 0（静音，仅音频类轨道有意义） |
+| created_at | TEXT NOT NULL |
 
-```text
-video
+索引：`idx_timeline_tracks (timeline_id, order_index)`。
 
-audio
+## 32.3 timeline_clips（Timeline Item）
 
-voice
-
-subtitle
-
-music
+```sql
+timeline_clips
 ```
 
-第一版可以先不实现。
+| 字段 | 说明 |
+|---|---|
+| id | TEXT PK |
+| timeline_id | TEXT NOT NULL → timelines.id |
+| track_id | TEXT NOT NULL → timeline_tracks.id（ON DELETE CASCADE） |
+| asset_id | TEXT NOT NULL → assets.id（**直接绑定具体版本**，见 §32.4） |
+| shot_id | TEXT NULL → shots.id（可选来源关联；没有一对一假设） |
+| start_time | REAL NOT NULL（时间线内起点，秒） |
+| end_time | REAL NOT NULL（时间线内终点，秒） |
+| source_in | REAL NOT NULL DEFAULT 0（素材内起点；图片=0） |
+| source_out | REAL NULL（素材内终点；NULL=素材全长） |
+| order_index | REAL NOT NULL（同轨排序） |
+| enabled | INTEGER NOT NULL DEFAULT 1（禁用而不删除） |
+| created_at / updated_at | TEXT NOT NULL |
+
+索引：`idx_timeline_clips_track_time (track_id, start_time)`、`idx_timeline_clips_shot (shot_id)`。
+
+## 32.4 Timeline Clip 版本绑定
+
+TimelineClip.asset_id 直接绑定某个具体 Asset（即某个具体版本），
+与 `shots.active_video_asset_id / active_image_asset_id` 不要求始终相同：
+
+- Shot 的 active 版本从 v3 改成 v4，Timeline 仍可用 v3（专业编辑自由）；UI 显示 "Newer version available" 提示，由用户主动 Replace。
+- 渲染时以 clip.asset_id 指向的 Asset 文件为准。
+
+## 32.5 渲染（Phase 9）
+
+- `POST /timelines/{id}/render`：202 入队一个 `type=render` 的 Generation（沿用 generation 队列 = Job Queue）。
+- 输出注册为 `type=video` 的 Asset，版本组 `vg:episode:{episode_id}:FINAL_VIDEO`，version_number 单调递增（V1/V2 共存，永不覆盖）。
+- RenderProvider 抽象：`mock`（纯 Python + Pillow 写 MJPEG AVI + 帧条预览图，开发/测试默认）与 `ffmpeg`（本机 ffmpeg 可用时产出真实 H.264 MP4；缺失时该 provider 直接报错，可回退 mock）。
 
 ---
 

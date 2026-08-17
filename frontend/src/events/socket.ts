@@ -193,6 +193,16 @@ export class EventRouter {
       case "generation.cancelled":
         generation.remove(event.entity_id);
         this.refreshAfterGeneration();
+        if (event.payload.type === "render") {
+          const renderEpisode = event.payload.episode_id as string | undefined;
+          if (renderEpisode) {
+            void this.queryClient.invalidateQueries({ queryKey: queryKeys.timeline(renderEpisode) });
+            void this.queryClient.invalidateQueries({ queryKey: queryKeys.finalVideo(renderEpisode) });
+          } else {
+            void this.queryClient.invalidateQueries({ queryKey: ["timeline"] });
+            void this.queryClient.invalidateQueries({ queryKey: ["finalVideo"] });
+          }
+        }
         break;
       case "asset.created":
         void this.queryClient.invalidateQueries({ queryKey: queryKeys.projects });
@@ -252,6 +262,27 @@ export class EventRouter {
       }
       case "scene.created":
         void this.queryClient.invalidateQueries({ queryKey: ["scenes"] });
+        break;
+      // ---- Phase 9 (api-event-contract §93.4): timeline edits → refresh the opened timeline.
+      // Prefix invalidation keeps any episode's timeline/final-video fresh regardless of payload shape.
+      case "timeline.created":
+      case "timeline.updated":
+      case "timeline.track.updated":
+      case "timeline.clip.created":
+      case "timeline.clip.updated":
+      case "timeline.clip.deleted":
+      case "timeline.rendered":
+      case "timeline.render.failed":
+        {
+          const episodeId = event.payload.episode_id as string | undefined;
+          if (episodeId) {
+            void this.queryClient.invalidateQueries({ queryKey: queryKeys.timeline(episodeId) });
+            void this.queryClient.invalidateQueries({ queryKey: queryKeys.finalVideo(episodeId) });
+          } else {
+            void this.queryClient.invalidateQueries({ queryKey: ["timeline"] });
+            void this.queryClient.invalidateQueries({ queryKey: ["finalVideo"] });
+          }
+        }
         break;
       default:
         break;

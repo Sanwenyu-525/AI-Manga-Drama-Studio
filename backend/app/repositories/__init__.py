@@ -13,9 +13,12 @@ from app.db.models import (
     Scene,
     Shot,
     ShotCharacter,
+    TimelineClip,
+    TimelineTrack,
     WorkflowTemplate,
     WorkflowVersion,
 )
+
 from app.repositories.continuity_repository import (
     SceneContinuityRepository as SceneContinuityRepository,
     ShotContinuityRepository as ShotContinuityRepository,
@@ -186,3 +189,5 @@ class WorkflowVersionRepository(SQLAlchemyRepository[WorkflowVersion]):
             .limit(1)
         )
         return self.session.scalars(stmt).first()
+
+from app.repositories.timeline_repository import TimelineRepository as TimelineRepository

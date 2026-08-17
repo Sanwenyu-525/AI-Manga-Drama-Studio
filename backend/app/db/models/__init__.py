@@ -18,6 +18,7 @@ from app.db.models.shot import Shot
 from app.db.models.shot_visual_spec import ShotVisualSpec
 from app.db.models.job import Job, JobTask, TaskDependency
 from app.db.models.workflow import WorkflowTemplate, WorkflowVersion
+from app.db.models.timeline import Timeline, TimelineClip, TimelineTrack
 
 __all__ = [
     "AgentProposal",
@@ -46,6 +47,9 @@ __all__ = [
     "ShotVisualSpec",
     "WorkflowTemplate",
     "WorkflowVersion",
+    "Timeline",
+    "TimelineClip",
+    "TimelineTrack",
     "Job",
     "JobTask",
     "TaskDependency",

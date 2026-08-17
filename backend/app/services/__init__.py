@@ -20,6 +20,7 @@ from app.services.script_service import ScriptService
 from app.services.shot_service import ShotService
 from app.services.version_service import VersionService
 from app.services.workflow_service import WorkflowService
+from app.services.timeline_service import TimelineService
 
 __all__ = [
     "AssetService",

@@ -5,7 +5,7 @@ import { NewProjectPage } from "../features/project/NewProjectPage";
 import { AssetsPage } from "../features/assets/AssetsPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { WorkflowsPage } from "../features/workflows/WorkflowsPage";
-import { StudioPage, ScriptWorkspace, StoryboardWorkspace, AssetWorkspace } from "../features/studio/StudioPage";
+import { StudioPage, ScriptWorkspace, StoryboardWorkspace, AssetWorkspace, TimelineWorkspace } from "../features/studio/StudioPage";
 import { VersionReviewPage } from "../features/storyboard/VersionReviewPage";
 import { NotFoundPage } from "../components/NotFoundPage";
 
@@ -41,6 +41,7 @@ export const router = createBrowserRouter([
           { path: "script", element: <ScriptWorkspace /> },
           { path: "storyboard/:sceneId", element: <StoryboardWorkspace /> },
           { path: "assets", element: <AssetWorkspace /> },
+          { path: "timeline", element: <TimelineWorkspace /> },
         ],
       },
       {

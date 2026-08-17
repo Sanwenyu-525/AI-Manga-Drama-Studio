@@ -21,6 +21,7 @@ from app.api import (
     readmodels,
     scenes,
     shots,
+    timelines,
     workflows,
 )
 from app.events.ws import router as ws_router
@@ -47,4 +48,5 @@ api_router.include_router(agents.router)
 api_router.include_router(prompts.router)
 api_router.include_router(provenance.router)
 api_router.include_router(workflows.router)
+api_router.include_router(timelines.router)
 api_router.include_router(ws_router)

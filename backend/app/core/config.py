@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     generation_retry_backoff_base: float = 1.0  # seconds; doubles per attempt
     generation_retry_backoff_max: float = 60.0  # cap for the exponential backoff
 
+    # Render (Phase 9): "auto" picks a local ffmpeg when present, else the
+    # pure-Python mock (MJPEG AVI). Explicit "mock"/"ffmpeg" override the probe.
+    render_provider: Literal["auto", "mock", "ffmpeg"] = "auto"
+
     @field_validator("generation_concurrency")
     @classmethod
     def _single_worker_only(cls, value: int) -> int:

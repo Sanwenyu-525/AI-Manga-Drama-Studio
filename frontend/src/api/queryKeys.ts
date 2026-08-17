@@ -27,4 +27,8 @@ export const queryKeys = {
   sceneContinuity: (sceneId: string) => ["sceneContinuity", sceneId] as const,
   shotContinuity: (shotId: string) => ["shotContinuity", shotId] as const,
   continuityWarnings: (sceneId: string) => ["continuityWarnings", sceneId] as const,
+
+  /** Phase 9 (api-event-contract §93): per-episode timeline + rendered export. */
+  timeline: (episodeId: string) => ["timeline", episodeId] as const,
+  finalVideo: (episodeId: string) => ["finalVideo", episodeId] as const,
 };
