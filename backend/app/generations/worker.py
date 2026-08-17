@@ -35,13 +35,15 @@ from app.events.bus import (
     EVENT_GENERATION_PROGRESS,
     EVENT_GENERATION_RETRYING,
     EVENT_GENERATION_STARTED,
+    EVENT_TIMELINE_RENDERED,
     StudioEvent,
     bus,
 )
 from app.generations.retry_policy import RetryOutcome, classify_failure
 from app.generations.state import validate_transition
 from app.providers.image.base import ImageRequest
-from app.providers.registry import get_image_provider
+from app.providers.registry import get_image_provider, get_render_provider
+from app.providers.render.base import RenderClip, RenderRequest
 from app.services.asset_service import AssetService
 from app.services.version_service import VersionService
 
@@ -360,6 +362,12 @@ async def run_generation(generation_id: str) -> None:
         workflow_id = generation.workflow_id
         params = json.loads(generation.parameters or "{}")
 
+    # Phase 9 (P9-E3): episode render generations are executed through the
+    # RenderProvider (mock MJPEG-AVI / ffmpeg) instead of the image path.
+    if generation.type == "render":
+        await _run_render_generation(factory, gen_id, project_id, provider_id, params)
+        return
+
     # P1-E2-T01: the stored provider id IS the implementation to run — the
     # registry resolves it (unknown ids are rejected at creation, 422).
     provider = get_image_provider(provider_id)
@@ -637,3 +645,264 @@ def _handle_cancelled(factory: Callable, generation_id: str, project_id: str, sh
             )
         )
         _cancelled.discard(generation_id)
+
+# ------------------------------------------------------------------ render (Phase 9)
+
+
+async def _run_render_generation(
+    factory: Callable,
+    generation_id: str,
+    project_id: str,
+    provider_id: str,
+    params: dict,
+) -> None:
+    """Execute a type='render' generation: resolve sources, call the RenderProvider,
+    persist the FINAL_VIDEO asset on success (or route failures through the shared
+    retry/failure helpers)."""
+    provider = get_render_provider(provider_id)
+    width = int(params.get("width") or 720)
+    height = int(params.get("height") or 1280)
+    fps = float(params.get("fps") or 24.0)
+    out_dir = settings.data_dir / "render_output"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    output_path = str(out_dir / (f"gen_{generation_id}_out" + (".mp4" if provider.name == "ffmpeg" else ".avi")))
+
+    requests = []
+    skipped = 0
+    with factory() as session:
+        from app.db.models import Asset
+        from app.services.asset_service import AssetService
+
+        asset_svc = AssetService(session)
+        for c in params.get("clips", []):
+            asset = session.get(Asset, c.get("asset_id")) if c.get("asset_id") else None
+            if asset is None or asset.deleted_at:
+                skipped += 1
+                continue
+            try:
+                source = str(asset_svc.absolute_path(asset))
+            except Exception:  # noqa: BLE001 — missing/broken file → skip clip
+                skipped += 1
+                continue
+            requests.append(
+                RenderClip(
+                    source_path=source,
+                    kind=c.get("kind") or ("image" if asset.type == "image" else "video"),
+                    start=float(c.get("start") or 0),
+                    end=float(c.get("end") or 0),
+                    source_in=float(c.get("source_in") or 0),
+                    source_out=c.get("source_out"),
+                    text=c.get("text"),
+                )
+            )
+    if not requests:
+        _handle_failure(
+            factory, generation_id, project_id, None,
+            "No renderable clip sources found (missing asset files).",
+        )
+        return
+
+    request = RenderRequest(
+        output_path=output_path,
+        width=width,
+        height=height,
+        fps=fps,
+        clips=requests,
+        meta={"generation_id": generation_id, "skipped": skipped},
+    )
+
+    def _on_progress(percent: int, stage: str) -> None:
+        _persist_progress(factory, generation_id, percent, stage)
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_GENERATION_PROGRESS,
+                entity_type="generation",
+                entity_id=generation_id,
+                project_id=project_id,
+                payload={"shot_id": None, "progress": percent, "stage": stage},
+            )
+        )
+
+    try:
+        result = await provider.render(request, _on_progress)
+    except Exception as exc:  # noqa: BLE001 — provider error
+        logger.exception("render generation %s provider error", generation_id)
+        _handle_failure(factory, generation_id, project_id, None, f"Provider error: {exc}", exc=exc)
+        return
+
+    if generation_id in _cancelled or _db_status(factory, generation_id) == "cancelling":
+        _handle_cancelled(factory, generation_id, project_id, None)
+        return
+    if not result.success:
+        _handle_failure(factory, generation_id, project_id, None, result.error or "Render failed.")
+        return
+
+    _persist_render_output(factory, generation_id, project_id, params, result)
+
+
+def _persist_render_output(
+    factory: Callable,
+    generation_id: str,
+    project_id: str,
+    params: dict,
+    result,
+) -> None:
+    """Register the rendered export as a FINAL_VIDEO asset in ONE transaction.
+
+    - Asset: type video, copied into the project tree (AssetService).
+    - Version group vg:episode:{episode_id}:FINAL_VIDEO (immutable V1/V2...).
+    - Thumbnail: the renderer's frame-strip doubles as the poster.
+    - timeline.status → RENDERED; timeline.rendered event.
+    """
+    from pathlib import Path as _Path
+
+    from app.db.models import Asset, GenerationOutput, Timeline
+
+    episode_id = params.get("episode_id") or ""
+    timeline_id = params.get("timeline_id")
+
+    with factory() as session:
+        generation = session.get(Generation, generation_id)
+        if generation is None or generation.status in ("cancelled", "cancelling") or generation_id in _cancelled:
+            return
+        if not result.output_path or not _Path(result.output_path).is_file():
+            generation.error_message = "Render returned no output file."
+            validate_transition(generation.status, "failed")
+            generation.status = "failed"
+            generation.completed_at = _now()
+            session.commit()
+            bus.publish(
+                StudioEvent(
+                    event_type=EVENT_GENERATION_FAILED,
+                    entity_type="generation",
+                    entity_id=generation_id,
+                    project_id=project_id,
+                    payload={"type": "render", "error": {"code": "GENERATION_FAILED", "message": "No output file."}},
+                )
+            )
+            return
+
+        asset_svc = AssetService(session)
+        asset = asset_svc.register_asset(
+            project_id=project_id,
+            asset_type="video",
+            source_path=result.output_path,
+            name=None,
+            shot_id=None,
+            generation_id=generation_id,
+            meta={
+                "provider": generation.provider,
+                "render": result.extra or {},
+                "timeline_id": timeline_id,
+            },
+            make_thumbnail=False,
+            commit=False,
+        )
+        session.flush()  # materialize asset.id before generation_outputs references it
+
+        # FINAL_VIDEO immutable version group
+        from app.services.render_service import final_video_version_group
+
+        group = final_video_version_group(episode_id)
+        current = session.scalar(
+            select(func.max(Asset.version_number)).where(
+                Asset.version_group_id == group, Asset.deleted_at.is_(None)
+            )
+        )
+        asset.version_group_id = group
+        asset.version_number = (current or 0) + 1
+        asset.duration = result.duration
+        extra = result.extra or {}
+        asset.width = extra.get("width")
+        asset.height = extra.get("height")
+        name = asset.name or ""
+        if name.lower().endswith(".mp4"):
+            asset.mime_type = "video/mp4"
+        elif name.lower().endswith(".avi"):
+            asset.mime_type = "video/x-msvideo"
+        else:
+            asset.mime_type = "video/mp4"
+
+        # poster = renderer frame-strip (preview image) stored next to the file
+        strip = extra.get("frame_strip_path")
+        if strip and _Path(strip).is_file():
+            try:
+                thumb_name = (asset.name or "video").rsplit(".", 1)[0] + "_thumb.jpg"
+                from app.services.asset_service import project_dir as _proj_dir
+
+                dest_dir = _proj_dir(project_id) / "video"
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                thumb_dest = dest_dir / thumb_name
+                thumb_dest.write_bytes(_Path(strip).read_bytes())
+                asset.thumbnail_path = "video/" + thumb_name
+            except Exception as exc:  # noqa: BLE001 — poster is best-effort
+                logger.warning("render poster copy failed: %s", exc)
+
+        session.add(
+            GenerationOutput(
+                generation_id=generation_id,
+                asset_id=asset.id,
+                role="primary",
+                order_index=1000,
+            )
+        )
+
+        timeline: Timeline | None = None
+        if timeline_id:
+            timeline = session.get(Timeline, timeline_id)
+            if timeline is not None and timeline.project_id == project_id:
+                timeline.status = "RENDERED"
+                from app.db.models.columns import utcnow_iso
+
+                timeline.updated_at = utcnow_iso()
+
+        validate_transition(generation.status, "completed")
+        generation.status = "completed"
+        generation.output_asset_id = asset.id
+        generation.completed_at = _now()
+        generation.stage = "completed"
+        session.commit()
+
+        bus.publish(
+            StudioEvent(
+                event_type="asset.created",
+                entity_type="asset",
+                entity_id=asset.id,
+                project_id=project_id,
+                payload={"type": "video", "role": "FINAL_VIDEO", "episode_id": episode_id},
+            )
+        )
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_GENERATION_COMPLETED,
+                entity_type="generation",
+                entity_id=generation_id,
+                project_id=project_id,
+                payload={
+                    "shot_id": None,
+                    "type": "render",
+                    "asset_id": asset.id,
+                    "version_number": asset.version_number,
+                    "episode_id": episode_id,
+                },
+            )
+        )
+        if timeline is not None:
+            bus.publish(
+                StudioEvent(
+                    event_type=EVENT_TIMELINE_RENDERED,
+                    entity_type="timeline",
+                    entity_id=timeline.id,
+                    project_id=project_id,
+                    payload={
+                        "episode_id": episode_id,
+                        "output_asset_id": asset.id,
+                        "version_number": asset.version_number,
+                        "duration": asset.duration,
+                    },
+                )
+            )
+        logger.info(
+            "render generation %s completed -> FINAL_VIDEO V%d (episode %s)",
+            generation_id, asset.version_number, episode_id,
+        )

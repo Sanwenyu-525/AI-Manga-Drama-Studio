@@ -2582,19 +2582,68 @@ Request：
 
 ---
 
-# 93. Timeline API 预留
+# 93. Timeline API（Phase 9 落地，2026-08）
 
-未来：
+一集一条时间线；轨道 + 素材块编排。所有普通 CRUD 走 REST；渲染走
+202 + generation 队列事件（沿用 `generation.*` 事件，宿主即 Job Queue）。
+
+## 93.1 端点
 
 ```text
-GET /episodes/{id}/timeline
-
-POST /timeline/items
-
-PATCH /timeline/items/{id}
+GET    /episodes/{episode_id}/timeline             一集的时间线（含 tracks + clips + asset 摘要）
+POST   /episodes/{episode_id}/timeline             创建时间线（自动建默认四轨 VIDEO/VOICE/MUSIC/SUBTITLE）
+PATCH  /timelines/{timeline_id}                    更新 duration/fps/width/height/status
+POST   /timelines/{timeline_id}/tracks             新增轨道
+PATCH  /timelines/{timeline_id}/tracks/{track_id}  改 mute/lock/name/order_index
+DELETE /timelines/{timeline_id}/tracks/{track_id}  删除轨道（级联删 clip）
+POST   /timelines/{timeline_id}/clips              新增 TimelineClip
+PATCH  /timeline-clips/{clip_id}                   编辑（移动 start_time/end_time、微调 source_in/source_out、
+                                                   换轨 track_id、order_index、enabled）——即拖拽/裁剪的落库接口
+DELETE /timeline-clips/{clip_id}                   删除 clip
+POST   /timeline-clips/{clip_id}/replace-asset     替换为另一个 Asset（版本替换）
+POST   /timelines/{timeline_id}/sequence-from-shots 一键排片：按 scene+shot 顺序建成 VIDEO 轨
+                                                    （绑定 shot.active_video_asset_id，缺失则回退 active_image_asset_id）
+                                                    + 按 dialogue 建 SUBTITLE 轨，片段首尾相接
+POST   /timelines/{timeline_id}/preview             生成帧条预览图（JPEG，PIL；不依赖渲染后端）
+POST   /timelines/{timeline_id}/render              202 → 入队 type=render 的 Generation
+GET    /episodes/{episode_id}/final-video           该集最近一次渲染产物 FINAL_VIDEO Asset（无则 404）
 ```
 
-MVP 可暂不实现。
+## 93.2 Timeline DTO
+
+```json
+{
+  "id": "tl_01", "project_id": "p_01", "episode_id": "ep_01",
+  "duration": 24.0, "width": 720, "height": 1280, "fps": 24.0,
+  "status": "DRAFT", "revision": 1, "created_at": "...", "updated_at": "...",
+  "tracks": [ { "id": "tr_01", "timeline_id": "tl_01", "track_type": "VIDEO",
+                "name": null, "order_index": 0.0, "locked": 0, "muted": 0 } ],
+  "clips": [ { "id": "cl_01", "timeline_id": "tl_01", "track_id": "tr_01",
+               "asset_id": "as_01", "shot_id": "sh_01",
+               "start_time": 0.0, "end_time": 3.0, "source_in": 0.0, "source_out": null,
+               "order_index": 0.0, "enabled": 1,
+               "asset": { "id": "as_01", "type": "image", "name": "...",
+                          "thumbnail_url": "/api/v1/assets/as_01/thumbnail" } } ]
+}
+```
+
+## 93.3 渲染 DTO/事件
+
+```text
+POST /timelines/{id}/render → 202 { "generation_id", "job_status": "queued", "timeline_id" }
+```
+
+渲染产物注册为 `vg:episode:{episode_id}:FINAL_VIDEO` 版本组下的 `type=video` Asset；
+渲染完成发布 `timeline.rendered`（payload 含 output_asset_id / version_number / duration）。
+
+## 93.4 Timeline 事件
+
+```text
+timeline.created · timeline.updated · timeline.track.updated · timeline.clip.created
+timeline.clip.updated · timeline.clip.deleted · timeline.rendered
+```
+
+全部统一 Envelope（§9）。前端据此 invalidate `timeline(episode_id)` 查询。
 
 ---
 

@@ -42,6 +42,7 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
         "agent_runs", "agent_proposals",  # P7-T001/T012
         "scene_continuity_states", "shot_continuity_states",  # P8-T001/T003
         "continuity_warnings", "shot_transitions",  # P8-T018/T019 + T024..T026
+        "timelines", "timeline_tracks", "timeline_clips",  # P9 Timeline (Phase 9)
         "alembic_version",
     ):
         assert expected in tables, f"missing table {expected}"
@@ -105,6 +106,16 @@ def test_upgrade_from_zero_reaches_head(tmp_path: Path) -> None:
     assert {"shot_id", "scene_id", "start_state_json", "end_state_json", "delta_json",
             "dependencies_json", "state_hash", "warnings_json", "recomputed_at",
             "created_at", "updated_at"} <= shot_cs
+
+    # P9 timeline tables + columns
+    timeline_cols = _table_columns(engine, "timelines")
+    assert {"id", "project_id", "episode_id", "duration", "width", "height", "fps",
+            "status", "created_at", "updated_at"} <= timeline_cols
+    track_cols = _table_columns(engine, "timeline_tracks")
+    assert {"id", "timeline_id", "track_type", "name", "order_index", "locked", "muted", "created_at"} <= track_cols
+    clip_cols = _table_columns(engine, "timeline_clips")
+    assert {"id", "timeline_id", "track_id", "asset_id", "shot_id", "start_time", "end_time",
+            "source_in", "source_out", "order_index", "enabled", "created_at", "updated_at"} <= clip_cols
     engine.dispose()
 
 
@@ -130,6 +141,8 @@ def test_downgrade_and_upgrade_round_trip(tmp_path: Path) -> None:
     assert {"continuity_warnings", "shot_transitions"} <= table_names
     assert "resolved_at" in _table_columns(engine, "continuity_warnings")
     assert "frame_to_asset_id" in _table_columns(engine, "shot_transitions")
+    # P9 timeline tables survive the round trip
+    assert {"timelines", "timeline_tracks", "timeline_clips"} <= table_names
     engine.dispose()
 
 

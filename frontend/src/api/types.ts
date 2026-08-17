@@ -785,3 +785,128 @@ export interface AgentContinuityRun {
   message?: string;
 }
 
+
+// --- Phase 9 (P9-E1/E2/E3): Timeline + Episode Render DTOs (api-event-contract §93).
+// Backend: backend/app/domain/timeline.py (TimelineRead/TrackRead/ClipRead/RenderRead/FinalVideoRead).
+
+export type TimelineTrackType = "VIDEO" | "VOICE" | "MUSIC" | "SFX" | "SUBTITLE";
+
+/** Lightweight asset summary bound to a clip (never raw paths). */
+export interface TimelineClipAsset {
+  id: string;
+  type: string;
+  name: string | null;
+  status: string;
+  version_group_id: string | null;
+  version_number: number | null;
+  thumbnail_url: string | null;
+  mime_type: string | null;
+}
+
+export interface TimelineClip {
+  id: string;
+  timeline_id: string;
+  track_id: string;
+  asset_id: string;
+  shot_id: string | null;
+  start_time: number;
+  end_time: number;
+  source_in: number;
+  source_out: number | null;
+  order_index: number;
+  enabled: number;
+  text: string | null; // subtitle/voice content
+  asset: TimelineClipAsset | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TimelineTrack {
+  id: string;
+  timeline_id: string;
+  track_type: string;
+  name: string | null;
+  order_index: number;
+  locked: number;
+  muted: number;
+  created_at: string;
+}
+
+export interface Timeline {
+  id: string;
+  project_id: string;
+  episode_id: string;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  status: string;
+  tracks: TimelineTrack[];
+  clips: TimelineClip[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TimelineClipCreate {
+  track_id: string;
+  asset_id: string;
+  shot_id?: string | null;
+  start_time?: number;
+  end_time?: number;
+  source_in?: number;
+  source_out?: number | null;
+  order_index?: number | null;
+  enabled?: number;
+}
+
+export interface TimelineClipUpdatePatch {
+  track_id?: string;
+  start_time?: number;
+  end_time?: number;
+  source_in?: number;
+  source_out?: number | null;
+  order_index?: number;
+  enabled?: number;
+}
+
+export interface TimelineTrackCreate {
+  track_type?: TimelineTrackType;
+  name?: string | null;
+  order_index?: number | null;
+}
+
+export interface TimelineRenderRead {
+  generation_id: string;
+  timeline_id: string;
+  episode_id: string | null;
+  status: string;
+  message: string | null;
+}
+
+/** Latest rendered episode export (FINAL_VIDEO asset) — the deliverable. */
+export interface FinalVideoRead {
+  asset_id: string;
+  project_id: string;
+  episode_id: string;
+  name: string | null;
+  type: string;
+  version_number: number | null;
+  mime_type: string | null;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  file_size: number | null;
+  status: string;
+  content_url: string;
+  thumbnail_url: string | null;
+  meta: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export const TIMELINE_TRACK_LABELS: Record<string, string> = {
+  VIDEO: "视频",
+  VOICE: "对白",
+  MUSIC: "音乐",
+  SFX: "音效",
+  SUBTITLE: "字幕",
+};

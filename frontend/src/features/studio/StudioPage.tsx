@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CaretLineLeft, CaretLineRight, Circle, ImageSquare, MagicWand, Play, Scroll, SquaresFour } from "@phosphor-icons/react";
+import { CaretLineLeft, CaretLineRight, Circle, FilmStrip, ImageSquare, MagicWand, Play, Scroll, SquaresFour } from "@phosphor-icons/react";
 import { Link, Outlet, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
@@ -16,6 +16,7 @@ import { AIDirectorPanel } from "../director/AIDirectorPanel";
 import { GenerationQueue } from "../generation/GenerationQueue";
 import { ShotInspector } from "../storyboard/ShotInspector";
 import { AssetBrowserView } from "../assets/AssetBrowserView";
+import { TimelineView } from "../timeline/TimelineView";
 import { ProjectExplorer } from "./ProjectExplorer";
 
 // Studio context handed to the workspace child routes (URL-driven views).
@@ -134,6 +135,9 @@ export function StudioPage() {
           <Link to={`/projects/${projectId}/assets`} className={location.pathname.includes("/assets") ? "active" : ""} title="项目资产库">
             <ImageSquare size={17} /> 素材
           </Link>
+          <Link to={`/projects/${projectId}/timeline`} className={location.pathname.includes("/timeline") ? "active" : ""} title="逐集时间线与导出">
+            <FilmStrip size={17} /> 时间线
+          </Link>
           <button className={rightPanelTab === "director" ? "active" : ""} onClick={() => setRightPanelTab("director")} title="打开 AI Director">
             <MagicWand size={17} /> 导演画布
           </button>
@@ -215,6 +219,25 @@ export function StoryboardWorkspace() {
 export function AssetWorkspace() {
   const { projectId = "" } = useParams();
   return <AssetBrowserView projectId={projectId} />;
+}
+
+// ---------- Workspace: 时间线 (Phase 9 — timeline + episode render) ----------
+// URL-driven like the asset workspace; episode comes from the active selection.
+export function TimelineWorkspace() {
+  const { projectId = "" } = useParams();
+  const { activeEpisode } = useStudio();
+  const setEpisode = useSelectionStore((state) => state.setEpisode);
+  useEffect(() => { if (activeEpisode) setEpisode(activeEpisode.id); }, [activeEpisode?.id, setEpisode]);
+  if (!activeEpisode) {
+    return (
+      <div className="empty-state studio-empty">
+        <FilmStrip size={34} />
+        <h2>选择一集</h2>
+        <p>从左侧项目树建立剧集后，可为其排时间线并导出。</p>
+      </div>
+    );
+  }
+  return <TimelineView projectId={projectId} episodeId={activeEpisode.id} />;
 }
 
 function useStudio(): StudioContext {

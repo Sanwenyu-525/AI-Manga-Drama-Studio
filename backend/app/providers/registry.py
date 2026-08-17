@@ -25,6 +25,9 @@ from app.core.logging import get_logger
 from app.providers.image.base import ImageProvider
 from app.providers.image.comfyui import ComfyUIProvider
 from app.providers.image.mock import MockImageProvider
+from app.providers.render.base import RenderProviderProtocol
+from app.providers.render.ffmpeg import FFmpegRenderProvider
+from app.providers.render.mock import MockRenderProvider
 from app.providers.llm import LlmProviderAdapter, create_gateway, reset_gateway
 from app.providers.video import VideoProviderProtocol, VideoProviderUnavailable
 from app.providers.workflow import ComfyUIWorkflowProviderAdapter, WorkflowProviderAdapter
@@ -34,6 +37,7 @@ logger = get_logger("providers.registry")
 # Canonical provider-id sets per type.
 IMAGE_PROVIDERS = ("mock", "comfyui")
 VIDEO_PROVIDERS = ("mock",)
+RENDER_PROVIDERS = ("auto", "mock", "ffmpeg")
 WORKFLOW_PROVIDERS = ("comfyui",)
 LLM_PROVIDERS = ("fake", "openai")
 
@@ -43,6 +47,9 @@ _comfyui_provider: ComfyUIProvider | None = None
 
 # --- video (MVP: mock placeholder is "unavailable") ---
 _video_providers: dict[str, VideoProviderProtocol] = {}
+
+# --- render (Phase 9 P9-E3: timeline episode render) ---
+_render_providers: dict[str, RenderProviderProtocol] = {}
 
 # --- workflow ---
 _workflow_providers: dict[str, WorkflowProviderAdapter] = {}
@@ -106,6 +113,42 @@ def get_video_provider(provider_id: str | None = None) -> VideoProviderProtocol:
     _video_providers[pid] = provider
     return provider
 
+# ------------------------------ render (Phase 9) ----------------------------
+def resolve_render_provider_id(provider_id: str | None = None) -> str:
+    """Resolve the effective render provider id (auto → ffmpeg if available else mock)."""
+    pid = provider_id or settings.render_provider
+    if pid == "auto":
+        from app.providers.render.ffmpeg import _ffmpeg_binary
+
+        return "ffmpeg" if _ffmpeg_binary() is not None else "mock"
+    return pid
+
+
+def get_render_provider(provider_id: str | None = None) -> RenderProviderProtocol:
+    """Resolve the render provider that actually assembles timeline videos.
+
+    provider_id=None → settings.render_provider ("auto" probes for ffmpeg).
+    Unknown ids always raise ValidationError (422); explicit "ffmpeg" without a
+    local binary fails fast in the provider itself (never a silent fallback).
+    """
+    pid = resolve_render_provider_id(provider_id)
+    if pid not in RENDER_PROVIDERS:
+        raise ValidationError(
+            "Unknown render provider.",
+            {"provider": pid, "supported": list(RENDER_PROVIDERS)},
+        )
+    cached = _render_providers.get(pid)
+    if cached is not None:
+        return cached
+    if pid == "ffmpeg":
+        provider: RenderProviderProtocol = FFmpegRenderProvider()
+        logger.info("render provider: ffmpeg (local H.264 encode)")
+    else:
+        provider = MockRenderProvider()
+        logger.info("render provider: mock (pure-Python MJPEG AVI — dev/test default)")
+    _render_providers[pid] = provider
+    return provider
+
 
 # ----------------------------- workflow ----------------------------
 def get_workflow_provider(provider_id: str | None = None) -> WorkflowProviderAdapter:
@@ -154,6 +197,8 @@ _CAPABILITIES: dict[str, dict[str, bool]] = {
     "image.comfyui": {"image_generation": True, "reference_image": True},
     "video.mock": {"video_generation": False},  # registered but unavailable (MVP)
     "workflow.comfyui": {"workflow": True},
+    "render.mock": {"video_render": True},
+    "render.ffmpeg": {"video_render": True},
     "llm.fake": {"text_generation": True},
     "llm.openai": {"text_generation": True},
 }
@@ -222,6 +267,7 @@ def reset_providers() -> None:
     global _comfyui_provider
     _image_providers.clear()
     _video_providers.clear()
+    _render_providers.clear()
     _workflow_providers.clear()
     _llm_providers.clear()
     _comfyui_provider = None
