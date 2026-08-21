@@ -2,7 +2,7 @@
 // (toolbar, clip block, render submit). API is mocked via client.api spies.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as client from "../../api/client";
 import type { Timeline } from "../../api/types";
 import { TimelineView } from "./TimelineView";

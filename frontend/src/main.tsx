@@ -5,6 +5,7 @@ import { RouterProvider } from "react-router-dom";
 import { router } from "./app/router";
 import "@fontsource-variable/geist";
 import "./styles.css";
+import "./styles/features/timeline.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
