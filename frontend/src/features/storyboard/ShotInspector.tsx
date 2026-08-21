@@ -10,11 +10,13 @@ import { useSelectionStore } from "../../stores/selectionStore";
 import { VersionStrip } from "../versioning/VersionStrip";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { ShotContinuityCard } from "../continuity/ShotContinuityCard";
+import { canonicalStoryboardPath, useStudioRoute } from "../studio/studioRoute";
 
 // Shot Inspector (frontend-ux §12-13): edit the selected shot, PATCH with optimistic revision.
 export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "center" }) {
-  const activeShotId = useWorkspaceStore((s) => s.activeShotId);
-  const setActiveShot = useWorkspaceStore((s) => s.setActiveShot);
+  const route = useStudioRoute();
+  const selectedShotId = useSelectionStore((s) => s.selection.shotIds[0]);
+  const activeShotId = route.shotId ?? selectedShotId;
   const setRightPanelTab = useWorkspaceStore((s) => s.setRightPanelTab);
   const clearShots = useSelectionStore((s) => s.clearShots);
   const navigate = useNavigate();
@@ -64,7 +66,7 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
   }, [shot]);
 
   const sceneId = shot?.scene_id;
-  const projectId = useSelectionStore((state) => state.selection.projectId);
+  const projectId = route.projectId;
 
   const { data: characters } = useQuery({
     queryKey: projectId ? queryKeys.characters(projectId) : ["characters", "none"],
@@ -97,12 +99,14 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
     },
     onSuccess: () => {
       setMenuOpen(false);
-      setActiveShot(null);
       clearShots();
       if (sceneId) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.storyboard(sceneId) });
         void queryClient.invalidateQueries({ queryKey: queryKeys.shots(sceneId) });
         void queryClient.invalidateQueries({ queryKey: ["scenes"] });
+        if (route.episodeId && route.workspace === "shot") {
+          navigate(canonicalStoryboardPath(projectId, route.episodeId, route.sceneId ?? sceneId));
+        }
       }
     },
     onError: (error) => setConflict(error instanceof Error ? error.message : String(error)),
@@ -333,7 +337,7 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
         {saveShot.isError && !conflict && <p className="error-text">保存失败：{String(saveShot.error)}</p>}
         {generate.isError && <p className="error-text">生成失败：{String(generate.error)}</p>}
 
-        <ShotVersions shotId={shot.id} projectId={useSelectionStore.getState().selection.projectId} />
+        <ShotVersions shotId={shot.id} projectId={projectId} />
 
         <ShotContinuityCard shotId={shot.id} />
       </div>

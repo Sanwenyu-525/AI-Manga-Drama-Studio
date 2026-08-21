@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, ImageSquare, ListBullets, MagicWand, Plus, SquaresFour } from "@phosphor-icons/react";
 import { api } from "../../api/client";
@@ -7,20 +7,22 @@ import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import type { Shot, Storyboard } from "../../api/types";
 import { SHOT_TYPE_LABELS } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useOperationPolling } from "../ai/useOperationPolling";
 import { useEditorTabsStore } from "../../stores/editorTabsStore";
+import { canonicalShotPath, useStudioRoute } from "../studio/studioRoute";
+import { useNavigate, useParams } from "react-router-dom";
 import { VirtualizedShotGrid } from "./VirtualizedShotGrid";
 import { SceneWarningBadge } from "../continuity/SceneWarningBadge";
 
 export function StoryboardView({ sceneId }: { sceneId: string }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { episodeId = "" } = useParams();
   const selectedShotId = useSelectionStore((state) => state.selection.shotIds[0]);
   const selectShot = useSelectionStore((state) => state.selectShot);
-  const setActiveShot = useWorkspaceStore((state) => state.setActiveShot);
-  const setRightPanelTab = useWorkspaceStore((state) => state.setRightPanelTab);
+  const clearShots = useSelectionStore((state) => state.clearShots);
   const openShot = useEditorTabsStore((state) => state.openShot);
-  const projectId = useSelectionStore((state) => state.selection.projectId);
+  const projectId = useStudioRoute().projectId;
   const [planOpId, setPlanOpId] = useState<string | null>(null);
   const [planError, setPlanError] = useState<Error | null>(null);
   const [view, setView] = useState<"grid" | "list">("grid");
@@ -29,6 +31,10 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
     queryKey: queryKeys.storyboard(sceneId),
     queryFn: () => api.get<Storyboard>(`/scenes/${sceneId}/storyboard`),
   });
+
+  useEffect(() => {
+    if (selectedShotId && storyboard && !storyboard.shots.some((shot) => shot.id === selectedShotId)) clearShots();
+  }, [clearShots, selectedShotId, storyboard]);
 
   const createShot = useMutation({
     mutationFn: () => api.post<Shot>(`/scenes/${sceneId}/shots`, { shot_type: "medium" }),
@@ -63,8 +69,6 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
 
   const handleSelect = (shotId: string) => {
     selectShot(shotId);
-    setActiveShot(shotId);
-    setRightPanelTab("inspector");
   };
 
   const totalDuration = storyboard?.shots.reduce((sum, shot) => sum + (shot.duration ?? 0), 0) ?? 0;
@@ -138,7 +142,10 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
           selectedShotId={selectedShotId}
           onSelect={handleSelect}
           onOpenShot={(shot) => {
-            if (projectId) openShot({ projectId, shotId: shot.id, title: `Shot ${String(shot.shot_number).padStart(3, "0")}`, sceneId });
+            if (projectId && episodeId) {
+              openShot({ projectId, episodeId, shotId: shot.id, title: `Shot ${String(shot.shot_number).padStart(3, "0")}`, sceneId });
+              navigate(canonicalShotPath(projectId, episodeId, sceneId, shot.id));
+            }
           }}
         />
       )}

@@ -16,8 +16,8 @@ import {
 } from "../lib/editorTabs";
 
 interface EditorTabsStore extends EditorTabsState {
-  openScene: (input: { projectId: string; sceneId: string; title: string }) => void;
-  openShot: (input: { projectId: string; shotId: string; title: string; sceneId?: string }) => void;
+  openScene: (input: { projectId: string; episodeId?: string; sceneId: string; title: string }) => void;
+  openShot: (input: { projectId: string; episodeId?: string; shotId: string; title: string; sceneId?: string }) => void;
   activateTab: (id: string) => void;
   closeTab: (id: string) => void;
   restore: (open: EditorTab[] | undefined, activeTabId: string | null | undefined) => void;

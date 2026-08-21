@@ -23,9 +23,8 @@ function memoryStorage(initial: Record<string, string> = {}): StorageLike & { da
 
 function snapshotOverrides(partial: Record<string, unknown>): string {
   const base = {
-    version: 1,
+    schemaVersion: 2,
     layout: DEFAULT_LAYOUT,
-    selection: { shotIds: [] },
     tabs: { activeTabId: "script", open: [{ id: "script", kind: "script", title: "剧本" }] },
   };
   return JSON.stringify({ ...base, ...partial });
@@ -35,19 +34,17 @@ describe("persistence — save/load round trip", () => {
   it("saves and reloads the snapshot", () => {
     const storage = memoryStorage();
     const snap = {
-      version: 1 as const,
+      schemaVersion: 2 as const,
       layout: { ...DEFAULT_LAYOUT, explorerWidth: 250, rightWidth: 420, bottomDockHeight: 300, explorerCollapsed: true, bottomDockExpanded: true },
-      selection: { projectId: "p1", episodeId: "e1", sceneId: "s1", shotIds: ["shot_1"] },
-      tabs: { activeTabId: "scene:s1", open: [{ id: "script", kind: "script", title: "剧本" }, { id: "scene:s1", kind: "scene", title: "Scene 1", sceneId: "s1" }] as TabState[] },
+      tabs: { activeTabId: "scene:s1", open: [{ id: "script", kind: "script", title: "剧本" }, { id: "scene:s1", kind: "scene", title: "Scene 1", sceneId: "s1", episodeId: "e1" }] as TabState[] },
     };
     expect(saveWorkspace(snap, storage)).toBe(true);
     const loaded = loadWorkspace(storage);
     expect(loaded).not.toBeNull();
+    if (!loaded || loaded.schemaVersion !== 2) throw new Error("expected v2 workspace snapshot");
     expect(loaded!.layout.explorerWidth).toBe(250);
     expect(loaded!.layout.rightWidth).toBe(420);
     expect(loaded!.layout.explorerCollapsed).toBe(true);
-    expect(loaded!.selection.projectId).toBe("p1");
-    expect(loaded!.selection.shotIds).toEqual(["shot_1"]);
     expect(loaded!.tabs.open).toHaveLength(2);
   });
   it("loadWorkspace returns null when empty", () => {
@@ -71,9 +68,16 @@ describe("persistence — parse / sanitize", () => {
     expect(parsed!.layout.rightWidth).toBe(PB.right.max);
     expect(parsed!.layout.bottomDockHeight).toBe(PB.bottom.min);
   });
-  it("rejects unknown versions", () => {
-    const raw = snapshotOverrides({ version: 2 });
+  it("rejects unknown schema versions", () => {
+    const raw = snapshotOverrides({ schemaVersion: 3 });
     expect(parseWorkspace(raw)).toBeNull();
+  });
+  it("keeps only layout when reading the v1 workspace snapshot", () => {
+    const raw = JSON.stringify({ version: 1, layout: { ...DEFAULT_LAYOUT, explorerWidth: 260 }, selection: { shotIds: ["stale"] }, tabs: { activeTabId: "scene:stale", open: [] } });
+    const parsed = parseWorkspace(raw);
+    expect(parsed?.schemaVersion).toBe(1);
+    expect(parsed?.layout.explorerWidth).toBe(260);
+    expect(parsed && "tabs" in parsed).toBe(false);
   });
   it("rejects non-object payloads", () => {
     expect(parseWorkspace("42")).toBeNull();
@@ -84,6 +88,8 @@ describe("persistence — parse / sanitize", () => {
       tabs: { activeTabId: "scene:bad", open: [{ id: "script", kind: "script", title: "剧本" }, 7, null, { id: "shot:1", kind: "shot", title: "Shot" }] },
     });
     const parsed = parseWorkspace(raw)!;
+    expect(parsed.schemaVersion).toBe(2);
+    if (parsed.schemaVersion !== 2) throw new Error("expected v2 workspace snapshot");
     expect(parsed.tabs.open.every((t) => typeof t.id === "string")).toBe(true);
     expect(parsed.tabs.open.some((t) => t.kind === "shot")).toBe(true);
   });

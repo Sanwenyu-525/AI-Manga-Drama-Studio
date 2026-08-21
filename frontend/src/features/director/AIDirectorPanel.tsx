@@ -7,11 +7,11 @@ import { Check, Circle, CaretLineRight, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { useAgentStore } from "../../stores/agentStore";
-import { useSelectionStore } from "../../stores/selectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import type { AgentRunRead } from "../../api/types";
 import { isWaitingHuman } from "../../lib/agentProposals";
 import { ProposalReview } from "./ProposalReview";
+import { useDirectorContext } from "./useDirectorContext";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "待命",
@@ -28,7 +28,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function AIDirectorPanel() {
-  const selection = useSelectionStore((s) => s.selection);
+  const context = useDirectorContext();
   const setRightPanelTab = useWorkspaceStore((s) => s.setRightPanelTab);
   const setRightPanelCollapsed = useWorkspaceStore((s) => s.setRightPanelCollapsed);
   const agent = useAgentStore();
@@ -46,16 +46,9 @@ export function AIDirectorPanel() {
   const submitRun = useMutation({
     mutationFn: (message: string) =>
       api.post<AgentRunRead>("/agent/director/runs", {
-        project_id: selection.projectId,
+        project_id: context.project_id,
         message,
-        selection: {
-          workspace: selection.workspace,
-          project_id: selection.projectId,
-          episode_id: selection.episodeId,
-          scene_id: selection.sceneId,
-          shot_ids: selection.shotIds,
-          asset_ids: selection.assetIds,
-        },
+        selection: context,
       }),
     onSuccess: (run) => {
       agent.startRun(run.id, input);
@@ -91,8 +84,8 @@ export function AIDirectorPanel() {
         {/* selection context (frontend-ux §16, §46) */}
         <div className="director-context">
           <span className="muted small">
-            当前：{selection.sceneId ? `Scene ${selection.sceneId.slice(-4)}` : "无场景"} ·{" "}
-            {selection.shotIds.length > 0 ? `${selection.shotIds.length} 个镜头选中` : "未选中镜头"}
+            当前：{context.scene_id ? `Scene ${context.scene_id.slice(-4)}` : "无场景"} ·{" "}
+            {context.shot_ids.length > 0 ? `${context.shot_ids.length} 个镜头选中` : context.asset_ids.length > 0 ? `${context.asset_ids.length} 个素材选中` : "未选中对象"}
           </span>
           <span className={`agent-status ${waitingHuman ? "waiting_human" : agent.status}`}>
             {STATUS_LABELS[waitingHuman ? "WAITING_HUMAN" : agent.status] ?? agent.status}

@@ -3,7 +3,7 @@
 // the server-side project assets (GET /projects/{id}/assets, parallel backend task;
 // {total, items}, type filter param). The inspector pulls the asset detail from
 // GET /assets/{id} and reuses ProvenancePanel for the deep-dive drawer.
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, ImageSquare, FileImage, TreeStructure, VideoCamera, UsersThree, MapPin, SquaresFour, X, Star } from "@phosphor-icons/react";
 import { api } from "../../api/client";
@@ -11,6 +11,7 @@ import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { queryKeys } from "../../api/queryKeys";
 import { ProvenancePanel } from "../provenance/ProvenancePanel";
 import type { AssetRead } from "../../api/types";
+import { useSelectionStore } from "../../stores/selectionStore";
 import { useProjectAssetLibrary, type AssetSource } from "./useProjectAssetLibrary";
 
 type TypeFilter = "all" | "image" | "video" | "storyboard" | "character" | "location";
@@ -34,6 +35,13 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
   const [filter, setFilter] = useState<TypeFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [provenanceOpen, setProvenanceOpen] = useState(false);
+  const selectAsset = useSelectionStore((state) => state.selectAsset);
+  const clearAssets = useSelectionStore((state) => state.clearAssets);
+
+  useEffect(() => {
+    clearAssets();
+    return clearAssets;
+  }, [clearAssets]);
 
   // Pass image/video to the server as the type filter; source groups refine client-side.
   const hookFilter = filter === "image" || filter === "video" ? filter : "all";
@@ -49,6 +57,13 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
   }, [assets, filter]);
 
   const selected = assets.find((a) => a.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (selectedId && !assets.some((asset) => asset.id === selectedId)) {
+      setSelectedId(null);
+      clearAssets();
+    }
+  }, [assets, clearAssets, selectedId]);
 
   return (
     <div className="asset-browser">
@@ -88,7 +103,7 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
             <button
               key={item.id}
               className={"asset-card" + (item.id === selectedId ? " selected" : "")}
-              onClick={() => { setSelectedId(item.id); setProvenanceOpen(false); }}
+              onClick={() => { setSelectedId(item.id); selectAsset(item.id); setProvenanceOpen(false); }}
               title={item.label + (item.versionNumber ? " · V" + item.versionNumber : "")}
             >
               <img loading="lazy" src={`/api/v1/assets/${item.id}/thumbnail`} alt={`资产 ${item.label}`} />
@@ -101,7 +116,7 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
       )}
 
       {selected && (
-        <AssetInspector entry={selected} open={provenanceOpen} onToggleProvenance={() => setProvenanceOpen((o) => !o)} onClose={() => setProvenanceOpen(false)} onDismiss={() => setSelectedId(null)} />
+        <AssetInspector entry={selected} open={provenanceOpen} onToggleProvenance={() => setProvenanceOpen((o) => !o)} onClose={() => setProvenanceOpen(false)} onDismiss={() => { setSelectedId(null); clearAssets(); }} />
       )}
     </div>
   );

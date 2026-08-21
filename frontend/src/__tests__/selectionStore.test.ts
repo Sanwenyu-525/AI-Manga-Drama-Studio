@@ -2,38 +2,23 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useSelectionStore } from "../stores/selectionStore";
 
-beforeEach(() => useSelectionStore.setState({ selection: { shotIds: [], assetIds: [], workspace: "storyboard" } }));
+beforeEach(() => useSelectionStore.setState({ selection: { shotIds: [], assetIds: [] } }));
 
 describe("selectionStore", () => {
-  it("selecting a scene clears shot ids", () => {
+  it("selecting an asset and shot keeps only transient ids", () => {
     useSelectionStore.getState().selectShot("shot_1");
     expect(useSelectionStore.getState().selection.shotIds).toEqual(["shot_1"]);
-    useSelectionStore.getState().setScene("scene_9");
-    expect(useSelectionStore.getState().selection.shotIds).toEqual([]);
-    expect(useSelectionStore.getState().selection.sceneId).toBe("scene_9");
+    useSelectionStore.getState().selectAsset("asset_1");
+    expect(useSelectionStore.getState().selection.assetIds).toEqual(["asset_1"]);
   });
 
-  it("switching project resets episode/scene/shot scope", () => {
-    useSelectionStore.getState().setProject("p1");
-    useSelectionStore.getState().setEpisode("e1");
+  it("clears shot and asset selection independently", () => {
     useSelectionStore.getState().selectShot("s1");
-    useSelectionStore.getState().setProject("p2");
-    const sel = useSelectionStore.getState().selection;
-    expect(sel.projectId).toBe("p2");
-    expect(sel.episodeId).toBeUndefined();
-    expect(sel.sceneId).toBeUndefined();
-    expect(sel.shotIds).toEqual([]);
-  });
-
-  it("clearScene clears scene + shot selection but keeps episode context", () => {
-    useSelectionStore.getState().setProject("p1");
-    useSelectionStore.getState().setEpisode("e1");
-    useSelectionStore.getState().setScene("scene_9");
-    useSelectionStore.getState().selectShot("shot_1");
-    useSelectionStore.getState().clearScene();
-    const sel = useSelectionStore.getState().selection;
-    expect(sel.episodeId).toBe("e1");
-    expect(sel.sceneId).toBeUndefined();
-    expect(sel.shotIds).toEqual([]);
+    useSelectionStore.getState().selectAsset("a1");
+    useSelectionStore.getState().clearShots();
+    expect(useSelectionStore.getState().selection.shotIds).toEqual([]);
+    expect(useSelectionStore.getState().selection.assetIds).toEqual(["a1"]);
+    useSelectionStore.getState().clearAssets();
+    expect(useSelectionStore.getState().selection.assetIds).toEqual([]);
   });
 });

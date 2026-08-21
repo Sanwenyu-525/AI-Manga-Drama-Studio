@@ -5,7 +5,16 @@ import { NewProjectPage } from "../features/project/NewProjectPage";
 import { AssetsPage } from "../features/assets/AssetsPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { WorkflowsPage } from "../features/workflows/WorkflowsPage";
-import { StudioPage, ScriptWorkspace, StoryboardWorkspace, AssetWorkspace, TimelineWorkspace } from "../features/studio/StudioPage";
+import {
+  StudioPage,
+  ScriptWorkspace,
+  StoryboardWorkspace,
+  ShotDetailWorkspace,
+  AssetWorkspace,
+  TimelineWorkspace,
+  LegacyEpisodeRoute,
+  LegacyStoryboardRoute,
+} from "../features/studio/StudioPage";
 import { VersionReviewPage } from "../features/storyboard/VersionReviewPage";
 import { NotFoundPage } from "../components/NotFoundPage";
 
@@ -35,13 +44,17 @@ export const router = createBrowserRouter([
         path: "/projects/:projectId",
         element: <StudioPage />,
         children: [
-          // The studio workspace is URL-driven: /script, /storyboard/:sceneId and
-          // /assets are the real views. The bare index redirects to the default one.
+          // Canonical routes are episode-aware; tabs only mirror these URLs.
           { index: true, element: <Navigate to="script" replace /> },
-          { path: "script", element: <ScriptWorkspace /> },
-          { path: "storyboard/:sceneId", element: <StoryboardWorkspace /> },
+          { path: "episodes/:episodeId/script", element: <ScriptWorkspace /> },
+          { path: "episodes/:episodeId/scenes/:sceneId/storyboard", element: <StoryboardWorkspace /> },
+          { path: "episodes/:episodeId/scenes/:sceneId/shots/:shotId", element: <ShotDetailWorkspace /> },
+          { path: "episodes/:episodeId/timeline", element: <TimelineWorkspace /> },
           { path: "assets", element: <AssetWorkspace /> },
-          { path: "timeline", element: <TimelineWorkspace /> },
+          // Legacy routes only resolve and redirect; they do not write Selection state.
+          { path: "script", element: <LegacyEpisodeRoute workspace="script" /> },
+          { path: "storyboard/:sceneId", element: <LegacyStoryboardRoute /> },
+          { path: "timeline", element: <LegacyEpisodeRoute workspace="timeline" /> },
         ],
       },
       {

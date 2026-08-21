@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as client from "../api/client";
 import { AIDirectorPanel } from "../features/director/AIDirectorPanel";
 import { useAgentStore } from "../stores/agentStore";
+import { MemoryRouter } from "react-router-dom";
 
 function wrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -22,7 +23,7 @@ describe("AIDirectorPanel (WAITING_HUMAN)", () => {
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { W } = wrapper();
-    render(<AIDirectorPanel />, { wrapper: W });
+    render(<MemoryRouter initialEntries={["/projects/p1/episodes/e1/script"]}><AIDirectorPanel /></MemoryRouter>, { wrapper: W });
     // badge: agent-status shows 等待审批 (normalized from store waiting_human)
     expect(await screen.findByText("等待审批")).toBeTruthy();
     // panel hint text is present
@@ -37,7 +38,7 @@ describe("AIDirectorPanel (WAITING_HUMAN)", () => {
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { W } = wrapper();
-    render(<AIDirectorPanel />, { wrapper: W });
+    render(<MemoryRouter initialEntries={["/projects/p1/episodes/e1/script"]}><AIDirectorPanel /></MemoryRouter>, { wrapper: W });
     expect(await screen.findByText("待审批 Proposal")).toBeTruthy();
     expect(await screen.findByText("修改镜头")).toBeTruthy();
   });

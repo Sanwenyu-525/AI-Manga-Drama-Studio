@@ -6,7 +6,8 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { deriveVersionBadges, latestPerGroup } from "../versioning/VersionStrip";
-import type { AssetVersionRead, Project, Shot } from "../../api/types";
+import type { AssetVersionRead, Project, Scene, Shot } from "../../api/types";
+import { canonicalStoryboardPath } from "../studio/studioRoute";
 
 export function VersionReviewPage() {
   const { projectId = "", shotId = "" } = useParams();
@@ -19,6 +20,7 @@ export function VersionReviewPage() {
 
   const { data: project } = useQuery({ queryKey: queryKeys.project(projectId), queryFn: () => api.get<Project>(`/projects/${projectId}`) });
   const { data: shot } = useQuery({ queryKey: queryKeys.shot(shotId), queryFn: () => api.get<Shot>(`/shots/${shotId}`) });
+  const { data: scene } = useQuery({ queryKey: shot?.scene_id ? queryKeys.scene(shot.scene_id) : ["scene", "none"], queryFn: () => api.get<Scene>(`/scenes/${shot!.scene_id}`), enabled: Boolean(shot?.scene_id) });
   const { data: versions, isLoading } = useQuery({ queryKey: ["versions", shotId], queryFn: () => api.get<AssetVersionRead[]>(`/shots/${shotId}/versions`) });
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export function VersionReviewPage() {
   const newestByGroup = latestPerGroup(versions ?? []);
   // Back to the shot's own storyboard scene (URL-driven), not just the project root.
   const backToStoryboard = shot?.scene_id
-    ? `/projects/${projectId}/storyboard/${shot.scene_id}`
+    ? scene?.episode_id ? canonicalStoryboardPath(projectId, scene.episode_id, shot.scene_id) : `/projects/${projectId}/storyboard/${shot.scene_id}`
     : `/projects/${projectId}`;
 
   return (

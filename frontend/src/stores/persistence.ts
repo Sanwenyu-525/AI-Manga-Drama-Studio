@@ -8,10 +8,10 @@ import {
   loadWorkspace,
   saveWorkspace,
   sanitizeLayout,
+  type ParsedWorkspaceSnapshot,
   type WorkspaceSnapshot,
 } from "../lib/persistence";
 import { useWorkspaceStore } from "./workspaceStore";
-import { useSelectionStore } from "./selectionStore";
 import { useEditorTabsStore } from "./editorTabsStore";
 
 const SAVE_DEBOUNCE_MS = 250;
@@ -25,14 +25,14 @@ function defaultStorage(): Storage | null {
 }
 
 /** Read a snapshot off the provided storage (defaults to window.localStorage). */
-export function hydrateWorkspace(storage?: Storage | null): WorkspaceSnapshot | null {
+export function hydrateWorkspace(storage?: Storage | null): ParsedWorkspaceSnapshot | null {
   const target = storage ?? defaultStorage();
   if (!target) return null;
   return loadWorkspace(target);
 }
 
-/** Apply a persisted snapshot to the stores (layout + selection + tabs). */
-export function applyWorkspace(snapshot: WorkspaceSnapshot | null) {
+/** Apply a persisted snapshot to the stores (layout + safe v2 tabs only). */
+export function applyWorkspace(snapshot: ParsedWorkspaceSnapshot | null) {
   if (!snapshot) return;
   const layout = sanitizeLayout(snapshot.layout);
   useWorkspaceStore.setState({
@@ -44,30 +44,20 @@ export function applyWorkspace(snapshot: WorkspaceSnapshot | null) {
     bottomDockExpanded: layout.bottomDockExpanded,
     rightPanelTab: layout.rightPanelTab,
     bottomDockTab: layout.bottomDockTab,
-    activeShotId: snapshot.selection.shotIds[0] ?? null,
   });
-  if (snapshot.selection.projectId) {
-    useSelectionStore.getState().setProject(snapshot.selection.projectId);
+  if (snapshot.schemaVersion === 2) {
+    useEditorTabsStore.getState().restore(snapshot.tabs.open, snapshot.tabs.activeTabId);
+  } else {
+    useEditorTabsStore.getState().restore(undefined, undefined);
   }
-  if (snapshot.selection.episodeId) {
-    useSelectionStore.getState().setEpisode(snapshot.selection.episodeId);
-  }
-  if (snapshot.selection.sceneId) {
-    useSelectionStore.getState().setScene(snapshot.selection.sceneId);
-  }
-  if (snapshot.selection.shotIds.length) {
-    useSelectionStore.setState({ selection: { ...useSelectionStore.getState().selection, shotIds: snapshot.selection.shotIds } });
-  }
-  useEditorTabsStore.getState().restore(snapshot.tabs.open, snapshot.tabs.activeTabId);
 }
 
 /** Build the current snapshot from the stores. */
 export function collectSnapshot(): WorkspaceSnapshot {
   const ws = useWorkspaceStore.getState();
-  const sel = useSelectionStore.getState().selection;
   const tabs = useEditorTabsStore.getState();
   return {
-    version: 1,
+    schemaVersion: 2,
     layout: {
       explorerWidth: ws.explorerWidth,
       rightWidth: ws.rightWidth,
@@ -77,12 +67,6 @@ export function collectSnapshot(): WorkspaceSnapshot {
       bottomDockExpanded: ws.bottomDockExpanded,
       rightPanelTab: ws.rightPanelTab,
       bottomDockTab: ws.bottomDockTab,
-    },
-    selection: {
-      projectId: sel.projectId,
-      episodeId: sel.episodeId,
-      sceneId: sel.sceneId,
-      shotIds: sel.shotIds,
     },
     tabs: { activeTabId: tabs.activeTabId ?? "script", open: tabs.open },
   };
@@ -107,12 +91,10 @@ export function attachWorkspacePersistence(storage?: Storage): () => void {
   if (attached && !storage) return () => {};
   const saver = makeSaver(target);
   const unsubWorkspace = useWorkspaceStore.subscribe(() => saver.saveNow());
-  const unsubSelection = useSelectionStore.subscribe(() => saver.saveNow());
   const unsubTabs = useEditorTabsStore.subscribe(() => saver.saveNow());
   attached = true;
   return () => {
     unsubWorkspace();
-    unsubSelection();
     unsubTabs();
     saver.cancel();
     attached = false;

@@ -1,11 +1,10 @@
-// P6-T003 Workspace Persistence — save/restore UI workspace state to localStorage.
-// frontend-ux-design §92-93: layout + selection + open tabs are *User Workspace
-// State*, kept in local app settings (not Project DB). Key: studio-workspace-v1.
-// We only persist small, non-sensitive IDs and sizes — never server payloads.
+// Workspace Persistence — save/restore local UI layout and tab metadata.
+// Route entities and temporary Shot/Asset selection are intentionally not persisted.
 
 import { PANEL_BOUNDS, clampPanelSize, type PanelId } from "./panels";
 
 export const WORKSPACE_STORAGE_KEY = "studio-workspace-v1";
+export const WORKSPACE_SCHEMA_VERSION = 2 as const;
 
 export interface LayoutState {
   explorerWidth: number;
@@ -18,28 +17,28 @@ export interface LayoutState {
   bottomDockTab: "queue" | "history" | "jobs";
 }
 
-export interface SelectionState {
-  projectId?: string;
-  episodeId?: string;
-  sceneId?: string;
-  shotIds: string[];
-}
-
 export interface TabState {
   id: string;
   kind: "script" | "scene" | "shot";
   title: string;
   sceneId?: string;
   shotId?: string;
+  episodeId?: string;
   projectId?: string;
 }
 
 export interface WorkspaceSnapshot {
-  version: 1;
+  schemaVersion: typeof WORKSPACE_SCHEMA_VERSION;
   layout: LayoutState;
-  selection: SelectionState;
   tabs: { activeTabId: string; open: TabState[] };
 }
+
+export interface LegacyWorkspaceSnapshot {
+  schemaVersion: 1;
+  layout: LayoutState;
+}
+
+export type ParsedWorkspaceSnapshot = WorkspaceSnapshot | LegacyWorkspaceSnapshot;
 
 export const DEFAULT_LAYOUT: LayoutState = {
   explorerWidth: PANEL_BOUNDS.explorer.max - 100, // 300 matches the current shell default
@@ -69,27 +68,24 @@ export function sanitizeLayout(raw: Partial<LayoutState> | undefined): LayoutSta
 }
 
 /** Parse a persisted snapshot, tolerating corrupt/missing data. Returns null when unusable. */
-export function parseWorkspace(raw: string | null): WorkspaceSnapshot | null {
+export function parseWorkspace(raw: string | null): ParsedWorkspaceSnapshot | null {
   if (!raw) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
-    const obj = parsed as { version?: unknown; layout?: unknown; selection?: unknown; tabs?: unknown };
-    if (obj.version !== 1) return null;
+    const obj = parsed as { schemaVersion?: unknown; version?: unknown; layout?: unknown; tabs?: unknown };
     const layout = sanitizeLayout(obj.layout as Partial<LayoutState> | undefined);
-    const sel = (obj.selection ?? { shotIds: [] }) as Partial<SelectionState>;
+    if (obj.schemaVersion !== WORKSPACE_SCHEMA_VERSION) {
+      // v1 snapshots may still contain safe panel dimensions, but their active
+      // tab/selection must not override the URL after the R1 migration.
+      return obj.version === 1 ? { schemaVersion: 1, layout } : null;
+    }
     const tabBlock = obj.tabs as { activeTabId?: unknown; open?: unknown } | undefined;
     const open = Array.isArray(tabBlock?.open) ? (tabBlock.open as TabState[]).filter(isTabState) : [];
     const activeTabId = typeof tabBlock?.activeTabId === "string" ? tabBlock.activeTabId : (open[0]?.id ?? "script");
     return {
-      version: 1,
+      schemaVersion: WORKSPACE_SCHEMA_VERSION,
       layout,
-      selection: {
-        projectId: typeof sel.projectId === "string" ? sel.projectId : undefined,
-        episodeId: typeof sel.episodeId === "string" ? sel.episodeId : undefined,
-        sceneId: typeof sel.sceneId === "string" ? sel.sceneId : undefined,
-        shotIds: Array.isArray(sel.shotIds) ? sel.shotIds.filter((s): s is string => typeof s === "string") : [],
-      },
       tabs: { activeTabId, open },
     };
   } catch {
@@ -109,7 +105,7 @@ export interface StorageLike {
 }
 
 /** Load + parse the persisted snapshot (returns null when empty/corrupt). */
-export function loadWorkspace(storage: StorageLike): WorkspaceSnapshot | null {
+export function loadWorkspace(storage: StorageLike): ParsedWorkspaceSnapshot | null {
   try {
     return parseWorkspace(storage.getItem(WORKSPACE_STORAGE_KEY));
   } catch {

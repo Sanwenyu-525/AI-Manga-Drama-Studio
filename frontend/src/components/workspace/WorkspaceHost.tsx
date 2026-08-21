@@ -1,15 +1,13 @@
-// P6-T004 Editor Tabs — WorkspaceHost renders the active tab's content in the center.
-// Tabs: `script` (EpisodePanel), `scene` (StoryboardView), `shot` (ShotInspector,
-// center variant). The base script tab preserves the existing single-view behavior;
-// extra scene/shot tabs are the enhancement layer on top of the URL-driven shell.
+// P6-T004 Editor Tabs — WorkspaceHost renders the URL-selected content in the center.
+// Tabs mirror navigable script/scene/shot URLs; they do not choose a second center view.
 
 import { FilmStrip, SquaresFour } from "@phosphor-icons/react";
 import type { Episode } from "../../api/types";
-import { useEditorTabsStore } from "../../stores/editorTabsStore";
 import { EpisodePanel } from "../../features/script/EpisodePanel";
 import { StoryboardView } from "../../features/storyboard/StoryboardView";
 import { ShotInspector } from "../../features/storyboard/ShotInspector";
 import { EditorTabsBar } from "./EditorTabsBar";
+import { useStudioRoute } from "../../features/studio/studioRoute";
 
 interface WorkspaceHostProps {
   projectId: string;
@@ -19,19 +17,12 @@ interface WorkspaceHostProps {
 }
 
 export function WorkspaceHost({ activeEpisode, onScenesCreated }: WorkspaceHostProps) {
-  const open = useEditorTabsStore((s) => s.open);
-  const activeTabId = useEditorTabsStore((s) => s.activeTabId);
-  const active = open.find((t) => t.id === activeTabId) ?? open[0];
+  const route = useStudioRoute();
 
   let body: React.ReactNode;
-  if (!active || active.kind === "script") {
-    body = scriptBody(activeEpisode, onScenesCreated);
-  } else if (active.kind === "scene") {
-    body = active.sceneId ? <StoryboardView sceneId={active.sceneId} /> : scriptBody(activeEpisode, onScenesCreated);
-  } else {
-    // shot tab → full-bleed ShotInspector detail in the center
-    body = <ShotInspector variant="center" />;
-  }
+  if (route.workspace === "storyboard" && route.sceneId) body = <StoryboardView sceneId={route.sceneId} />;
+  else if (route.workspace === "shot") body = <ShotInspector variant="center" />;
+  else body = scriptBody(activeEpisode, onScenesCreated);
 
   return (
     <div className="workspace-host">

@@ -7,8 +7,6 @@ import { PANEL_BOUNDS, clampPanelSize, type PanelId } from "../lib/panels";
 import { DEFAULT_LAYOUT } from "../lib/persistence";
 
 interface WorkspaceState {
-  activeShotId: string | null;
-  setActiveShot: (shotId: string | null) => void;
   rightPanelTab: "inspector" | "director";
   setRightPanelTab: (tab: "inspector" | "director") => void;
   bottomDockTab: "queue" | "history" | "jobs";
@@ -29,8 +27,6 @@ interface WorkspaceState {
 const d = DEFAULT_LAYOUT;
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
-  activeShotId: null,
-  setActiveShot: (shotId) => set({ activeShotId: shotId }),
   rightPanelTab: "inspector",
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
   bottomDockTab: "queue",

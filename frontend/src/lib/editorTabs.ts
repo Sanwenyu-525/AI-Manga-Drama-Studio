@@ -12,6 +12,7 @@ export interface EditorTab {
   title: string;
   sceneId?: string;
   shotId?: string;
+  episodeId?: string;
   projectId?: string;
 }
 
@@ -47,25 +48,27 @@ function upsert(open: EditorTab[], tab: EditorTab): EditorTab[] {
 }
 
 /* Open (create-or-activate) a scene tab. Returns a brand-new state object. */
-export function openSceneTab(state: EditorTabsState, input: { projectId: string; sceneId: string; title: string }): EditorTabsState {
+export function openSceneTab(state: EditorTabsState, input: { projectId: string; episodeId?: string; sceneId: string; title: string }): EditorTabsState {
   const tab: EditorTab = {
     id: tabId("scene", input.sceneId),
     kind: "scene",
     title: input.title,
     sceneId: input.sceneId,
+    episodeId: input.episodeId,
     projectId: input.projectId,
   };
   return { open: upsert(state.open, tab), activeTabId: tab.id };
 }
 
 /* Open (create-or-activate) a shot detail tab. */
-export function openShotTab(state: EditorTabsState, input: { projectId: string; shotId: string; title: string; sceneId?: string }): EditorTabsState {
+export function openShotTab(state: EditorTabsState, input: { projectId: string; episodeId?: string; shotId: string; title: string; sceneId?: string }): EditorTabsState {
   const tab: EditorTab = {
     id: tabId("shot", input.shotId),
     kind: "shot",
     title: input.title,
     shotId: input.shotId,
     sceneId: input.sceneId,
+    episodeId: input.episodeId,
     projectId: input.projectId,
   };
   return { open: upsert(state.open, tab), activeTabId: tab.id };

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CaretDown, CaretLineLeft, CaretRight, Check, FilmStrip, FolderOpen, ImageSquare, MapPin, PencilSimple, Plus, SlidersHorizontal, Star, Trash, UsersThree, X } from "@phosphor-icons/react";
 import { ProjectSettingsModal } from "../settings/ProjectSettingsModal";
@@ -16,15 +16,13 @@ import type {
   Scene,
   SceneUpdateRequest,
 } from "../../api/types";
-import { useSelectionStore } from "../../stores/selectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { canonicalScriptPath, canonicalStoryboardPath, useStudioRoute } from "./studioRoute";
 
 export function ProjectExplorer({ projectId, onCollapse }: { projectId: string; onCollapse: () => void }) {
   const setExplorerCollapsed = useWorkspaceStore((state) => state.setExplorerCollapsed);
   const navigate = useNavigate();
-  const selection = useSelectionStore((state) => state.selection);
-  const setEpisode = useSelectionStore((state) => state.setEpisode);
-  const setScene = useSelectionStore((state) => state.setScene);
+  const route = useStudioRoute();
   const queryClient = useQueryClient();
   // 剧集树的展开/收起是 UI 状态，与选中解耦：再次点击已展开的剧集即可收起。
   const [expandedEpisodeId, setExpandedEpisodeId] = useState<string | null>(null);
@@ -33,14 +31,11 @@ export function ProjectExplorer({ projectId, onCollapse }: { projectId: string; 
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const openScript = (episodeId: string) => {
-    setEpisode(episodeId); // keep selection context for the AI Director
-    navigate(`/projects/${projectId}/script`);
+    navigate(canonicalScriptPath(projectId, episodeId));
   };
 
-  const openStoryboard = (sceneId: string, episodeId?: string) => {
-    if (episodeId) setEpisode(episodeId); // scene belongs to this episode
-    setScene(sceneId); // keep selection context for the AI Director
-    navigate(`/projects/${projectId}/storyboard/${sceneId}`);
+  const openStoryboard = (sceneId: string, episodeId: string) => {
+    navigate(canonicalStoryboardPath(projectId, episodeId, sceneId));
   };
 
   const toggleEpisode = (episode: Episode) => {
@@ -94,7 +89,7 @@ export function ProjectExplorer({ projectId, onCollapse }: { projectId: string; 
       void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(projectId) });
       if (expandedEpisodeId === deleteEpisode.variables) setExpandedEpisodeId(null);
       // 若被删剧集是当前选中 → 落到第一个剩余剧集
-      if (selection.episodeId === deleteEpisode.variables) {
+      if (route.episodeId === deleteEpisode.variables) {
         const remaining = (episodes ?? []).filter((e) => e.id !== deleteEpisode.variables);
         if (remaining[0]) openScript(remaining[0].id);
       }
@@ -500,11 +495,8 @@ function EpisodeScenes({
   onCreateScene: () => void;
 }) {
   const navigate = useNavigate();
-  const location = useLocation();
   const queryClient = useQueryClient();
-  const selection = useSelectionStore((state) => state.selection);
-  const setEpisode = useSelectionStore((state) => state.setEpisode);
-  const setScene = useSelectionStore((state) => state.setScene);
+  const route = useStudioRoute();
   const [renamingSceneId, setRenamingSceneId] = useState<string | null>(null);
   const [sceneNameValue, setSceneNameValue] = useState("");
   const { data: scenes } = useQuery({
@@ -513,9 +505,7 @@ function EpisodeScenes({
   });
 
   const openScene = (scene: Scene) => {
-    setEpisode(scene.episode_id); // scene belongs to this episode
-    setScene(scene.id); // keep selection context for the AI Director
-    navigate(`/projects/${projectId}/storyboard/${scene.id}`);
+    navigate(canonicalStoryboardPath(projectId, scene.episode_id, scene.id));
   };
 
   const renameScene = useMutation({
@@ -540,8 +530,8 @@ function EpisodeScenes({
       void queryClient.invalidateQueries({ queryKey: queryKeys.scenes(episode.id) });
       void queryClient.invalidateQueries({ queryKey: ["scenes"] });
       // 若删除的是当前打开的 Storyboard 场景 → 返回剧本视图
-      if (location.pathname.includes(`/storyboard/${sceneId}`)) {
-        navigate(`/projects/${projectId}/script`);
+      if (route.sceneId === sceneId && route.workspace === "storyboard") {
+        navigate(canonicalScriptPath(projectId, episode.id));
       }
     },
   });
@@ -572,7 +562,7 @@ function EpisodeScenes({
             </div>
           ) : (
             <div className="tree-row-wrap">
-              <button className={"tree-row child " + (selection.sceneId === scene.id ? "active" : "")} onClick={() => openScene(scene)}>
+              <button className={"tree-row child " + (route.sceneId === scene.id ? "active" : "")} onClick={() => openScene(scene)}>
                 <ImageSquare size={15} />
                 <span className="tree-label">SC{String(scene.scene_number).padStart(2, "0")} · {scene.name ?? "场景"}</span>
                 <span className="tree-count">{scene.shot_count}</span>

@@ -24,14 +24,14 @@ export function NewProjectPage() {
         fps,
         description: "AI 原生漫剧制作项目",
       });
-      if (startMode === "novel" || startMode === "script") {
-        await api.post<Episode>(`/projects/${project.id}/episodes`, { title: "第 1 集" });
-      }
-      return project;
+      const episode = startMode === "novel" || startMode === "script"
+        ? await api.post<Episode>(`/projects/${project.id}/episodes`, { title: "第 1 集" })
+        : undefined;
+      return { project, episodeId: episode?.id };
     },
-    onSuccess: (project) => {
+    onSuccess: ({ project, episodeId }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-      navigate(`/projects/${project.id}/script`);
+      navigate(episodeId ? `/projects/${project.id}/episodes/${episodeId}/script` : `/projects/${project.id}/script`);
     },
   });
 

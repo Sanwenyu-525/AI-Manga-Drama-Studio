@@ -1307,32 +1307,23 @@ Natural Language
 
 # 44. Selection Model
 
-前端需要统一 Selection Store。
+URL 是当前 Studio 工作区与实体的唯一事实源：
 
-例如：
+```text
+projectId / episodeId / sceneId / shotId / workspace
+```
+
+Selection Store 只保存当前页面的临时选择，不复制 URL 已经表达的实体：
 
 ```typescript
-interface StudioSelection {
-
-  projectId?: string
-
-  episodeId?: string
-
-  sceneId?: string
-
+interface TemporarySelection {
   shotIds: string[]
-
   assetIds: string[]
-
-  workspace: WorkspaceType
 }
 ```
 
-Agent每次请求都带：
-
-```text
-StudioSelection
-```
+进入页面、刷新或直接打开 URL 时，路由实体从 URL 恢复；Shot/Asset 的临时选择由页面交互重新建立。
+Agent 请求提交瞬间由 `useDirectorContext()` 将 URL 上下文与临时选择组装成既有 Selection DTO。
 
 ---
 
@@ -1360,7 +1351,7 @@ Agent就知道 Scope。
 
 # 46. Workspace Context
 
-AI Director应显示：
+Workspace Context 从当前 URL 派生，不能由持久化快照或 Editor Tabs 覆盖。AI Director应显示：
 
 ```text
 当前工作区
@@ -2175,9 +2166,9 @@ AppShell
 ```text
 projectStore
 
-selectionStore
+selectionStore（仅临时 Shot/Asset 选择）
 
-workspaceStore
+workspaceStore（面板、折叠状态、右侧 Tab、Bottom Dock、打开的 Editor Tabs）
 
 agentStore
 
@@ -2229,9 +2220,7 @@ TanStack Query
 Zustand负责：
 
 ```text
-当前 Workspace
-
-Selection
+临时 Selection（Shot / Asset）
 
 Panel Size
 
@@ -2241,6 +2230,9 @@ Canvas Camera
 
 Local Preferences
 ```
+
+当前 Workspace、Project、Episode、Scene、Shot Detail 均由 URL 派生，不写入 Selection Store。
+Workspace 持久化快照使用 `schemaVersion`；升级后只恢复可安全解析的面板布局，不能用旧快照的 active tab 覆盖当前 URL。
 
 ---
 
