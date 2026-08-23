@@ -60,9 +60,23 @@ export function ResizeHandle({ axis, label, onDelta, onDragEnd, disabled, varian
     [dragging, onDragEnd],
   );
 
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (disabled) return;
+      const positive = axis === "vertical" ? event.key === "ArrowRight" : event.key === "ArrowDown";
+      const negative = axis === "vertical" ? event.key === "ArrowLeft" : event.key === "ArrowUp";
+      if (!positive && !negative) return;
+      event.preventDefault();
+      onDelta(positive ? 16 : -16);
+      onDragEnd?.();
+    },
+    [axis, disabled, onDelta, onDragEnd],
+  );
+
   return (
     <div
       role="separator"
+      tabIndex={disabled ? -1 : 0}
       aria-label={label}
       aria-orientation={axis === "vertical" ? "vertical" : "horizontal"}
       aria-disabled={disabled || undefined}
@@ -71,6 +85,7 @@ export function ResizeHandle({ axis, label, onDelta, onDragEnd, disabled, varian
       onPointerMove={onPointerMove}
       onPointerUp={stop}
       onPointerCancel={stop}
+      onKeyDown={onKeyDown}
     />
   );
 }

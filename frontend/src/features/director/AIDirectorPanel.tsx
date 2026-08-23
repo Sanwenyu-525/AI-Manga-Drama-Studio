@@ -70,12 +70,12 @@ export function AIDirectorPanel() {
 
   return (
     <div className="panel-tab-content">
-      <div className="panel-tabs">
-        <button className="tab" onClick={() => setRightPanelTab("inspector")}>
+      <div className="panel-tabs" role="tablist" aria-label="右侧面板">
+        <button type="button" role="tab" aria-selected={false} className="tab" onClick={() => setRightPanelTab("inspector")}>
           Inspector
         </button>
-        <button className="tab active">AI Director</button>
-        <button type="button" className="tab panel-collapse-tab" title="收起右侧面板" aria-label="收起右侧面板" onClick={() => setRightPanelCollapsed(true)}>
+        <button type="button" role="tab" aria-selected={true} className="tab active">AI Director</button>
+        <button type="button" className="panel-collapse-tab" title="收起右侧面板" aria-label="收起右侧面板" onClick={() => setRightPanelCollapsed(true)}>
           <CaretLineRight size={15} />
         </button>
       </div>
@@ -137,6 +137,7 @@ export function AIDirectorPanel() {
         <div className="director-input">
           <input
             value={input}
+            aria-label="发送给 AI Director 的指令"
             placeholder="例如：把这个改成近景然后重新生成"
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {

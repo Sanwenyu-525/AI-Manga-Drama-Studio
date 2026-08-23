@@ -425,14 +425,14 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
 function PanelTabs({ active, onSwitch }: { active: "inspector" | "director"; onSwitch: (tab: "inspector" | "director") => void }) {
   const setRightPanelCollapsed = useWorkspaceStore((state) => state.setRightPanelCollapsed);
   return (
-    <div className="panel-tabs">
-      <button className={`tab ${active === "inspector" ? "active" : ""}`} onClick={() => onSwitch("inspector")}>
+    <div className="panel-tabs" role="tablist" aria-label="右侧面板">
+      <button type="button" role="tab" aria-selected={active === "inspector"} className={`tab ${active === "inspector" ? "active" : ""}`} onClick={() => onSwitch("inspector")}>
         镜头检查器
       </button>
-      <button className={`tab ${active === "director" ? "active" : ""}`} onClick={() => onSwitch("director")}>
+      <button type="button" role="tab" aria-selected={active === "director"} className={`tab ${active === "director" ? "active" : ""}`} onClick={() => onSwitch("director")}>
         AI Director
       </button>
-      <button type="button" className="tab panel-collapse-tab" title="收起右侧面板" aria-label="收起右侧面板" onClick={() => setRightPanelCollapsed(true)}>
+      <button type="button" className="panel-collapse-tab" title="收起右侧面板" aria-label="收起右侧面板" onClick={() => setRightPanelCollapsed(true)}>
         <CaretLineRight size={15} />
       </button>
     </div>

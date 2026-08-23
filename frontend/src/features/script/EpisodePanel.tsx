@@ -117,6 +117,7 @@ export function EpisodePanel({
           <textarea
             className="source-editor"
             value={sourceText}
+            aria-label="小说原文"
             placeholder="粘贴小说章节（1000–3000 字效果最佳）…"
             onChange={(event) => setSourceText(event.target.value)}
           />

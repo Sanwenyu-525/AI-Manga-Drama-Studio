@@ -25,6 +25,35 @@ export function EditorTabsBar() {
     if (path && path !== location.pathname) navigate(path);
   };
 
+  const activateAndNavigate = (id: string) => {
+    activateTab(id);
+    navigateToTab(id);
+  };
+
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLDivElement>, id: string) => {
+    if (event.target !== event.currentTarget) return;
+    const index = open.findIndex((tab) => tab.id === id);
+    if (index < 0) return;
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      activateAndNavigate(id);
+      return;
+    }
+
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (index + 1) % open.length;
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (index - 1 + open.length) % open.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = open.length - 1;
+    if (nextIndex !== null) {
+      event.preventDefault();
+      const nextTab = event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]')[nextIndex];
+      nextTab?.focus();
+      activateAndNavigate(open[nextIndex].id);
+    }
+  };
+
   if (open.length <= 1) return null;
 
   return (
@@ -37,11 +66,10 @@ export function EditorTabsBar() {
             key={tab.id}
             role="tab"
             aria-selected={tab.id === activeTabId}
+            tabIndex={tab.id === activeTabId ? 0 : -1}
             className={`editor-tab${tab.id === activeTabId ? " active" : ""}`}
-            onClick={() => {
-              activateTab(tab.id);
-              navigateToTab(tab.id);
-            }}
+            onClick={() => activateAndNavigate(tab.id)}
+            onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
           >
             <span className="editor-tab-title">{prefix}{tab.title}</span>
             {closable && (
