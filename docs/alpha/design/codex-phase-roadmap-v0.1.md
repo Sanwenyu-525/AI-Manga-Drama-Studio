@@ -2,6 +2,9 @@
 > 状态：**DONE（2026-08）** — P9-T001~T016 全部落地（详见 AGENTS.md「P9」条目）。
 > Timeline 域（timelines/timeline_tracks/timeline_clips + 版本绑定）、前端时间线工作台（拖拽/裁剪/替换版本/预览）、
 > Episode Render（type=render 生成队列 → RenderProvider mock/ffmpeg → FINAL_VIDEO 资产导出）。Phase 9 Gate 已验收。
+>
+> **已归档（2026-08-23）。** 本文件是 MVP→Alpha 的历史执行清单（P0–P9 全部完成），仅作追溯用途，**不再维护**。
+> 唯一的前瞻路线图请见 [docs/roadmap/](../roadmap/README.md)（Phase 1–6）。横向状态与能力现状以 [AGENTS.md](../../../AGENTS.md) 为准。
 # AI 漫剧 Studio Alpha Codex 分阶段开发任务清单 v0.1
 
 **文档状态：** Draft

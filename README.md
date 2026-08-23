@@ -2,7 +2,7 @@
 
 AI 原生漫剧制作 Studio —— 以 AI Agent 为核心交互方式，以结构化项目系统（Project State）为记忆，以 Workflow Engine 为执行系统，以 ComfyUI 和生成模型为渲染后端的 AI 原生漫剧生产平台。
 
-> 当前阶段：**MVP Stage A（Core Studio）** —— 先让软件本身会管理漫剧，再让 AI 学会操作这个软件。
+> 当前阶段：**MVP+ / Alpha 功能闭环（2026-08）** —— MVP 四阶段（A–D）与 P1–P9 全部落地：小说导入 → AI 分析 → Scene/Shot → 分镜 → AI Director 修改（审批流）→ 图片生成/版本 → 时间线排片 → 整集渲染导出。真实 LLM/ComfyUI 链路仍待实测验证，成片尚无混音与字幕。详见 [AGENTS.md](./AGENTS.md) 与 [项目现状报告](./docs/PROJECT_STATUS_AND_OPTIMIZATION.md)。
 
 ---
 
@@ -72,14 +72,32 @@ uv run pytest tests -q
 
 ---
 
-## 当前功能（Stage A）
+## 当前功能
 
-- ✅ 项目 / 剧集 / 场景 / 镜头 完整 CRUD（REST，含乐观并发 revision + 409）
-- ✅ Storyboard 卡片网格：选择镜头 → Inspector 编辑 → PATCH 保存 → 自动刷新
-- ✅ 软删除（`deleted_at`），镜头/场景删除后可恢复（恢复 API 后续）
-- ✅ `/scenes/{id}/storyboard` 聚合端点（避免 N+1）
-- ✅ 事件总线（commit 后 publish；WebSocket 网关后续阶段接入）
-- ⬜ AI 分析（Stage B）、ComfyUI 生成（Stage C）、AI Director（Stage D）
+### Core Studio 与生产力（有测试佐证）
+
+- ✅ 项目 / 剧集 / 场景 / 镜头 完整 CRUD、软删除、revision 乐观并发（409）
+- ✅ 角色 / 地点 / 服装：身份表 + 版本库 + MASTER
+- ✅ 小说导入 → AI 分析 → Scene/Shot 生成（202 + Operation 轮询）
+- ✅ 图片生成全链路：DB 即队列 + 租约 + 指数退避 + 崩溃恢复
+- ✅ 不可变版本系统 V1/V2 共存 + Set Active + 版本溯源
+- ✅ 时间线四轨（VIDEO/VOICE/MUSIC/SUBTITLE）：拖拽/裁剪/替换版本/排片/非渲染预览
+- ✅ 整集渲染：mock MJPEG AVI（真实可播）/ ffmpeg H.264 MP4 → FINAL_VIDEO 不可变资产
+- ✅ ComfyUI 客户端（prompt 提交 / WS 进度 / 断线 fallback / 取消）
+
+### AI 能力
+
+- ✅ AI Director：LangGraph 五节点编排 + SQLite Checkpointer + Proposal 审批流（WAITING_HUMAN + resume）
+- ✅ 连续性引擎：规则 + 状态机 + 重算 + Agent check/fix + UI 警示
+- ✅ WS 事件网关（envelope + sequence + 去重）与前端 EventRouter
+
+### 工程
+
+- ✅ CI（backend ruff+pytest / frontend build+vitest / desktop cargo check）
+- ✅ 测试：后端 pytest 314+ / 前端 vitest 157+
+- ⬜ 真实 LLM / ComfyUI 链路实测（默认 fake/mock）、音频混音与字幕烧录、E2E、桌面发行工程
+
+> ⚠️ 真实验证缺口见 [项目现状报告](./docs/PROJECT_STATUS_AND_OPTIMIZATION.md) §五/§八。
 
 ## 架构
 

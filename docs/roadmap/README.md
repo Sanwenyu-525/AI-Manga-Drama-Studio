@@ -1,6 +1,11 @@
 # Post-MVP Roadmap
 
 > 基准日期：2026-08-15。路线图以代码审计为依据；状态更新规则见 [任务看板](../tasks/current-sprint.md)。
+>
+> **唯一前瞻路线图（2026-08 起）。** 历史执行清单（MVP 四阶段 + P1–P9，含 Timeline/Episode Render 等 alpha 任务）已归档至
+> [codex-phase-roadmap（DONE，不再维护）](../alpha/design/codex-phase-roadmap-v0.1.md)；本文档为后续开发的唯一前瞻来源，
+> 已落地的 P2–P9 能力（角色/地点/服装版本库、read model、provenance、prompt 版本、工作流注册表、Job DAG、Director 持久化与审批、
+> 连续性引擎、Timeline、整集渲染）作为背景并入下表的 Phase/Epic 规划，横向状态以 [AGENTS.md](../../AGENTS.md) 为准。
 
 ## 全局视图
 
