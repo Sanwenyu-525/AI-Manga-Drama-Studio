@@ -46,6 +46,27 @@ jobs:
       - name: Component / store / contract tests
         run: cd frontend && npm test
 
+  frontend-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend deps (uv)
+        run: cd backend && uv sync --locked
+      - name: Install frontend deps
+        run: cd frontend && npm ci
+      - name: Install Playwright Chromium
+        run: cd frontend && npx playwright install --with-deps chromium
+      - name: E2E smoke (fake/mock main path)
+        run: cd frontend && npm run test:e2e
+
   desktop:
     runs-on: windows-latest
     steps:

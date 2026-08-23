@@ -8,6 +8,10 @@ build/
 out/
 release/
 *.tsbuildinfo
+test-results/
+playwright-report/
+e2e-results/
+/playwright/.cache/
 
 # --- Python ---
 __pycache__/
