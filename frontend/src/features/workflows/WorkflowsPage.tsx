@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router-dom";
 import { ArrowLeft, FlowArrow, GearSix, ImageSquare, TreeStructure } from "@phosphor-icons/react";
 import { api } from "../../api/client";
+import { queryKeys } from "../../api/queryKeys";
 
 interface WorkflowRead {
   id: string;
@@ -29,7 +30,7 @@ export function WorkflowsPage() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ["workflows"],
+    queryKey: queryKeys.workflows,
     queryFn: () => api.get<WorkflowRead[]>("/workflows"),
   });
   const selected = workflows?.find((w) => w.id === selectedId) ?? null;

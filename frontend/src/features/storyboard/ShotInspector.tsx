@@ -99,7 +99,7 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
       return api.post<GenerationRead>(`/shots/${activeShotId}/generations`, { type: "image" });
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["generations", activeShotId] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shotGenerations(activeShotId) });
     },
   });
 
@@ -114,7 +114,7 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
       if (sceneId) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.storyboard(sceneId) });
         void queryClient.invalidateQueries({ queryKey: queryKeys.shots(sceneId) });
-        void queryClient.invalidateQueries({ queryKey: ["scenes"] });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.scenes });
         if (route.episodeId && route.workspace === "shot") {
           navigate(canonicalStoryboardPath(projectId, route.episodeId, route.sceneId ?? sceneId));
         }
@@ -139,7 +139,7 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
       if (sceneId) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.storyboard(sceneId) });
         void queryClient.invalidateQueries({ queryKey: queryKeys.shots(sceneId) });
-        void queryClient.invalidateQueries({ queryKey: ["scenes"] });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.scenes });
       }
       setForm((f) => ({ ...f, ...updated }));
     },
@@ -395,7 +395,7 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data: generations } = useQuery({
-    queryKey: ["generations", shotId],
+    queryKey: queryKeys.shotGenerations(shotId),
     queryFn: () => api.get<GenerationRead[]>(`/shots/${shotId}/generations`),
     refetchInterval: 2000,
   });
@@ -404,7 +404,7 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
   );
 
   const { data: versions } = useQuery({
-    queryKey: ["versions", shotId],
+    queryKey: queryKeys.shotVersions(shotId),
     queryFn: () => api.get<AssetVersionRead[]>(`/shots/${shotId}/versions`),
     refetchInterval: generating ? 800 : 3000, // poll faster while a generation runs
   });
@@ -421,8 +421,8 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
   const activate = useMutation({
     mutationFn: (assetId: string) => api.post<AssetVersionRead>(`/media-versions/${assetId}/activate`),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["versions", shotId] });
-      void queryClient.invalidateQueries({ queryKey: ["storyboard"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shotVersions(shotId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.storyboard });
     },
   });
 

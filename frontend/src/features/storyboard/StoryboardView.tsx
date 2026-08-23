@@ -40,7 +40,7 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
     mutationFn: () => api.post<Shot>(`/scenes/${sceneId}/shots`, { shot_type: "medium" }),
     onSuccess: (shot) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.storyboard(sceneId) });
-      void queryClient.invalidateQueries({ queryKey: ["scenes"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.scenes });
       handleSelect(shot.id);
     },
   });
@@ -58,7 +58,7 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
     planOpId,
     () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.storyboard(sceneId) });
-      void queryClient.invalidateQueries({ queryKey: ["scenes"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.scenes });
       setPlanOpId(null);
     },
     (operation) => {

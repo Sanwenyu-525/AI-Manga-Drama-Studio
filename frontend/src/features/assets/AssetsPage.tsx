@@ -29,7 +29,7 @@ export function AssetsPage() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ["generations", "recent"],
+    queryKey: queryKeys.recentGenerations,
     queryFn: () => api.get<GenerationRead[]>("/generations/recent"),
     refetchInterval: 15_000,
   });

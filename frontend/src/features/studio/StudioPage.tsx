@@ -97,7 +97,7 @@ export function StudioPage() {
     enabled: Boolean(projectId),
   });
   const { data: providers } = useQuery({
-    queryKey: ["providers"],
+    queryKey: queryKeys.providers,
     queryFn: () => api.get<ProviderStatus[]>("/providers"),
     staleTime: 30_000,
   });
@@ -119,7 +119,7 @@ export function StudioPage() {
       if (!selectedShotId) throw new Error("请先选择镜头");
       return api.post<GenerationRead>(`/shots/${selectedShotId}/generations`, { type: "image" });
     },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["generations"] }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.generations }),
   });
 
   const routeEpisodeId = route.episodeId ?? activeEpisode?.id;

@@ -44,7 +44,7 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
   const queryClient = useQueryClient();
 
   const { data: history } = useQuery({
-    queryKey: ["generations", "recent"],
+    queryKey: queryKeys.recentGenerations,
     queryFn: () => api.get<GenerationRead[]>("/generations/recent"),
     refetchInterval: 5000,
   });
@@ -58,11 +58,11 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
 
   const retryGeneration = useMutation({
     mutationFn: (generationId: string) => api.post<GenerationRead>(`/generations/${generationId}/retry`),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["generations"] }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.generations }),
   });
   const cancelGeneration = useMutation({
     mutationFn: (generationId: string) => api.post<GenerationRead>(`/generations/${generationId}/cancel`),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["generations"] }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.generations }),
   });
 
   return (

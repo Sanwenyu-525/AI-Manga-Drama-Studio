@@ -125,8 +125,8 @@ export class EventRouter {
         break;
       case "agent.run.completed":
         agent.runCompleted(event.payload.result as Record<string, unknown> | null);
-        void this.queryClient.invalidateQueries({ queryKey: ["shots"] });
-        void this.queryClient.invalidateQueries({ queryKey: ["storyboard"] });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.shots });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.storyboard });
         break;
       case "agent.run.failed":
         agent.runFailed(event.payload.error as string | undefined);
@@ -159,8 +159,8 @@ export class EventRouter {
         const propRunId = (event.payload.run_id as string | undefined) ?? event.entity_id ?? agent.runId;
         if (propRunId) this.invalidateProposals(propRunId);
         else {
-          void this.queryClient.invalidateQueries({ queryKey: ["proposals"] });
-          void this.queryClient.invalidateQueries({ queryKey: ["agentRun"] });
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.proposals });
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.agentRun });
         }
         break;
       }
@@ -197,8 +197,8 @@ export class EventRouter {
             void this.queryClient.invalidateQueries({ queryKey: queryKeys.timeline(renderEpisode) });
             void this.queryClient.invalidateQueries({ queryKey: queryKeys.finalVideo(renderEpisode) });
           } else {
-            void this.queryClient.invalidateQueries({ queryKey: ["timeline"] });
-            void this.queryClient.invalidateQueries({ queryKey: ["finalVideo"] });
+            void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.timeline });
+            void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.finalVideo });
           }
         }
         break;
@@ -208,8 +208,8 @@ export class EventRouter {
       case "shot.updated":
       case "shot.active_version.changed":
         if (event.project_id) {
-          void this.queryClient.invalidateQueries({ queryKey: ["storyboard"] });
-          void this.queryClient.invalidateQueries({ queryKey: ["shots"] });
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.storyboard });
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.shots });
         }
         break;
       case "character.created":
@@ -233,8 +233,8 @@ export class EventRouter {
         if (event.project_id) {
           void this.queryClient.invalidateQueries({ queryKey: queryKeys.jobs(event.project_id) });
         }
-        void this.queryClient.invalidateQueries({ queryKey: ["jobs"] });
-        void this.queryClient.invalidateQueries({ queryKey: ["job"] });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.jobs });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.job });
         break;
       // ---- P8-T020: continuity warning events → invalidate scene/shots continuity ----
       // Payload may carry scene_id and/or shot_id; fall back to prefix invalidation so
@@ -252,14 +252,14 @@ export class EventRouter {
           void this.queryClient.invalidateQueries({ queryKey: queryKeys.shotContinuity(shotId) });
         }
         if (!sceneId && !shotId) {
-          void this.queryClient.invalidateQueries({ queryKey: ["sceneContinuity"] });
-          void this.queryClient.invalidateQueries({ queryKey: ["continuityWarnings"] });
-          void this.queryClient.invalidateQueries({ queryKey: ["shotContinuity"] });
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.sceneContinuity });
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.continuityWarnings });
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.shotContinuity });
         }
         break;
       }
       case "scene.created":
-        void this.queryClient.invalidateQueries({ queryKey: ["scenes"] });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.scenes });
         break;
       // ---- Phase 9 (api-event-contract §93.4): timeline edits → refresh the opened timeline.
       // Prefix invalidation keeps any episode's timeline/final-video fresh regardless of payload shape.
@@ -277,8 +277,8 @@ export class EventRouter {
             void this.queryClient.invalidateQueries({ queryKey: queryKeys.timeline(episodeId) });
             void this.queryClient.invalidateQueries({ queryKey: queryKeys.finalVideo(episodeId) });
           } else {
-            void this.queryClient.invalidateQueries({ queryKey: ["timeline"] });
-            void this.queryClient.invalidateQueries({ queryKey: ["finalVideo"] });
+            void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.timeline });
+            void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.finalVideo });
           }
         }
         break;
@@ -288,10 +288,10 @@ export class EventRouter {
   }
 
   private refreshAfterGeneration(): void {
-    void this.queryClient.invalidateQueries({ queryKey: ["storyboard"] });
-    void this.queryClient.invalidateQueries({ queryKey: ["shots"] });
-    void this.queryClient.invalidateQueries({ queryKey: ["generations"] });
-    void this.queryClient.invalidateQueries({ queryKey: ["versions"] });
+    void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.storyboard });
+    void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.shots });
+    void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.generations });
+    void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.versions });
   }
 
   // P7-T019/020: a proposal/approval event arrived — refresh the run detail + its

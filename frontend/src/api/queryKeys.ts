@@ -32,4 +32,33 @@ export const queryKeys = {
   /** Phase 9 (api-event-contract §93): per-episode timeline + rendered export. */
   timeline: (episodeId: string) => ["timeline", episodeId] as const,
   finalVideo: (episodeId: string) => ["finalVideo", episodeId] as const,
+
+  /** TASK-007: domains that previously used raw array keys — now factory-first. */
+  providers: ["providers"] as const,
+  workflows: ["workflows"] as const,
+  recentGenerations: ["generations", "recent"] as const,
+  shotGenerations: (shotId: string) => ["generations", shotId] as const,
+  shotVersions: (shotId: string) => ["versions", shotId] as const,
+  /** Timeline clip detail shape: ["shot","versions",shotId] (TimelineView clip inspector). */
+  shotVersionEntries: (shotId: string) => ["shot", "versions", shotId] as const,
+
+  /** TASK-007: explicit prefix keys for whole-domain invalidation (socket.ts + components).
+   *  Matching an `as const` array by prefix is a deliberate, documented pattern — prefer
+   *  these over hand-typed `["domain"]` literals so every key stays in one place. */
+  prefixes: {
+    shots: ["shots"] as const,
+    scenes: ["scenes"] as const,
+    storyboard: ["storyboard"] as const,
+    generations: ["generations"] as const,
+    versions: ["versions"] as const,
+    timeline: ["timeline"] as const,
+    finalVideo: ["finalVideo"] as const,
+    jobs: ["jobs"] as const,
+    job: ["job"] as const,
+    proposals: ["proposals"] as const,
+    agentRun: ["agentRun"] as const,
+    sceneContinuity: ["sceneContinuity"] as const,
+    continuityWarnings: ["continuityWarnings"] as const,
+    shotContinuity: ["shotContinuity"] as const,
+  },
 };

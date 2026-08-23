@@ -7,6 +7,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CaretDown, CaretRight, MagicWand } from "@phosphor-icons/react";
 import { api } from "../../api/client";
+import { queryKeys } from "../../api/queryKeys";
 import type { AgentContinuityRun, ContinuityWarning } from "../../api/types";
 import { categoryLabel, severityTier, severityTierLabel } from "../../lib/continuity";
 
@@ -65,9 +66,9 @@ function ContinuityWarningRow({
   const acknowledge = useMutation({
     mutationFn: (id: string) => api.post(`/continuity-warnings/${id}/acknowledge`),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["continuityWarnings"] });
-      void qc.invalidateQueries({ queryKey: ["sceneContinuity"] });
-      void qc.invalidateQueries({ queryKey: ["shotContinuity"] });
+      void qc.invalidateQueries({ queryKey: queryKeys.prefixes.continuityWarnings });
+      void qc.invalidateQueries({ queryKey: queryKeys.prefixes.sceneContinuity });
+      void qc.invalidateQueries({ queryKey: queryKeys.prefixes.shotContinuity });
       onFixed?.();
     },
   });

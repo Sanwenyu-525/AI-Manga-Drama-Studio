@@ -511,7 +511,7 @@ function ClipInspectorPanel({
   const [sourceIn, setSourceIn] = useState(String((clip.source_in ?? 0).toFixed(1)));
 
   const { data: versions } = useQuery({
-    queryKey: ["shot", "versions", clip.shot_id ?? "none"],
+    queryKey: queryKeys.shotVersionEntries(clip.shot_id ?? "none"),
     queryFn: () => api.get<AssetVersionRead[]>("/shots/" + clip.shot_id + "/versions"),
     enabled: Boolean(clip.shot_id),
   });

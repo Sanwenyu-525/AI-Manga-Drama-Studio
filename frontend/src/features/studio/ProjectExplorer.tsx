@@ -304,7 +304,7 @@ function CharactersSection({ projectId }: { projectId: string }) {
       api.patch<Character>("/characters/" + id, { revision, patch }),
     onSuccess: () => {
       invalidate();
-      void queryClient.invalidateQueries({ queryKey: ["storyboard"] }); // shot cards show names
+      void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.storyboard }); // shot cards show names
     },
   });
 
@@ -664,7 +664,7 @@ function EpisodeScenes({
         ),
       );
       void queryClient.invalidateQueries({ queryKey: queryKeys.scenes(episode.id) });
-      void queryClient.invalidateQueries({ queryKey: ["scenes"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.scenes });
       setRenamingSceneId(null);
     },
   });
@@ -673,7 +673,7 @@ function EpisodeScenes({
     mutationFn: (id: string) => api.delete<{ deleted: boolean }>(`/scenes/${id}`),
     onSuccess: (_, sceneId) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.scenes(episode.id) });
-      void queryClient.invalidateQueries({ queryKey: ["scenes"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.scenes });
       // 若删除的是当前打开的 Storyboard 场景 → 返回剧本视图
       if (route.sceneId === sceneId && route.workspace === "storyboard") {
         navigate(canonicalScriptPath(projectId, episode.id));

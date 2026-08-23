@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CheckCircle, Plug, WarningCircle, XCircle } from "@phosphor-icons/react";
 import { api } from "../../api/client";
+import { queryKeys } from "../../api/queryKeys";
 import type { ProviderStatus } from "../../api/types";
 import { Link, useLocation } from "react-router-dom";
 
@@ -33,7 +34,7 @@ export function SettingsPage() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ["providers"],
+    queryKey: queryKeys.providers,
     queryFn: () => api.get<ProviderStatus[]>("/providers"),
     refetchInterval: 10_000,
   });
@@ -45,7 +46,7 @@ export function SettingsPage() {
       setResults((r) => ({ ...r, comfyui_local: { error: error instanceof Error ? error.message : String(error) } })),
   });
 
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["providers"] });
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: queryKeys.providers });
 
   return (
     <div className="project-console">

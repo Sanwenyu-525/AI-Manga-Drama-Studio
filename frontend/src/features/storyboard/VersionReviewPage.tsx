@@ -42,7 +42,7 @@ export function VersionReviewPage() {
     enabled: Boolean(shot?.scene_id),
   });
   const { data: versions, isLoading } = useQuery({
-    queryKey: ["versions", shotId],
+    queryKey: queryKeys.shotVersions(shotId),
     queryFn: () => api.get<AssetVersionRead[]>(`/shots/${shotId}/versions`),
   });
 
@@ -54,8 +54,8 @@ export function VersionReviewPage() {
   const activate = useMutation({
     mutationFn: (versionId: string) => api.post<AssetVersionRead>(`/media-versions/${versionId}/activate`),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["versions", shotId] });
-      void queryClient.invalidateQueries({ queryKey: ["storyboard"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shotVersions(shotId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.storyboard });
     },
   });
 
