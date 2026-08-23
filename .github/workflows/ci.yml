@@ -39,6 +39,10 @@ jobs:
         run: cd frontend && npm ci
       - name: Typecheck + build
         run: cd frontend && npm run build
+      - name: Lint (eslint)
+        run: cd frontend && npm run lint
+      - name: Format check (prettier)
+        run: cd frontend && npm run format:check
       - name: Component / store / contract tests
         run: cd frontend && npm test
 

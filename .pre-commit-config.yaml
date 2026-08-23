@@ -1,0 +1,49 @@
+# Pre-commit config (TASK-005) — repo-wide quality gate on every commit.
+# Install: uvx pre-commit install
+# Run all hooks manually anytime: uvx pre-commit run --all-files
+#
+# Gate goal: block debug artifacts from being committed, enforce backend ruff
+# and frontend eslint/prettier, so working-tree malpractice can't leak into git.
+# (Backend/frontend unit test suites are run in CI, not here, for speed.)
+
+repos:
+  # --- Generic file hygiene ---
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+
+  # --- Backend: ruff (matches CI: `uv run ruff check app tests`) ---
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.3
+    hooks:
+      - id: ruff
+        args: ["check", "app", "tests"]
+
+  # --- Frontend: eslint + prettier via a local hook (npm already installed) ---
+  - repo: local
+    hooks:
+      - id: pre-commit-deny-debug-artifacts
+        name: deny debug artifacts and personal machine tooling
+        entry: python scripts/pre_commit_deny.py
+        language: python
+        always_run: true
+
+      - id: frontend-eslint
+        name: frontend eslint
+        entry: npm run lint --prefix frontend --silent
+        language: system
+        pass_filenames: false
+        files: \.tsx?$
+        stages: [pre-commit]
+
+      - id: frontend-format
+        name: frontend prettier check
+        entry: npm run format:check --prefix frontend --silent
+        language: system
+        pass_filenames: false
+        files: \.(tsx?|css)$
+        stages: [pre-commit]
