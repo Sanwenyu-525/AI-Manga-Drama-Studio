@@ -22,7 +22,11 @@ export function ShotContinuityCard({ shotId }: { shotId: string }) {
   });
 
   if (isLoading && !card) {
-    return <div className="continuity-card"><p className="muted small">正在读取连续性状态…</p></div>;
+    return (
+      <div className="continuity-card">
+        <p className="muted small">正在读取连续性状态…</p>
+      </div>
+    );
   }
   if (!card) return null;
   const start = card.start_state ?? null;
@@ -31,7 +35,10 @@ export function ShotContinuityCard({ shotId }: { shotId: string }) {
 
   return (
     <div className="continuity-card">
-      <div className="continuity-card-title"><span>连续性状态</span><span className="muted small">{card.state_hash ? `#${card.state_hash.slice(0, 8)}` : ""}</span></div>
+      <div className="continuity-card-title">
+        <span>连续性状态</span>
+        <span className="muted small">{card.state_hash ? `#${card.state_hash.slice(0, 8)}` : ""}</span>
+      </div>
 
       <div className="continuity-state-columns">
         <StateColumn title="起始" state={start} />
@@ -76,17 +83,24 @@ function CharacterStateSummary({ state }: { state: ContinuityShotReadCard["start
     <div className="continuity-state-group characters">
       <div className="continuity-state-group-title">角色</div>
       {list.map((c, idx) => {
-        const rows: Array<[string, unknown]> = ([
-          ["版本", c.character_version_id],
-          ["服装", c.costume_id],
-          ["位置", c.position],
-          ["动作", c.action],
-          ["情绪", c.emotion],
-        ] as Array<[string, unknown]>).filter(([, v]) => v !== null && v !== undefined && v !== "");
+        const rows: Array<[string, unknown]> = (
+          [
+            ["版本", c.character_version_id],
+            ["服装", c.costume_id],
+            ["位置", c.position],
+            ["动作", c.action],
+            ["情绪", c.emotion],
+          ] as Array<[string, unknown]>
+        ).filter(([, v]) => v !== null && v !== undefined && v !== "");
         return (
           <div key={idx} className="continuity-char">
             <div className="continuity-char-name">{String(c.character_id ?? c.name ?? "角色")}</div>
-            {rows.map(([k, v], i) => (<div key={i} className="continuity-state-item"><span>{k}</span><strong>{String(v)}</strong></div>))}
+            {rows.map(([k, v], i) => (
+              <div key={i} className="continuity-state-item">
+                <span>{k}</span>
+                <strong>{String(v)}</strong>
+              </div>
+            ))}
           </div>
         );
       })}
@@ -108,7 +122,12 @@ function EnvStateSummary({ state }: { state: ContinuityShotReadCard["start_state
   return (
     <div className="continuity-state-group">
       <div className="continuity-state-group-title">环境</div>
-      {items.map(([k, v], idx) => (<div key={idx} className="continuity-state-item"><span>{k}</span><strong>{String(v)}</strong></div>))}
+      {items.map(([k, v], idx) => (
+        <div key={idx} className="continuity-state-item">
+          <span>{k}</span>
+          <strong>{String(v)}</strong>
+        </div>
+      ))}
     </div>
   );
 }
@@ -124,7 +143,13 @@ function PropStateSummary({ state }: { state: ContinuityShotReadCard["start_stat
     <div className="continuity-state-group">
       <div className="continuity-state-group-title">道具</div>
       {list.map((p, idx) => (
-        <div key={idx} className="continuity-state-item"><span>{String(p.prop_id ?? "道具")}</span><strong>{p.visible === false ? "不可见" : "可见"}{p.holder_character_id ? ` · 持有者 ${p.holder_character_id}` : ""}</strong></div>
+        <div key={idx} className="continuity-state-item">
+          <span>{String(p.prop_id ?? "道具")}</span>
+          <strong>
+            {p.visible === false ? "不可见" : "可见"}
+            {p.holder_character_id ? ` · 持有者 ${p.holder_character_id}` : ""}
+          </strong>
+        </div>
       ))}
     </div>
   );

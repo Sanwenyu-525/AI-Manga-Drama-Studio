@@ -9,16 +9,52 @@ import {
 
 describe("studio route model", () => {
   it("parses canonical episode-aware workspaces", () => {
-    expect(parseStudioRoute("/projects/p1/episodes/e1/script")).toMatchObject({ projectId: "p1", episodeId: "e1", workspace: "script", legacy: false });
-    expect(parseStudioRoute("/projects/p1/episodes/e1/scenes/s1/storyboard")).toMatchObject({ projectId: "p1", episodeId: "e1", sceneId: "s1", workspace: "storyboard", legacy: false });
-    expect(parseStudioRoute("/projects/p1/episodes/e1/scenes/s1/shots/sh1")).toMatchObject({ projectId: "p1", episodeId: "e1", sceneId: "s1", shotId: "sh1", workspace: "shot", legacy: false });
-    expect(parseStudioRoute("/projects/p1/episodes/e1/timeline")).toMatchObject({ projectId: "p1", episodeId: "e1", workspace: "timeline", legacy: false });
+    expect(parseStudioRoute("/projects/p1/episodes/e1/script")).toMatchObject({
+      projectId: "p1",
+      episodeId: "e1",
+      workspace: "script",
+      legacy: false,
+    });
+    expect(parseStudioRoute("/projects/p1/episodes/e1/scenes/s1/storyboard")).toMatchObject({
+      projectId: "p1",
+      episodeId: "e1",
+      sceneId: "s1",
+      workspace: "storyboard",
+      legacy: false,
+    });
+    expect(parseStudioRoute("/projects/p1/episodes/e1/scenes/s1/shots/sh1")).toMatchObject({
+      projectId: "p1",
+      episodeId: "e1",
+      sceneId: "s1",
+      shotId: "sh1",
+      workspace: "shot",
+      legacy: false,
+    });
+    expect(parseStudioRoute("/projects/p1/episodes/e1/timeline")).toMatchObject({
+      projectId: "p1",
+      episodeId: "e1",
+      workspace: "timeline",
+      legacy: false,
+    });
   });
 
   it("marks old studio URLs as adapters", () => {
-    expect(parseStudioRoute("/projects/p1/script")).toMatchObject({ projectId: "p1", workspace: "script", legacy: true });
-    expect(parseStudioRoute("/projects/p1/storyboard/s1")).toMatchObject({ projectId: "p1", sceneId: "s1", workspace: "storyboard", legacy: true });
-    expect(parseStudioRoute("/projects/p1/timeline")).toMatchObject({ projectId: "p1", workspace: "timeline", legacy: true });
+    expect(parseStudioRoute("/projects/p1/script")).toMatchObject({
+      projectId: "p1",
+      workspace: "script",
+      legacy: true,
+    });
+    expect(parseStudioRoute("/projects/p1/storyboard/s1")).toMatchObject({
+      projectId: "p1",
+      sceneId: "s1",
+      workspace: "storyboard",
+      legacy: true,
+    });
+    expect(parseStudioRoute("/projects/p1/timeline")).toMatchObject({
+      projectId: "p1",
+      workspace: "timeline",
+      legacy: true,
+    });
   });
 
   it("builds deterministic canonical paths", () => {

@@ -202,7 +202,6 @@ export interface ProjectSettingUpdate {
   auto_activate_new_generation?: number;
 }
 
-
 export interface Health {
   status: string;
   database: string;
@@ -426,8 +425,7 @@ export interface AgentProposalFieldChange {
 
 /** Raw changes payload — supports either backend shape, normalized before render. */
 export type AgentProposalChanges =
-  | Record<string, { from: unknown; to: unknown }>
-  | { field: string; from: unknown; to: unknown };
+  Record<string, { from: unknown; to: unknown }> | { field: string; from: unknown; to: unknown };
 
 export interface AgentProposal {
   id: string;
@@ -440,14 +438,7 @@ export interface AgentProposal {
   created_at?: string | null;
 }
 
-export const SHOT_TYPES = [
-  "extreme_wide",
-  "wide",
-  "full",
-  "medium",
-  "close_up",
-  "extreme_close_up",
-] as const;
+export const SHOT_TYPES = ["extreme_wide", "wide", "full", "medium", "close_up", "extreme_close_up"] as const;
 
 export const SHOT_TYPE_LABELS: Record<string, string> = {
   extreme_wide: "大远景",
@@ -701,7 +692,6 @@ export interface AssetListRead {
   items: AssetRead[];
 }
 
-
 // --- P8-T020: Continuity state + warnings DTOs.
 // Implemented against the agreed Phase-8 continuity contract (parallel backend task
 // feature/P8-continuity-state + feature/P8-continuity-agent). All shapes stay loose
@@ -784,7 +774,6 @@ export interface AgentContinuityRun {
   status?: string;
   message?: string;
 }
-
 
 // --- Phase 9 (P9-E1/E2/E3): Timeline + Episode Render DTOs (api-event-contract §93).
 // Backend: backend/app/domain/timeline.py (TimelineRead/TrackRead/ClipRead/RenderRead/FinalVideoRead).

@@ -52,9 +52,15 @@ describe("deriveVersionBadges", () => {
   });
 
   it("maps stale / missing / non-ready statuses to fallback labels", () => {
-    expect(deriveVersionBadges(version({ asset_id: "a1", status: "stale" }), false).map((b) => b.kind)).toEqual(["stale"]);
-    expect(deriveVersionBadges(version({ asset_id: "a2", status: "missing" }), false).map((b) => b.label)).toEqual(["❌ MISSING"]);
-    expect(deriveVersionBadges(version({ asset_id: "a3", status: "archived" }), false).map((b) => b.label)).toEqual(["ARCHIVED"]);
+    expect(deriveVersionBadges(version({ asset_id: "a1", status: "stale" }), false).map((b) => b.kind)).toEqual([
+      "stale",
+    ]);
+    expect(deriveVersionBadges(version({ asset_id: "a2", status: "missing" }), false).map((b) => b.label)).toEqual([
+      "❌ MISSING",
+    ]);
+    expect(deriveVersionBadges(version({ asset_id: "a3", status: "archived" }), false).map((b) => b.label)).toEqual([
+      "ARCHIVED",
+    ]);
   });
 });
 

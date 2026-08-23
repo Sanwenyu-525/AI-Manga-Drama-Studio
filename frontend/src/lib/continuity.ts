@@ -56,21 +56,25 @@ export function isOpenWarning(warning: SeveritySource): boolean {
 /** Short Chinese label for a warning category. */
 export function categoryLabel(category: string | undefined | null): string {
   return (
-    {
-      costume: "换装",
-      prop: "道具",
-      position: "位置",
-      orientation: "朝向",
-      action: "动作",
-      emotion: "情绪",
-      weather: "天气",
-      lighting: "灯光",
-      time_of_day: "时段",
-      character_version: "角色版本",
-      location: "场景地点",
-      continuity: "连续性",
-    } as Record<string, string>
-  )[category?.toLowerCase() ?? ""] ?? category ?? "连续性";
+    (
+      {
+        costume: "换装",
+        prop: "道具",
+        position: "位置",
+        orientation: "朝向",
+        action: "动作",
+        emotion: "情绪",
+        weather: "天气",
+        lighting: "灯光",
+        time_of_day: "时段",
+        character_version: "角色版本",
+        location: "场景地点",
+        continuity: "连续性",
+      } as Record<string, string>
+    )[category?.toLowerCase() ?? ""] ??
+    category ??
+    "连续性"
+  );
 }
 
 export const CHARACTER_STATE_LABELS: Record<string, string> = {
@@ -116,9 +120,7 @@ export function stateValue(value: unknown): string {
 export function characterEntries(state: ContinuityState | null | undefined): Array<[string, CharacterState]> {
   const chars = state?.characters;
   if (Array.isArray(chars)) {
-    return chars
-      .map((c) => [c.character_id ?? "", c] as [string, CharacterState])
-      .filter(([id]) => id !== "");
+    return chars.map((c) => [c.character_id ?? "", c] as [string, CharacterState]).filter(([id]) => id !== "");
   }
   if (chars && typeof chars === "object") {
     return Object.entries(chars as Record<string, CharacterState>);
@@ -130,9 +132,7 @@ export function characterEntries(state: ContinuityState | null | undefined): Arr
 export function propEntries(state: ContinuityState | null | undefined): Array<[string, PropState]> {
   const props = state?.props;
   if (Array.isArray(props)) {
-    return props
-      .map((p) => [p.prop_id ?? "", p] as [string, PropState])
-      .filter(([id]) => id !== "");
+    return props.map((p) => [p.prop_id ?? "", p] as [string, PropState]).filter(([id]) => id !== "");
   }
   if (props && typeof props === "object") {
     return Object.entries(props as Record<string, PropState>);

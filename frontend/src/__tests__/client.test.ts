@@ -8,7 +8,12 @@ afterEach(() => vi.restoreAllMocks());
 describe("ApiError", () => {
   it("parses the envelope and keeps request_id", () => {
     const err = new ApiError(409, {
-      error: { code: "CONFLICT", message: "Character was modified by another writer.", details: { expected: 1, current: 2 }, request_id: "req_abc" },
+      error: {
+        code: "CONFLICT",
+        message: "Character was modified by another writer.",
+        details: { expected: 1, current: 2 },
+        request_id: "req_abc",
+      },
     });
     expect(err.status).toBe(409);
     expect(err.code).toBe("CONFLICT"); // Character conflict case
@@ -18,14 +23,20 @@ describe("ApiError", () => {
   });
 
   it("falls back to the X-Request-ID response header", () => {
-    const err = new ApiError(500, { error: { code: "INTERNAL_ERROR", message: "Internal server error.", details: {} } }, "req_from_header");
+    const err = new ApiError(
+      500,
+      { error: { code: "INTERNAL_ERROR", message: "Internal server error.", details: {} } },
+      "req_from_header",
+    );
     expect(err.requestId).toBe("req_from_header");
   });
 });
 
 describe("api client", () => {
   it("throws ApiError with request_id on non-OK responses", async () => {
-    const body = { error: { code: "ENTITY_NOT_FOUND", message: "Shot does not exist.", details: {}, request_id: "req_404" } };
+    const body = {
+      error: { code: "ENTITY_NOT_FOUND", message: "Shot does not exist.", details: {}, request_id: "req_404" },
+    };
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify(body), { status: 404, headers: { "Content-Type": "application/json" } }),
     );
@@ -42,9 +53,7 @@ describe("api client", () => {
       (_url, init) =>
         new Promise((_resolve, reject) => {
           // stays pending until the client-side timeout aborts the request
-          init?.signal?.addEventListener("abort", () =>
-            reject(new DOMException("aborted", "AbortError")),
-          );
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
         }),
     );
     await expect(api.get("/slow", { timeoutMs: 10 })).rejects.toMatchObject({ code: "TIMEOUT" });
@@ -55,7 +64,12 @@ describe("api.upload (multipart)", () => {
     let capturedInit: RequestInit | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
       capturedInit = init;
-      return Promise.resolve(new Response(JSON.stringify({ id: "ast_1", status: "ready" }), { status: 201, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify({ id: "ast_1", status: "ready" }), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     });
     const form = new FormData();
     form.append("file", new File(["abc"], "ref.png", { type: "image/png" }));
@@ -68,4 +82,3 @@ describe("api.upload (multipart)", () => {
     expect(capturedInit?.headers).toBeUndefined();
   });
 });
-

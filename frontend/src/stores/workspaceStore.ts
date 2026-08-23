@@ -35,10 +35,26 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   setBottomDockExpanded: (expanded) => set({ bottomDockExpanded: expanded }),
   explorerCollapsed: false,
   setExplorerCollapsed: (collapsed) =>
-    set({ explorerCollapsed: collapsed, ...(collapsed ? {} : { explorerWidth: clampPanelSize(useWorkspaceStore.getState().explorerWidth, PANEL_BOUNDS.explorer, d.explorerWidth) }) }),
+    set({
+      explorerCollapsed: collapsed,
+      ...(collapsed
+        ? {}
+        : {
+            explorerWidth: clampPanelSize(
+              useWorkspaceStore.getState().explorerWidth,
+              PANEL_BOUNDS.explorer,
+              d.explorerWidth,
+            ),
+          }),
+    }),
   rightPanelCollapsed: false,
   setRightPanelCollapsed: (collapsed) =>
-    set({ rightPanelCollapsed: collapsed, ...(collapsed ? {} : { rightWidth: clampPanelSize(useWorkspaceStore.getState().rightWidth, PANEL_BOUNDS.right, d.rightWidth) }) }),
+    set({
+      rightPanelCollapsed: collapsed,
+      ...(collapsed
+        ? {}
+        : { rightWidth: clampPanelSize(useWorkspaceStore.getState().rightWidth, PANEL_BOUNDS.right, d.rightWidth) }),
+    }),
   explorerWidth: d.explorerWidth,
   rightWidth: d.rightWidth,
   bottomDockHeight: d.bottomDockHeight,
@@ -46,11 +62,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     set((s) => {
       switch (panel) {
         case "explorer":
-          return { explorerWidth: clampPanelSize(size, PANEL_BOUNDS.explorer, d.explorerWidth), explorerCollapsed: expanded ?? false };
+          return {
+            explorerWidth: clampPanelSize(size, PANEL_BOUNDS.explorer, d.explorerWidth),
+            explorerCollapsed: expanded ?? false,
+          };
         case "right":
-          return { rightWidth: clampPanelSize(size, PANEL_BOUNDS.right, d.rightWidth), rightPanelCollapsed: expanded ?? false };
+          return {
+            rightWidth: clampPanelSize(size, PANEL_BOUNDS.right, d.rightWidth),
+            rightPanelCollapsed: expanded ?? false,
+          };
         case "bottom":
-          return { bottomDockHeight: clampPanelSize(size, PANEL_BOUNDS.bottom, d.bottomDockHeight), bottomDockExpanded: expanded ?? s.bottomDockExpanded };
+          return {
+            bottomDockHeight: clampPanelSize(size, PANEL_BOUNDS.bottom, d.bottomDockHeight),
+            bottomDockExpanded: expanded ?? s.bottomDockExpanded,
+          };
       }
     }),
 }));

@@ -30,9 +30,15 @@ export function EntityVersionBlock({ kind, entityId, projectId }: EntityVersionB
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const base = VERSION_LIST[kind];
-  const versionsKey = kind === "character" ? queryKeys.characterVersions(entityId) : queryKeys.locationVersions(entityId);
+  const versionsKey =
+    kind === "character" ? queryKeys.characterVersions(entityId) : queryKeys.locationVersions(entityId);
 
-  const { data: versions, isLoading, isError, error } = useQuery({
+  const {
+    data: versions,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: versionsKey,
     queryFn: () => api.get<LocationVersion[] | CharacterVersion[]>(`${base}${entityId}/versions`),
   });
@@ -78,19 +84,26 @@ export function EntityVersionBlock({ kind, entityId, projectId }: EntityVersionB
 
       {!isLoading && !isError && (
         <div className="version-card-list library-version-list">
-          {(versions ?? []).length === 0 && <span className="tree-muted-item">还没有视觉版本。上传参考图创建 v1。</span>}
+          {(versions ?? []).length === 0 && (
+            <span className="tree-muted-item">还没有视觉版本。上传参考图创建 v1。</span>
+          )}
           {(versions ?? []).map((version) => {
             const badges = deriveEntityVersionBadges(version, newestId === version.id);
             return (
               <div key={version.id} className={`version-card library-version-row ${version.is_master ? "master" : ""}`}>
                 <img src={`/api/v1/assets/${version.asset_id}/thumbnail`} alt={`V${version.version_number}`} />
                 <span className="library-version-meta">
-                  <strong>V{version.version_number}{version.name ? ` · ${version.name}` : ""}</strong>
+                  <strong>
+                    V{version.version_number}
+                    {version.name ? ` · ${version.name}` : ""}
+                  </strong>
                   <small>{formatDate(version.created_at)}</small>
                 </span>
                 <span className="library-version-right">
                   {badges.map((badge) => (
-                    <span key={badge.kind} className={`badge ${badge.tone}`}>{badge.label}</span>
+                    <span key={badge.kind} className={`badge ${badge.tone}`}>
+                      {badge.label}
+                    </span>
                   ))}
                   {!version.is_master && (
                     <button
@@ -124,7 +137,13 @@ export function EntityVersionBlock({ kind, entityId, projectId }: EntityVersionB
             importAsset.mutate(file, { onSuccess: (asset) => createVersion.mutate(asset.id) });
           }}
         />
-        <button type="button" className="btn secondary tiny" disabled={uploading} onClick={() => fileRef.current?.click()} title="导入一张图片作为参考图并创建新版本">
+        <button
+          type="button"
+          className="btn secondary tiny"
+          disabled={uploading}
+          onClick={() => fileRef.current?.click()}
+          title="导入一张图片作为参考图并创建新版本"
+        >
           <UploadSimple size={13} /> {uploading ? "上传中…" : "上传参考图 → 新版本"}
         </button>
         {fileName && <span className="tree-muted-item import-file-name">{fileName}</span>}
@@ -137,5 +156,10 @@ export function EntityVersionBlock({ kind, entityId, projectId }: EntityVersionB
 function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }

@@ -49,7 +49,10 @@ export function latestPerGroup(versions: AssetVersionRead[]): Map<string, string
   const latest = new Map<string, string>();
   for (const v of versions) {
     const current = latest.get(v.media_type);
-    if (current === undefined || v.version_number > (versions.find((x) => x.asset_id === current)?.version_number ?? 0)) {
+    if (
+      current === undefined ||
+      v.version_number > (versions.find((x) => x.asset_id === current)?.version_number ?? 0)
+    ) {
       latest.set(v.media_type, v.asset_id);
     }
   }
@@ -86,7 +89,11 @@ export function VersionStrip({ versions, selectedId, onSelect, title = "版本" 
                 title={`V${version.version_number}`}
                 onClick={() => onSelect(version.asset_id)}
               >
-                <img className="version-thumb" src={`/api/v1/assets/${version.asset_id}/thumbnail`} alt={`V${version.version_number} thumbnail`} />
+                <img
+                  className="version-thumb"
+                  src={`/api/v1/assets/${version.asset_id}/thumbnail`}
+                  alt={`V${version.version_number} thumbnail`}
+                />
                 <span className="version-label">V{version.version_number}</span>
                 {labels.length > 0 && (
                   <span className="version-strip-badges">

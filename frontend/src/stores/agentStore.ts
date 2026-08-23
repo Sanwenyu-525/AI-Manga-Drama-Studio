@@ -85,9 +85,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   toolStarted: (tool, targetId) =>
     set((s) => ({
       status: "executing",
-      tools: s.tools.map((t) =>
-        t.tool === tool ? { ...t, status: "running", detail: targetId } : t,
-      ),
+      tools: s.tools.map((t) => (t.tool === tool ? { ...t, status: "running", detail: targetId } : t)),
     })),
 
   toolCompleted: (tool, success, changedFields, error) =>
@@ -103,10 +101,9 @@ export const useAgentStore = create<AgentState>((set) => ({
     set((s) => {
       const summary = (result?.summary as string) ?? "完成。";
       const clarification = result?.clarification as string | undefined;
-      const messages =
-        clarification
-          ? [...s.messages, { role: "assistant" as const, content: clarification }]
-          : [...s.messages, { role: "assistant" as const, content: summary }];
+      const messages = clarification
+        ? [...s.messages, { role: "assistant" as const, content: clarification }]
+        : [...s.messages, { role: "assistant" as const, content: summary }];
       return { status: "completed", result, messages };
     }),
 

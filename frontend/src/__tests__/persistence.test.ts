@@ -17,7 +17,9 @@ function memoryStorage(initial: Record<string, string> = {}): StorageLike & { da
   return {
     data,
     getItem: (key) => data[key] ?? null,
-    setItem: (key, value) => { data[key] = value; },
+    setItem: (key, value) => {
+      data[key] = value;
+    },
   };
 }
 
@@ -35,8 +37,21 @@ describe("persistence — save/load round trip", () => {
     const storage = memoryStorage();
     const snap = {
       schemaVersion: 2 as const,
-      layout: { ...DEFAULT_LAYOUT, explorerWidth: 250, rightWidth: 420, bottomDockHeight: 300, explorerCollapsed: true, bottomDockExpanded: true },
-      tabs: { activeTabId: "scene:s1", open: [{ id: "script", kind: "script", title: "剧本" }, { id: "scene:s1", kind: "scene", title: "Scene 1", sceneId: "s1", episodeId: "e1" }] as TabState[] },
+      layout: {
+        ...DEFAULT_LAYOUT,
+        explorerWidth: 250,
+        rightWidth: 420,
+        bottomDockHeight: 300,
+        explorerCollapsed: true,
+        bottomDockExpanded: true,
+      },
+      tabs: {
+        activeTabId: "scene:s1",
+        open: [
+          { id: "script", kind: "script", title: "剧本" },
+          { id: "scene:s1", kind: "scene", title: "Scene 1", sceneId: "s1", episodeId: "e1" },
+        ] as TabState[],
+      },
     };
     expect(saveWorkspace(snap, storage)).toBe(true);
     const loaded = loadWorkspace(storage);
@@ -55,7 +70,12 @@ describe("persistence — save/load round trip", () => {
     expect(loadWorkspace(storage)).toBeNull();
   });
   it("saveWorkspace tolerates throwing storage", () => {
-    const bad = { getItem: () => null, setItem: () => { throw new Error("quota"); } };
+    const bad = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("quota");
+      },
+    };
     expect(saveWorkspace({} as never, bad)).toBe(false);
   });
 });
@@ -73,7 +93,12 @@ describe("persistence — parse / sanitize", () => {
     expect(parseWorkspace(raw)).toBeNull();
   });
   it("keeps only layout when reading the v1 workspace snapshot", () => {
-    const raw = JSON.stringify({ version: 1, layout: { ...DEFAULT_LAYOUT, explorerWidth: 260 }, selection: { shotIds: ["stale"] }, tabs: { activeTabId: "scene:stale", open: [] } });
+    const raw = JSON.stringify({
+      version: 1,
+      layout: { ...DEFAULT_LAYOUT, explorerWidth: 260 },
+      selection: { shotIds: ["stale"] },
+      tabs: { activeTabId: "scene:stale", open: [] },
+    });
     const parsed = parseWorkspace(raw);
     expect(parsed?.schemaVersion).toBe(1);
     expect(parsed?.layout.explorerWidth).toBe(260);
@@ -85,7 +110,10 @@ describe("persistence — parse / sanitize", () => {
   });
   it("drops invalid tab entries when restoring", () => {
     const raw = snapshotOverrides({
-      tabs: { activeTabId: "scene:bad", open: [{ id: "script", kind: "script", title: "剧本" }, 7, null, { id: "shot:1", kind: "shot", title: "Shot" }] },
+      tabs: {
+        activeTabId: "scene:bad",
+        open: [{ id: "script", kind: "script", title: "剧本" }, 7, null, { id: "shot:1", kind: "shot", title: "Shot" }],
+      },
     });
     const parsed = parseWorkspace(raw)!;
     expect(parsed.schemaVersion).toBe(2);

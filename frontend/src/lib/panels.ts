@@ -41,7 +41,13 @@ export function applyVerticalResize(
   delta: number,
 ): { explorerWidth: number; rightWidth: number } {
   if (which === "left") {
-    return { explorerWidth: clampPanelSize(startLeft + delta, PANEL_BOUNDS.explorer, PANEL_BOUNDS.explorer.min), rightWidth: startRight };
+    return {
+      explorerWidth: clampPanelSize(startLeft + delta, PANEL_BOUNDS.explorer, PANEL_BOUNDS.explorer.min),
+      rightWidth: startRight,
+    };
   }
-  return { explorerWidth: startLeft, rightWidth: clampPanelSize(startRight - delta, PANEL_BOUNDS.right, PANEL_BOUNDS.right.min) };
+  return {
+    explorerWidth: startLeft,
+    rightWidth: clampPanelSize(startRight - delta, PANEL_BOUNDS.right, PANEL_BOUNDS.right.min),
+  };
 }

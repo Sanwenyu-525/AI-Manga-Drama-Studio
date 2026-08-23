@@ -30,9 +30,14 @@ export interface ProjectAssetLibrary {
   isLoading: boolean;
 }
 
-export function useProjectAssetLibrary(projectId: string, typeFilter: AssetTypeFilter | null = null): ProjectAssetLibrary {
+export function useProjectAssetLibrary(
+  projectId: string,
+  typeFilter: AssetTypeFilter | null = null,
+): ProjectAssetLibrary {
   const typeParam = typeFilter === "all" || typeFilter === null ? null : typeFilter;
-  const path = typeParam ? "/projects/" + projectId + "/assets?type=" + typeParam : "/projects/" + projectId + "/assets";
+  const path = typeParam
+    ? "/projects/" + projectId + "/assets?type=" + typeParam
+    : "/projects/" + projectId + "/assets";
   const query = useQuery({
     queryKey: queryKeys.projectAssets(projectId, typeParam),
     queryFn: () => api.get<AssetListRead>(path),

@@ -42,8 +42,36 @@ function detail(s: JobSummaryRead): JobRead {
     ...s,
     task_status_counts: { queued: 1, completed: 1 },
     tasks: [
-      { id: "task_1", job_id: s.id, task_type: "image", target_type: "shot", target_id: "shot_a", shot_id: "shot_a", status: "completed", priority: 1, progress: 100, generation_id: "gen_a", error_message: null, created_at: "", updated_at: "" },
-      { id: "task_2", job_id: s.id, task_type: "image", target_type: "shot", target_id: "shot_b", shot_id: "shot_b", status: "failed", priority: 1, progress: 0, generation_id: "gen_b", error_message: "provider timeout", created_at: "", updated_at: "" },
+      {
+        id: "task_1",
+        job_id: s.id,
+        task_type: "image",
+        target_type: "shot",
+        target_id: "shot_a",
+        shot_id: "shot_a",
+        status: "completed",
+        priority: 1,
+        progress: 100,
+        generation_id: "gen_a",
+        error_message: null,
+        created_at: "",
+        updated_at: "",
+      },
+      {
+        id: "task_2",
+        job_id: s.id,
+        task_type: "image",
+        target_type: "shot",
+        target_id: "shot_b",
+        shot_id: "shot_b",
+        status: "failed",
+        priority: 1,
+        progress: 0,
+        generation_id: "gen_b",
+        error_message: "provider timeout",
+        created_at: "",
+        updated_at: "",
+      },
     ],
   };
 }
@@ -62,7 +90,10 @@ function mockJobs(list: JobSummaryRead[]) {
   vi.spyOn(client.api, "post").mockImplementation(() => Promise.resolve({}));
 }
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("GenerationQueue Jobs tab", () => {
   it("renders the job list with status badges and a count summary", async () => {

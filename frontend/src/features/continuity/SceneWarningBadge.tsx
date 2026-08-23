@@ -56,10 +56,23 @@ export function SceneWarningBadge({ sceneId }: { sceneId: string }) {
   });
 
   if (isLoading && !continuity) {
-    return <span className="scene-warning-badge muted" aria-busy>…</span>;
+    return (
+      <span className="scene-warning-badge muted" aria-busy>
+        …
+      </span>
+    );
   }
 
-  const icon = tier === "error" ? <WarningCircle size={14} weight="fill" /> : tier === "warning" ? <Warning size={14} weight="fill" /> : total > 0 ? <Info size={14} weight="fill" /> : <Info size={14} weight="fill" />;
+  const icon =
+    tier === "error" ? (
+      <WarningCircle size={14} weight="fill" />
+    ) : tier === "warning" ? (
+      <Warning size={14} weight="fill" />
+    ) : total > 0 ? (
+      <Info size={14} weight="fill" />
+    ) : (
+      <Info size={14} weight="fill" />
+    );
 
   return (
     <div className="scene-warning" role="region" aria-label="场景连续性状态">
@@ -73,7 +86,11 @@ export function SceneWarningBadge({ sceneId }: { sceneId: string }) {
       >
         {icon}
         {total > 0 && <span className="scene-warning-count">{total}</span>}
-        {tier ? <span className="scene-warning-tier">{severityTierLabel(tier)}</span> : <span className="scene-warning-tier">无警告</span>}
+        {tier ? (
+          <span className="scene-warning-tier">{severityTierLabel(tier)}</span>
+        ) : (
+          <span className="scene-warning-tier">无警告</span>
+        )}
       </button>
 
       {open && (
@@ -81,20 +98,41 @@ export function SceneWarningBadge({ sceneId }: { sceneId: string }) {
           <div className="scene-warning-popover-head">
             <span className="scene-warning-popover-title">场景连续性</span>
             <span className="scene-warning-sev-counts">
-              {(["error", "warning", "info"] as const).map((t) => counts[t] > 0 && (<span key={t} className={"sev-count " + t}>{severityTierLabel(t)} {counts[t]}</span>))}
+              {(["error", "warning", "info"] as const).map(
+                (t) =>
+                  counts[t] > 0 && (
+                    <span key={t} className={"sev-count " + t}>
+                      {severityTierLabel(t)} {counts[t]}
+                    </span>
+                  ),
+              )}
             </span>
           </div>
           <ContinuityWarningList warnings={allWarnings} sceneId={sceneId} />
           {allWarnings.length === 0 && <p className="muted small scene-warning-empty">当前没有连续性警告。</p>}
           <div className="scene-warning-popover-actions">
-            <button type="button" className="btn secondary tiny" disabled={recompute.isPending} onClick={() => recompute.mutate()}>
+            <button
+              type="button"
+              className="btn secondary tiny"
+              disabled={recompute.isPending}
+              onClick={() => recompute.mutate()}
+            >
               <ArrowsClockwise size={13} /> {recompute.isPending ? "重算中…" : "重新计算"}
             </button>
-            <button type="button" className="btn primary tiny" disabled={check.isPending} onClick={() => check.mutate()}>
+            <button
+              type="button"
+              className="btn primary tiny"
+              disabled={check.isPending}
+              onClick={() => check.mutate()}
+            >
               <MagicWand size={13} /> {check.isPending ? "检测中…" : "AI 语义检测"}
             </button>
           </div>
-          {checkNotice && <div className="continuity-fix-notice" role="status">{checkNotice}</div>}
+          {checkNotice && (
+            <div className="continuity-fix-notice" role="status">
+              {checkNotice}
+            </div>
+          )}
           {checkError && <ApiErrorPanel error={checkError} />}
         </div>
       )}

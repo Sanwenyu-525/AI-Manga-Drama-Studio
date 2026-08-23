@@ -22,7 +22,11 @@ function makeWrapper() {
   return { qc, wrapper };
 }
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); useAgentStore.getState().reset(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  useAgentStore.getState().reset();
+});
 
 // ---- 1. changes shape tolerance ----
 describe("normalizeProposalChanges", () => {
@@ -32,7 +36,10 @@ describe("normalizeProposalChanges", () => {
   });
 
   it("parses multiple fields in the object-map shape", () => {
-    const diffs = agentLib.normalizeProposalChanges({ duration: { from: 6, to: 4 }, shot_type: { from: "medium", to: "close_up" } } as never);
+    const diffs = agentLib.normalizeProposalChanges({
+      duration: { from: 6, to: 4 },
+      shot_type: { from: "medium", to: "close_up" },
+    } as never);
     expect(diffs).toEqual([
       { field: "duration", from: 6, to: 4 },
       { field: "shot_type", from: "medium", to: "close_up" },
@@ -58,7 +65,12 @@ describe("normalizeProposalChanges", () => {
 
 // ---- 2. ProposalReview rendering + actions ----
 const pendingShot: AgentProposal = {
-  id: "prop_1", tool: "update_shot", target_type: "shot", target_id: "shot_abc123", base_revision: 3, status: "pending",
+  id: "prop_1",
+  tool: "update_shot",
+  target_type: "shot",
+  target_id: "shot_abc123",
+  base_revision: 3,
+  status: "pending",
   changes: { image_prompt: { from: "旧提示词", to: "新提示词" } } as never,
 };
 const approvedShot: AgentProposal = { ...pendingShot, id: "prop_2", status: "approved" };
@@ -68,7 +80,17 @@ describe("ProposalReview (pending)", () => {
   it("fetches proposals and renders tool/target/base_revision + from→to diff", async () => {
     const get = vi.fn().mockImplementation((path: string) => {
       if (path.endsWith("/proposals")) return Promise.resolve([pendingShot]);
-      return Promise.resolve({ id: "run_1", status: "WAITING_HUMAN", project_id: "p1", plan: null, approval: null, change_set_id: null, result: null, created_at: "", updated_at: "" });
+      return Promise.resolve({
+        id: "run_1",
+        status: "WAITING_HUMAN",
+        project_id: "p1",
+        plan: null,
+        approval: null,
+        change_set_id: null,
+        result: null,
+        created_at: "",
+        updated_at: "",
+      });
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
@@ -85,7 +107,17 @@ describe("ProposalReview (pending)", () => {
   it("approve posts to /agent/proposals/{id}/approve", async () => {
     const get = vi.fn().mockImplementation((path: string) => {
       if (path.endsWith("/proposals")) return Promise.resolve([pendingShot]);
-      return Promise.resolve({ id: "run_1", status: "WAITING_HUMAN", project_id: "p1", plan: null, approval: null, change_set_id: null, result: null, created_at: "", updated_at: "" });
+      return Promise.resolve({
+        id: "run_1",
+        status: "WAITING_HUMAN",
+        project_id: "p1",
+        plan: null,
+        approval: null,
+        change_set_id: null,
+        result: null,
+        created_at: "",
+        updated_at: "",
+      });
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
     const post = vi.fn().mockResolvedValue({});
@@ -99,7 +131,17 @@ describe("ProposalReview (pending)", () => {
   it("reject posts to /agent/proposals/{id}/reject", async () => {
     const get = vi.fn().mockImplementation((path: string) => {
       if (path.endsWith("/proposals")) return Promise.resolve([pendingShot]);
-      return Promise.resolve({ id: "run_1", status: "WAITING_HUMAN", project_id: "p1", plan: null, approval: null, change_set_id: null, result: null, created_at: "", updated_at: "" });
+      return Promise.resolve({
+        id: "run_1",
+        status: "WAITING_HUMAN",
+        project_id: "p1",
+        plan: null,
+        approval: null,
+        change_set_id: null,
+        result: null,
+        created_at: "",
+        updated_at: "",
+      });
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
     const post = vi.fn().mockResolvedValue({});
@@ -113,7 +155,17 @@ describe("ProposalReview (pending)", () => {
   it("shows the approved badge for resolved proposals and hides actions", async () => {
     const get = vi.fn().mockImplementation((path: string) => {
       if (path.endsWith("/proposals")) return Promise.resolve([approvedShot]);
-      return Promise.resolve({ id: "run_1", status: "WAITING_HUMAN", project_id: "p1", plan: null, approval: null, change_set_id: null, result: null, created_at: "", updated_at: "" });
+      return Promise.resolve({
+        id: "run_1",
+        status: "WAITING_HUMAN",
+        project_id: "p1",
+        plan: null,
+        approval: null,
+        change_set_id: null,
+        result: null,
+        created_at: "",
+        updated_at: "",
+      });
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
@@ -127,7 +179,17 @@ describe("ProposalReview (conflict)", () => {
   it("renders the conflict banner and a refresh button", async () => {
     const get = vi.fn().mockImplementation((path: string) => {
       if (path.endsWith("/proposals")) return Promise.resolve([conflictedShot]);
-      return Promise.resolve({ id: "run_1", status: "WAITING_HUMAN", project_id: "p1", plan: null, approval: null, change_set_id: null, result: null, created_at: "", updated_at: "" });
+      return Promise.resolve({
+        id: "run_1",
+        status: "WAITING_HUMAN",
+        project_id: "p1",
+        plan: null,
+        approval: null,
+        change_set_id: null,
+        result: null,
+        created_at: "",
+        updated_at: "",
+      });
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
@@ -138,7 +200,17 @@ describe("ProposalReview (conflict)", () => {
   it("hides approve/reject for a conflicted proposal but shows conflict status", async () => {
     const get = vi.fn().mockImplementation((path: string) => {
       if (path.endsWith("/proposals")) return Promise.resolve([conflictedShot]);
-      return Promise.resolve({ id: "run_1", status: "WAITING_HUMAN", project_id: "p1", plan: null, approval: null, change_set_id: null, result: null, created_at: "", updated_at: "" });
+      return Promise.resolve({
+        id: "run_1",
+        status: "WAITING_HUMAN",
+        project_id: "p1",
+        plan: null,
+        approval: null,
+        change_set_id: null,
+        result: null,
+        created_at: "",
+        updated_at: "",
+      });
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
@@ -162,7 +234,17 @@ describe("ProposalReview (resume)", () => {
   it("shows 继续执行 when WAITING_HUMAN and no proposal is pending, and calls /resume", async () => {
     const get = vi.fn().mockImplementation((path: string) => {
       if (path.endsWith("/proposals")) return Promise.resolve([approvedShot]); // all resolved
-      return Promise.resolve({ id: "run_1", status: "WAITING_HUMAN", project_id: "p1", plan: null, approval: null, change_set_id: null, result: null, created_at: "", updated_at: "" });
+      return Promise.resolve({
+        id: "run_1",
+        status: "WAITING_HUMAN",
+        project_id: "p1",
+        plan: null,
+        approval: null,
+        change_set_id: null,
+        result: null,
+        created_at: "",
+        updated_at: "",
+      });
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
     const post = vi.fn().mockResolvedValue({});
@@ -175,7 +257,17 @@ describe("ProposalReview (resume)", () => {
   it("hides 继续执行 while a proposal is still pending", async () => {
     const get = vi.fn().mockImplementation((path: string) => {
       if (path.endsWith("/proposals")) return Promise.resolve([pendingShot]);
-      return Promise.resolve({ id: "run_1", status: "WAITING_HUMAN", project_id: "p1", plan: null, approval: null, change_set_id: null, result: null, created_at: "", updated_at: "" });
+      return Promise.resolve({
+        id: "run_1",
+        status: "WAITING_HUMAN",
+        project_id: "p1",
+        plan: null,
+        approval: null,
+        change_set_id: null,
+        result: null,
+        created_at: "",
+        updated_at: "",
+      });
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
@@ -206,7 +298,14 @@ describe("EventRouter proposal/approval events", () => {
     const invalidationSpy = vi.spyOn(qc, "invalidateQueries");
     const router = new EventRouter(qc);
     router.handle({
-      event_id: "e1", event_type: "agent.approval.required", event_version: 1, project_id: "p1", entity_type: "proposal", entity_id: "prop_1", timestamp: "2026-01-01", sequence: 3,
+      event_id: "e1",
+      event_type: "agent.approval.required",
+      event_version: 1,
+      project_id: "p1",
+      entity_type: "proposal",
+      entity_id: "prop_1",
+      timestamp: "2026-01-01",
+      sequence: 3,
       payload: { run_id: "run_1", proposal_id: "prop_1", tool: "update_shot", changes: {} },
     });
     expect(useAgentStore.getState().status).toBe("waiting_human");
@@ -218,14 +317,34 @@ describe("EventRouter proposal/approval events", () => {
     // prevent flush warning
     const spy = vi.spyOn(qc, "invalidateQueries");
     const router = new EventRouter(qc);
-    router.handle({ event_id: "e2", event_type: "agent.proposal.created", event_version: 1, project_id: "p1", entity_type: "proposal", entity_id: "prop_1", timestamp: "2026-01-01", sequence: 4, payload: { run_id: "run_2" } });
+    router.handle({
+      event_id: "e2",
+      event_type: "agent.proposal.created",
+      event_version: 1,
+      project_id: "p1",
+      entity_type: "proposal",
+      entity_id: "prop_1",
+      timestamp: "2026-01-01",
+      sequence: 4,
+      payload: { run_id: "run_2" },
+    });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["agentRun", "run_2"] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["proposals", "run_2"] });
   });
   it("run.updated with WAITING_HUMAN sets store status", () => {
     const qc = new QueryClient();
     const router = new EventRouter(qc);
-    router.handle({ event_id: "e3", event_type: "agent.run.updated", event_version: 1, project_id: "p1", entity_type: "run", entity_id: "run_1", timestamp: "2026-01-01", sequence: 5, payload: { run_id: "run_1", status: "WAITING_HUMAN" } });
+    router.handle({
+      event_id: "e3",
+      event_type: "agent.run.updated",
+      event_version: 1,
+      project_id: "p1",
+      entity_type: "run",
+      entity_id: "run_1",
+      timestamp: "2026-01-01",
+      sequence: 5,
+      payload: { run_id: "run_1", status: "WAITING_HUMAN" },
+    });
     expect(useAgentStore.getState().status).toBe("waiting_human");
   });
 });

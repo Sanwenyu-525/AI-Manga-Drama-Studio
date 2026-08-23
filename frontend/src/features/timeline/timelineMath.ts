@@ -72,6 +72,9 @@ export function formatTime(seconds: number): string {
 }
 
 /** Overlap check: two time ranges intersect (excluding point-touch). */
-export function overlaps(a: { start_time: number; end_time: number }, b: { start_time: number; end_time: number }): boolean {
+export function overlaps(
+  a: { start_time: number; end_time: number },
+  b: { start_time: number; end_time: number },
+): boolean {
   return a.start_time < b.end_time && b.start_time < a.end_time;
 }

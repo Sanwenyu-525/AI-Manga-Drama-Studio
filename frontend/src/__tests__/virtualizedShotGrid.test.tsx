@@ -7,15 +7,19 @@ afterEach(cleanup);
 import { VirtualizedShotGrid } from "../features/storyboard/VirtualizedShotGrid";
 
 function makeShots(n: number) {
-  return Array.from({ length: n }, (_, i) => ({
-    id: `shot_${i}`,
-    shot_number: i + 1,
-    shot_type: "medium",
-    status: "draft",
-    dirty_state: "clean",
-    character_names: [],
-    thumbnail_url: null,
-  } as never));
+  return Array.from(
+    { length: n },
+    (_, i) =>
+      ({
+        id: `shot_${i}`,
+        shot_number: i + 1,
+        shot_type: "medium",
+        status: "draft",
+        dirty_state: "clean",
+        character_names: [],
+        thumbnail_url: null,
+      }) as never,
+  );
 }
 
 describe("VirtualizedShotGrid", () => {

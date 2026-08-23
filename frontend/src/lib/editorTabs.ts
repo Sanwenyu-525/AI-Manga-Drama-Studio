@@ -48,7 +48,10 @@ function upsert(open: EditorTab[], tab: EditorTab): EditorTab[] {
 }
 
 /* Open (create-or-activate) a scene tab. Returns a brand-new state object. */
-export function openSceneTab(state: EditorTabsState, input: { projectId: string; episodeId?: string; sceneId: string; title: string }): EditorTabsState {
+export function openSceneTab(
+  state: EditorTabsState,
+  input: { projectId: string; episodeId?: string; sceneId: string; title: string },
+): EditorTabsState {
   const tab: EditorTab = {
     id: tabId("scene", input.sceneId),
     kind: "scene",
@@ -61,7 +64,10 @@ export function openSceneTab(state: EditorTabsState, input: { projectId: string;
 }
 
 /* Open (create-or-activate) a shot detail tab. */
-export function openShotTab(state: EditorTabsState, input: { projectId: string; episodeId?: string; shotId: string; title: string; sceneId?: string }): EditorTabsState {
+export function openShotTab(
+  state: EditorTabsState,
+  input: { projectId: string; episodeId?: string; shotId: string; title: string; sceneId?: string },
+): EditorTabsState {
   const tab: EditorTab = {
     id: tabId("shot", input.shotId),
     kind: "shot",
@@ -77,7 +83,10 @@ export function openShotTab(state: EditorTabsState, input: { projectId: string; 
 /* Ensure the non-closeable script base tab exists (no-op otherwise). */
 export function ensureScriptTab(state: EditorTabsState): EditorTabsState {
   if (state.open.some((t) => t.id === SCRIPT_TAB_ID)) return state;
-  return { open: [{ id: SCRIPT_TAB_ID, kind: "script", title: "剧本" }, ...state.open], activeTabId: state.activeTabId ?? SCRIPT_TAB_ID };
+  return {
+    open: [{ id: SCRIPT_TAB_ID, kind: "script", title: "剧本" }, ...state.open],
+    activeTabId: state.activeTabId ?? SCRIPT_TAB_ID,
+  };
 }
 
 /* Activate an existing tab by id. Ignores unknown ids. */
@@ -102,7 +111,10 @@ export function closeTab(state: EditorTabsState, id: string): EditorTabsState {
 
 /* Restore a persisted tab list: reapply the base tab, keep scene/shot tabs with
    a valid ref, resolve a valid active id. */
-export function restoreTabs(persisted: EditorTab[] | undefined, persistedActive: string | null | undefined): EditorTabsState {
+export function restoreTabs(
+  persisted: EditorTab[] | undefined,
+  persistedActive: string | null | undefined,
+): EditorTabsState {
   const base: EditorTab = { id: SCRIPT_TAB_ID, kind: "script", title: "剧本" };
   const open: EditorTab[] = [base];
   for (const t of persisted ?? []) {

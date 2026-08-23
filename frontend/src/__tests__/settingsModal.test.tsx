@@ -39,7 +39,10 @@ const settings: ProjectSettings = {
   updated_at: "2026-08-01T00:00:00Z",
 };
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("ProjectSettingsModal", () => {
   it("renders the loaded settings into the form fields", async () => {
@@ -82,9 +85,11 @@ describe("ProjectSettingsModal", () => {
 
   it("surfaces a backend save error via the error panel", async () => {
     vi.spyOn(client.api, "get").mockResolvedValue(settings);
-    vi.spyOn(client.api, "put").mockRejectedValue(new client.ApiError(503, {
-      error: { code: "SERVICE_UNAVAILABLE", message: "生成服务暂不可用", details: {} },
-    }));
+    vi.spyOn(client.api, "put").mockRejectedValue(
+      new client.ApiError(503, {
+        error: { code: "SERVICE_UNAVAILABLE", message: "生成服务暂不可用", details: {} },
+      }),
+    );
     const { wrapper } = makeWrapper();
     render(<ProjectSettingsModal projectId="proj_1" open onClose={() => {}} />, { wrapper });
     await screen.findByDisplayValue("openai");

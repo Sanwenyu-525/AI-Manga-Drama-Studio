@@ -18,7 +18,8 @@ export function buildDirectorContext(route: StudioRoute, selection: StudioSelect
   return {
     workspace,
     project_id: route.projectId || undefined,
-    episode_id: workspace === "script" || workspace === "storyboard" || workspace === "timeline" ? route.episodeId : undefined,
+    episode_id:
+      workspace === "script" || workspace === "storyboard" || workspace === "timeline" ? route.episodeId : undefined,
     scene_id: isStoryboard ? route.sceneId : undefined,
     shot_ids: route.shotId ? [route.shotId] : isStoryboard ? selection.shotIds : [],
     asset_ids: workspace === "assets" ? selection.assetIds : [],

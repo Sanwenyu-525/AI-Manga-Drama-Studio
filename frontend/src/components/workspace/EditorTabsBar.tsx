@@ -71,7 +71,10 @@ export function EditorTabsBar() {
             onClick={() => activateAndNavigate(tab.id)}
             onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
           >
-            <span className="editor-tab-title">{prefix}{tab.title}</span>
+            <span className="editor-tab-title">
+              {prefix}
+              {tab.title}
+            </span>
             {closable && (
               <button
                 type="button"

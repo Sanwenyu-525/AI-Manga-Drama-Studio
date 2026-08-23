@@ -44,11 +44,29 @@ const provenance: ProvenanceRead = {
     status: "completed",
     created_at: "2026-08-01T00:00:00Z",
     completed_at: "2026-08-01T00:01:00Z",
-    parameters: "{\"width\": 1024, \"seed\": 42}",
+    parameters: '{"width": 1024, "seed": 42}',
   },
   inputs: [
-    { id: "in_1", generation_id: "gen_abc", input_type: "reference", reference_type: "character", reference_id: "char_01", role: "actor", order_index: 0, metadata_json: null },
-    { id: "in_2", generation_id: "gen_abc", input_type: "prompt", reference_type: null, reference_id: null, role: "image_prompt", order_index: 1, metadata_json: "{\"text\":\"a cat\"}" },
+    {
+      id: "in_1",
+      generation_id: "gen_abc",
+      input_type: "reference",
+      reference_type: "character",
+      reference_id: "char_01",
+      role: "actor",
+      order_index: 0,
+      metadata_json: null,
+    },
+    {
+      id: "in_2",
+      generation_id: "gen_abc",
+      input_type: "prompt",
+      reference_type: null,
+      reference_id: null,
+      role: "image_prompt",
+      order_index: 1,
+      metadata_json: '{"text":"a cat"}',
+    },
   ],
   retry_of: "gen_prev",
   parent_asset_id: null,
@@ -56,7 +74,24 @@ const provenance: ProvenanceRead = {
 };
 
 const noProvenance: ProvenanceRead = {
-  asset: { id: "ast_x", project_id: "p", type: "image", name: null, file_path: null, mime_type: null, width: null, height: null, status: "ready", source_type: "imported", version_group_id: null, version_number: null, generation_id: null, parent_asset_id: null, meta: null, created_at: null },
+  asset: {
+    id: "ast_x",
+    project_id: "p",
+    type: "image",
+    name: null,
+    file_path: null,
+    mime_type: null,
+    width: null,
+    height: null,
+    status: "ready",
+    source_type: "imported",
+    version_group_id: null,
+    version_number: null,
+    generation_id: null,
+    parent_asset_id: null,
+    meta: null,
+    created_at: null,
+  },
   generation: null,
   inputs: [],
   retry_of: null,
@@ -64,7 +99,10 @@ const noProvenance: ProvenanceRead = {
   ancestors: [],
 };
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("ProvenancePanel", () => {
   it("renders asset info, the producing generation and its inputs", async () => {
@@ -100,5 +138,4 @@ describe("ProvenancePanel", () => {
     render(<ProvenancePanel assetId="ast_x" open={false} onClose={() => {}} />, { wrapper });
     expect(screen.queryByText(/溯源/)).toBeNull();
   });
-
 });

@@ -14,7 +14,17 @@ describe("shouldRouteEvent", () => {
 describe("isWellFormedEvent", () => {
   it("accepts a valid envelope", () => {
     expect(
-      isWellFormedEvent({ event_id: "e1", event_type: "shot.updated", sequence: 1, timestamp: "t", project_id: null, entity_type: "shot", entity_id: "s1", event_version: 1, payload: {} }),
+      isWellFormedEvent({
+        event_id: "e1",
+        event_type: "shot.updated",
+        sequence: 1,
+        timestamp: "t",
+        project_id: null,
+        entity_type: "shot",
+        entity_id: "s1",
+        event_version: 1,
+        payload: {},
+      }),
     ).toBe(true);
   });
 

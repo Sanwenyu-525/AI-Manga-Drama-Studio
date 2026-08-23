@@ -33,7 +33,8 @@ export function parseStudioRoute(pathname: string): StudioRoute | null {
   if (parts[2] === "assets") return { projectId, workspace: "assets", legacy: false };
   if (parts[2] === "script") return { projectId, workspace: "script", legacy: true };
   if (parts[2] === "timeline") return { projectId, workspace: "timeline", legacy: true };
-  if (parts[2] === "storyboard" && parts[3]) return { projectId, sceneId: parts[3], workspace: "storyboard", legacy: true };
+  if (parts[2] === "storyboard" && parts[3])
+    return { projectId, sceneId: parts[3], workspace: "storyboard", legacy: true };
   return null;
 }
 
@@ -60,7 +61,9 @@ export function canonicalTimelinePath(projectId: string, episodeId: string): str
 
 export function editorTabPath(tab: EditorTab, current: StudioRoute): string | null {
   if (tab.kind === "script") {
-    return current.episodeId ? canonicalScriptPath(current.projectId, current.episodeId) : `/projects/${current.projectId}/script`;
+    return current.episodeId
+      ? canonicalScriptPath(current.projectId, current.episodeId)
+      : `/projects/${current.projectId}/script`;
   }
   if (tab.kind === "scene" && tab.sceneId) {
     return tab.episodeId
@@ -68,7 +71,8 @@ export function editorTabPath(tab: EditorTab, current: StudioRoute): string | nu
       : `/projects/${tab.projectId ?? current.projectId}/storyboard/${tab.sceneId}`;
   }
   if (tab.kind === "shot" && tab.shotId) {
-    if (tab.episodeId && tab.sceneId) return canonicalShotPath(tab.projectId ?? current.projectId, tab.episodeId, tab.sceneId, tab.shotId);
+    if (tab.episodeId && tab.sceneId)
+      return canonicalShotPath(tab.projectId ?? current.projectId, tab.episodeId, tab.sceneId, tab.shotId);
     return `/projects/${tab.projectId ?? current.projectId}/shots/${tab.shotId}/versions`;
   }
   return null;

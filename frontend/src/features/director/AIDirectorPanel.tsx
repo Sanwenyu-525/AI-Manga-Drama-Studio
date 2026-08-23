@@ -71,11 +71,25 @@ export function AIDirectorPanel() {
   return (
     <div className="panel-tab-content">
       <div className="panel-tabs" role="tablist" aria-label="右侧面板">
-        <button type="button" role="tab" aria-selected={false} className="tab" onClick={() => setRightPanelTab("inspector")}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={false}
+          className="tab"
+          onClick={() => setRightPanelTab("inspector")}
+        >
           Inspector
         </button>
-        <button type="button" role="tab" aria-selected={true} className="tab active">AI Director</button>
-        <button type="button" className="panel-collapse-tab" title="收起右侧面板" aria-label="收起右侧面板" onClick={() => setRightPanelCollapsed(true)}>
+        <button type="button" role="tab" aria-selected={true} className="tab active">
+          AI Director
+        </button>
+        <button
+          type="button"
+          className="panel-collapse-tab"
+          title="收起右侧面板"
+          aria-label="收起右侧面板"
+          onClick={() => setRightPanelCollapsed(true)}
+        >
           <CaretLineRight size={15} />
         </button>
       </div>
@@ -85,7 +99,11 @@ export function AIDirectorPanel() {
         <div className="director-context">
           <span className="muted small">
             当前：{context.scene_id ? `Scene ${context.scene_id.slice(-4)}` : "无场景"} ·{" "}
-            {context.shot_ids.length > 0 ? `${context.shot_ids.length} 个镜头选中` : context.asset_ids.length > 0 ? `${context.asset_ids.length} 个素材选中` : "未选中对象"}
+            {context.shot_ids.length > 0
+              ? `${context.shot_ids.length} 个镜头选中`
+              : context.asset_ids.length > 0
+                ? `${context.asset_ids.length} 个素材选中`
+                : "未选中对象"}
           </span>
           <span className={`agent-status ${waitingHuman ? "waiting_human" : agent.status}`}>
             {STATUS_LABELS[waitingHuman ? "WAITING_HUMAN" : agent.status] ?? agent.status}
@@ -107,7 +125,8 @@ export function AIDirectorPanel() {
           {agent.messages.length === 0 && agent.status === "idle" && (
             <p className="muted small">
               选中一个镜头后对我说，例如：
-              <br />「改成近景」「重新生成」「改成近景然后重新生成」
+              <br />
+              「改成近景」「重新生成」「改成近景然后重新生成」
             </p>
           )}
 
@@ -122,7 +141,15 @@ export function AIDirectorPanel() {
               <div className="plan-title">计划：{agent.objective}</div>
               {agent.tools.map((tool, i) => (
                 <div key={i} className={`plan-step ${tool.status}`}>
-                  <span className="plan-icon">{tool.status === "done" ? <Check size={12} weight="bold" /> : tool.status === "failed" ? <X size={12} weight="bold" /> : <Circle size={12} weight={tool.status === "running" ? "fill" : "regular"} />}</span>
+                  <span className="plan-icon">
+                    {tool.status === "done" ? (
+                      <Check size={12} weight="bold" />
+                    ) : tool.status === "failed" ? (
+                      <X size={12} weight="bold" />
+                    ) : (
+                      <Circle size={12} weight={tool.status === "running" ? "fill" : "regular"} />
+                    )}
+                  </span>
                   <span className="plan-tool">{tool.tool}</span>
                   {tool.detail && <span className="muted small">{tool.detail}</span>}
                 </div>

@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Aperture, ArrowSquareOut, CheckCircle, Clock, DotsThree, ImageSquare, MagicWand, CaretLineRight, Trash, VideoCamera } from "@phosphor-icons/react";
+import {
+  Aperture,
+  ArrowSquareOut,
+  CheckCircle,
+  Clock,
+  DotsThree,
+  ImageSquare,
+  MagicWand,
+  CaretLineRight,
+  Trash,
+  VideoCamera,
+} from "@phosphor-icons/react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
@@ -188,10 +199,20 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
           <div>
             <span className="eyebrow">SHOT DETAILS</span>
             <h2>Shot {String(shot.shot_number).padStart(3, "0")}</h2>
-            <span className="ready-line"><CheckCircle size={15} weight="fill" /> {shot.status === "image_ready" ? "已出图" : "可编辑"} · rev {shot.revision}</span>
+            <span className="ready-line">
+              <CheckCircle size={15} weight="fill" /> {shot.status === "image_ready" ? "已出图" : "可编辑"} · rev{" "}
+              {shot.revision}
+            </span>
           </div>
           <div className="shot-menu" ref={menuRef}>
-            <button className="icon-button" aria-label="更多操作" aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}><DotsThree size={20} /></button>
+            <button
+              className="icon-button"
+              aria-label="更多操作"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <DotsThree size={20} />
+            </button>
             {menuOpen && (
               <div className="shot-menu-popover" role="menu" aria-label="镜头操作">
                 <button
@@ -211,8 +232,10 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
                   disabled={deleteShot.isPending}
                   onClick={() => {
                     setMenuOpen(false);
-                    if (window.confirm(`删除 Shot ${String(shot.shot_number).padStart(3, "0")}？
-镜头与其生成版本将被软删除。`)) {
+                    if (
+                      window.confirm(`删除 Shot ${String(shot.shot_number).padStart(3, "0")}？
+镜头与其生成版本将被软删除。`)
+                    ) {
                       deleteShot.mutate();
                     }
                   }}
@@ -225,10 +248,30 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
         </div>
 
         <div className="inspector-fact-grid">
-          <div><span><Aperture size={14} /> 景别</span><strong>{SHOT_TYPE_LABELS[form.shot_type ?? shot.shot_type]}</strong></div>
-          <div><span><VideoCamera size={14} /> 机位</span><strong>{form.camera_angle || "未设置"}</strong></div>
-          <div><span><MagicWand size={14} /> 运动</span><strong>{form.camera_movement || "静止"}</strong></div>
-          <div><span><Clock size={14} /> 时长</span><strong>{form.duration ? `${form.duration}s` : "—"}</strong></div>
+          <div>
+            <span>
+              <Aperture size={14} /> 景别
+            </span>
+            <strong>{SHOT_TYPE_LABELS[form.shot_type ?? shot.shot_type]}</strong>
+          </div>
+          <div>
+            <span>
+              <VideoCamera size={14} /> 机位
+            </span>
+            <strong>{form.camera_angle || "未设置"}</strong>
+          </div>
+          <div>
+            <span>
+              <MagicWand size={14} /> 运动
+            </span>
+            <strong>{form.camera_movement || "静止"}</strong>
+          </div>
+          <div>
+            <span>
+              <Clock size={14} /> 时长
+            </span>
+            <strong>{form.duration ? `${form.duration}s` : "—"}</strong>
+          </div>
         </div>
 
         <div className="inspector-section-title">镜头参数</div>
@@ -301,9 +344,7 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
                 {c.name}
               </label>
             ))}
-            {!characters?.length && (
-              <span className="muted small">项目还没有角色 · 在左侧资源树「角色」区创建</span>
-            )}
+            {!characters?.length && <span className="muted small">项目还没有角色 · 在左侧资源树「角色」区创建</span>}
           </div>
         </Field>
 
@@ -319,7 +360,11 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
         {conflict && <p className="error-text">{conflict}</p>}
 
         <div className="inspector-actions">
-          <button className="btn primary grow" disabled={!dirty || saveShot.isPending} onClick={() => saveShot.mutate(form)}>
+          <button
+            className="btn primary grow"
+            disabled={!dirty || saveShot.isPending}
+            onClick={() => saveShot.mutate(form)}
+          >
             {saveShot.isPending ? "保存中…" : dirty ? "保存修改" : "已保存"}
           </button>
           <button
@@ -368,7 +413,9 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
   useEffect(() => {
     if (!versions || versions.length === 0) return;
     const active = versions.find((v) => v.is_active);
-    setSelectedId((cur) => (cur && versions.some((v) => v.asset_id === cur) ? cur : (active?.asset_id ?? versions[0].asset_id)));
+    setSelectedId((cur) =>
+      cur && versions.some((v) => v.asset_id === cur) ? cur : (active?.asset_id ?? versions[0].asset_id),
+    );
   }, [versions]);
 
   const activate = useMutation({
@@ -395,7 +442,11 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
     <div className="versions-block">
       <div className="versions-title-row">
         <h4>版本（{versions.length}）</h4>
-        {projectId && <Link className="text-action" to={`/projects/${projectId}/shots/${shotId}/versions`}>全屏审片 <ArrowSquareOut size={14} /></Link>}
+        {projectId && (
+          <Link className="text-action" to={`/projects/${projectId}/shots/${shotId}/versions`}>
+            全屏审片 <ArrowSquareOut size={14} />
+          </Link>
+        )}
       </div>
       {active && (
         <img
@@ -404,12 +455,7 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
           alt={`V${active.version_number}`}
         />
       )}
-      <VersionStrip
-        versions={versions}
-        selectedId={selectedId}
-        onSelect={setSelectedId}
-        title="版本条"
-      />
+      <VersionStrip versions={versions} selectedId={selectedId} onSelect={setSelectedId} title="版本条" />
       <button
         className="btn tiny"
         disabled={!selected || selectedIsActive || activate.isPending}
@@ -422,17 +468,41 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
   );
 }
 
-function PanelTabs({ active, onSwitch }: { active: "inspector" | "director"; onSwitch: (tab: "inspector" | "director") => void }) {
+function PanelTabs({
+  active,
+  onSwitch,
+}: {
+  active: "inspector" | "director";
+  onSwitch: (tab: "inspector" | "director") => void;
+}) {
   const setRightPanelCollapsed = useWorkspaceStore((state) => state.setRightPanelCollapsed);
   return (
     <div className="panel-tabs" role="tablist" aria-label="右侧面板">
-      <button type="button" role="tab" aria-selected={active === "inspector"} className={`tab ${active === "inspector" ? "active" : ""}`} onClick={() => onSwitch("inspector")}>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active === "inspector"}
+        className={`tab ${active === "inspector" ? "active" : ""}`}
+        onClick={() => onSwitch("inspector")}
+      >
         镜头检查器
       </button>
-      <button type="button" role="tab" aria-selected={active === "director"} className={`tab ${active === "director" ? "active" : ""}`} onClick={() => onSwitch("director")}>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active === "director"}
+        className={`tab ${active === "director" ? "active" : ""}`}
+        onClick={() => onSwitch("director")}
+      >
         AI Director
       </button>
-      <button type="button" className="panel-collapse-tab" title="收起右侧面板" aria-label="收起右侧面板" onClick={() => setRightPanelCollapsed(true)}>
+      <button
+        type="button"
+        className="panel-collapse-tab"
+        title="收起右侧面板"
+        aria-label="收起右侧面板"
+        onClick={() => setRightPanelCollapsed(true)}
+      >
         <CaretLineRight size={15} />
       </button>
     </div>

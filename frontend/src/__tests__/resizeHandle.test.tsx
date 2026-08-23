@@ -13,7 +13,9 @@ describe("ResizeHandle", () => {
   it("reports the horizontal delta on drag", () => {
     const onDelta = vi.fn();
     const onDragEnd = vi.fn();
-    const { getByRole } = render(<ResizeHandle axis="vertical" label="resize" onDelta={onDelta} onDragEnd={onDragEnd} />);
+    const { getByRole } = render(
+      <ResizeHandle axis="vertical" label="resize" onDelta={onDelta} onDragEnd={onDragEnd} />,
+    );
     const handle = getByRole("separator");
     // pointerdown captures the start X; moves report clientX - startX.
     if (!(handle as HTMLElement).setPointerCapture) {

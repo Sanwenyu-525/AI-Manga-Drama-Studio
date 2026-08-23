@@ -1,6 +1,16 @@
 import { useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CaretLineLeft, CaretLineRight, Circle, FilmStrip, ImageSquare, MagicWand, Play, Scroll, SquaresFour } from "@phosphor-icons/react";
+import {
+  CaretLineLeft,
+  CaretLineRight,
+  Circle,
+  FilmStrip,
+  ImageSquare,
+  MagicWand,
+  Play,
+  Scroll,
+  SquaresFour,
+} from "@phosphor-icons/react";
 import { Link, Navigate, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
@@ -64,9 +74,18 @@ export function StudioPage() {
   // clamp + persistence live in the store / persistence layer.
   const startLeft = explorerWidth;
   const startRight = rightWidth;
-  const onExplorerDelta = useMemo(() => (delta: number) => setPanelSize("explorer", startLeft + delta), [setPanelSize, startLeft]);
-  const onRightDelta = useMemo(() => (delta: number) => setPanelSize("right", startRight - delta), [setPanelSize, startRight]);
-  const onBottomDelta = useMemo(() => (delta: number) => setPanelSize("bottom", bottomDockHeight + delta), [setPanelSize, bottomDockHeight]);
+  const onExplorerDelta = useMemo(
+    () => (delta: number) => setPanelSize("explorer", startLeft + delta),
+    [setPanelSize, startLeft],
+  );
+  const onRightDelta = useMemo(
+    () => (delta: number) => setPanelSize("right", startRight - delta),
+    [setPanelSize, startRight],
+  );
+  const onBottomDelta = useMemo(
+    () => (delta: number) => setPanelSize("bottom", bottomDockHeight + delta),
+    [setPanelSize, bottomDockHeight],
+  );
 
   const { data: project } = useQuery({
     queryKey: queryKeys.project(projectId),
@@ -83,8 +102,10 @@ export function StudioPage() {
     staleTime: 30_000,
   });
 
-  const activeEpisode = episodes?.find((episode) => episode.id === route.episodeId) ?? (route.legacy ? episodes?.[0] : undefined);
-  const provider = providers?.find((item) => item.status === "active") ?? providers?.find((item) => item.status === "connected");
+  const activeEpisode =
+    episodes?.find((episode) => episode.id === route.episodeId) ?? (route.legacy ? episodes?.[0] : undefined);
+  const provider =
+    providers?.find((item) => item.status === "active") ?? providers?.find((item) => item.status === "connected");
   const selectedShotId = useSelectionStore((state) => state.selection.shotIds[0]);
 
   useEffect(() => {
@@ -103,7 +124,8 @@ export function StudioPage() {
 
   const routeEpisodeId = route.episodeId ?? activeEpisode?.id;
   const scriptPath = routeEpisodeId ? canonicalScriptPath(projectId, routeEpisodeId) : `/projects/${projectId}/script`;
-  const storyboardPath = route.sceneId && route.episodeId ? canonicalStoryboardPath(projectId, route.episodeId, route.sceneId) : null;
+  const storyboardPath =
+    route.sceneId && route.episodeId ? canonicalStoryboardPath(projectId, route.episodeId, route.sceneId) : null;
   const onScript = route.workspace === "script";
   const onStoryboard = route.workspace === "storyboard" || route.workspace === "shot";
 
@@ -121,40 +143,92 @@ export function StudioPage() {
       style={style}
     >
       <header className="top-bar">
-        <Link to="/" className="studio-project-name"><img src="/assets/logo.png" alt="" className="app-logo" /> {project?.name ?? "AI Manga Drama Studio"}</Link>
+        <Link to="/" className="studio-project-name">
+          <img src="/assets/logo.png" alt="" className="app-logo" /> {project?.name ?? "AI Manga Drama Studio"}
+        </Link>
         <nav className="studio-nav" aria-label="工作台导航">
-          <Link to={scriptPath} className={onScript ? "active" : ""}><Scroll size={17} /> 剧本</Link>
+          <Link to={scriptPath} className={onScript ? "active" : ""}>
+            <Scroll size={17} /> 剧本
+          </Link>
           <Link
             to={storyboardPath ?? scriptPath}
             className={onStoryboard ? "active" : ""}
             aria-disabled={!storyboardPath}
-            onClick={(event) => { if (!storyboardPath) event.preventDefault(); }}
+            onClick={(event) => {
+              if (!storyboardPath) event.preventDefault();
+            }}
             title={storyboardPath ? "返回分镜视图" : "先选择一个场景"}
           >
             <SquaresFour size={17} /> 分镜
           </Link>
-          <Link to={`/projects/${projectId}/assets`} className={route.workspace === "assets" ? "active" : ""} title="项目资产库">
+          <Link
+            to={`/projects/${projectId}/assets`}
+            className={route.workspace === "assets" ? "active" : ""}
+            title="项目资产库"
+          >
             <ImageSquare size={17} /> 素材
           </Link>
-          <Link to={routeEpisodeId ? canonicalTimelinePath(projectId, routeEpisodeId) : `/projects/${projectId}/timeline`} className={route.workspace === "timeline" ? "active" : ""} title="逐集时间线与导出">
+          <Link
+            to={routeEpisodeId ? canonicalTimelinePath(projectId, routeEpisodeId) : `/projects/${projectId}/timeline`}
+            className={route.workspace === "timeline" ? "active" : ""}
+            title="逐集时间线与导出"
+          >
             <FilmStrip size={17} /> 时间线
           </Link>
-          <button className={rightPanelTab === "director" ? "active" : ""} onClick={() => setRightPanelTab("director")} title="打开 AI Director">
+          <button
+            className={rightPanelTab === "director" ? "active" : ""}
+            onClick={() => setRightPanelTab("director")}
+            title="打开 AI Director"
+          >
             <MagicWand size={17} /> AI Director
           </button>
         </nav>
         <div className="studio-statuses">
-          <span className="connection-status"><Circle size={9} weight="fill" /> {provider?.name ?? "Provider"}</span>
-          <span className="director-status"><Circle size={9} weight="fill" /> AI 导演 {rightPanelTab === "director" ? "已打开" : "空闲"}</span>
-          <button className="btn primary compact" disabled={!selectedShotId || generateSelectedShot.isPending} onClick={() => generateSelectedShot.mutate()} title={selectedShotId ? "为当前镜头提交图片生成任务" : "先选择一个镜头"}><Play size={14} weight="fill" /> {generateSelectedShot.isPending ? "提交中…" : "生成图片"}</button>
-          {generateSelectedShot.isError && (<span className="error-text studio-generate-error" title={generateSelectedShot.error instanceof Error ? generateSelectedShot.error.message : String(generateSelectedShot.error)}>{generateSelectedShot.error instanceof Error ? generateSelectedShot.error.message : String(generateSelectedShot.error)}</span>)}
+          <span className="connection-status">
+            <Circle size={9} weight="fill" /> {provider?.name ?? "Provider"}
+          </span>
+          <span className="director-status">
+            <Circle size={9} weight="fill" /> AI 导演 {rightPanelTab === "director" ? "已打开" : "空闲"}
+          </span>
+          <button
+            className="btn primary compact"
+            disabled={!selectedShotId || generateSelectedShot.isPending}
+            onClick={() => generateSelectedShot.mutate()}
+            title={selectedShotId ? "为当前镜头提交图片生成任务" : "先选择一个镜头"}
+          >
+            <Play size={14} weight="fill" /> {generateSelectedShot.isPending ? "提交中…" : "生成图片"}
+          </button>
+          {generateSelectedShot.isError && (
+            <span
+              className="error-text studio-generate-error"
+              title={
+                generateSelectedShot.error instanceof Error
+                  ? generateSelectedShot.error.message
+                  : String(generateSelectedShot.error)
+              }
+            >
+              {generateSelectedShot.error instanceof Error
+                ? generateSelectedShot.error.message
+                : String(generateSelectedShot.error)}
+            </span>
+          )}
         </div>
       </header>
 
       <aside className="explorer">
         {explorerCollapsed ? (
-          <button type="button" className="panel-rail-btn" title="展开资源树" aria-label="展开资源树" onClick={() => setExplorerCollapsed(false)}><CaretLineRight size={16} /></button>
-        ) : (<ProjectExplorer projectId={projectId} onCollapse={() => setExplorerCollapsed(true)} />)}
+          <button
+            type="button"
+            className="panel-rail-btn"
+            title="展开资源树"
+            aria-label="展开资源树"
+            onClick={() => setExplorerCollapsed(false)}
+          >
+            <CaretLineRight size={16} />
+          </button>
+        ) : (
+          <ProjectExplorer projectId={projectId} onCollapse={() => setExplorerCollapsed(true)} />
+        )}
       </aside>
 
       <ResizeHandle axis="vertical" label="调整左侧面板宽度" onDelta={onExplorerDelta} disabled={explorerCollapsed} />
@@ -163,15 +237,42 @@ export function StudioPage() {
         <Outlet context={{ projectId, activeEpisode } satisfies StudioContext} />
       </main>
 
-      <ResizeHandle axis="vertical" label="调整右侧面板宽度" onDelta={onRightDelta} disabled={rightPanelCollapsed} variant="right" />
+      <ResizeHandle
+        axis="vertical"
+        label="调整右侧面板宽度"
+        onDelta={onRightDelta}
+        disabled={rightPanelCollapsed}
+        variant="right"
+      />
 
       <aside className="right-panel">
-        {rightPanelCollapsed ? (<button type="button" className="panel-rail-btn" title="展开检查器" aria-label="展开检查器" onClick={() => setRightPanelCollapsed(false)}><CaretLineLeft size={16} /></button>)
-        : rightPanelTab === "inspector" ? <ShotInspector /> : <AIDirectorPanel />}
+        {rightPanelCollapsed ? (
+          <button
+            type="button"
+            className="panel-rail-btn"
+            title="展开检查器"
+            aria-label="展开检查器"
+            onClick={() => setRightPanelCollapsed(false)}
+          >
+            <CaretLineLeft size={16} />
+          </button>
+        ) : rightPanelTab === "inspector" ? (
+          <ShotInspector />
+        ) : (
+          <AIDirectorPanel />
+        )}
       </aside>
 
-      <footer className="bottom-dock"><GenerationQueue projectId={projectId} /></footer>
-      <ResizeHandle axis="horizontal" label="调整底部面板高度" onDelta={onBottomDelta} onDragEnd={undefined} disabled={dockExpanded} />
+      <footer className="bottom-dock">
+        <GenerationQueue projectId={projectId} />
+      </footer>
+      <ResizeHandle
+        axis="horizontal"
+        label="调整底部面板高度"
+        onDelta={onBottomDelta}
+        onDragEnd={undefined}
+        disabled={dockExpanded}
+      />
     </div>
   );
 }
@@ -194,7 +295,12 @@ export function ScriptWorkspace() {
       onScenesCreated={(sceneIds) => {
         const target = sceneIds[0];
         if (target && activeEpisode) {
-          openScene({ projectId: ctxProjectId, episodeId: activeEpisode.id, sceneId: target, title: `Scene ${target.slice(-2)}` });
+          openScene({
+            projectId: ctxProjectId,
+            episodeId: activeEpisode.id,
+            sceneId: target,
+            title: `Scene ${target.slice(-2)}`,
+          });
           navigate(canonicalStoryboardPath(ctxProjectId, activeEpisode.id, target));
         }
       }}
@@ -216,7 +322,12 @@ export function StoryboardWorkspace() {
     if (sceneId && projectId && episodeId) {
       const number = storyboard?.scene.scene_number;
       const name = storyboard?.scene.name;
-      openScene({ projectId, episodeId, sceneId, title: number ? `SC${String(number).padStart(2, "0")} · ${name ?? "场景"}` : `Scene ${sceneId.slice(-2)}` });
+      openScene({
+        projectId,
+        episodeId,
+        sceneId,
+        title: number ? `SC${String(number).padStart(2, "0")} · ${name ?? "场景"}` : `Scene ${sceneId.slice(-2)}`,
+      });
     }
   }, [episodeId, openScene, projectId, sceneId, storyboard]);
   if (!sceneId) return <SceneEmptyState />;
@@ -268,19 +379,34 @@ export function LegacyEpisodeRoute({ workspace }: { workspace: "script" | "timel
   if (isLoading) return <div className="workspace-loading">正在确定默认剧集…</div>;
   const first = [...(episodes ?? [])].sort((a, b) => a.episode_number - b.episode_number)[0];
   if (!first) return workspace === "timeline" ? <TimelineWorkspace /> : <ScriptWorkspace />;
-  return <Navigate to={workspace === "script" ? canonicalScriptPath(projectId, first.id) : canonicalTimelinePath(projectId, first.id)} replace />;
+  return (
+    <Navigate
+      to={
+        workspace === "script" ? canonicalScriptPath(projectId, first.id) : canonicalTimelinePath(projectId, first.id)
+      }
+      replace
+    />
+  );
 }
 
 export function LegacyStoryboardRoute() {
   const { projectId = "", sceneId = "" } = useParams();
-  const { data: scene, isLoading, error } = useQuery({
+  const {
+    data: scene,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: queryKeys.scene(sceneId),
     queryFn: () => api.get<Scene>(`/scenes/${sceneId}`),
     enabled: Boolean(sceneId),
   });
   if (isLoading) return <div className="workspace-loading">正在确定场景所属剧集…</div>;
   if (error || !scene) {
-    return <div className="workspace-loading"><ApiErrorPanel error={error as never} /></div>;
+    return (
+      <div className="workspace-loading">
+        <ApiErrorPanel error={error as never} />
+      </div>
+    );
   }
   return <Navigate to={canonicalStoryboardPath(projectId, scene.episode_id, scene.id)} replace />;
 }

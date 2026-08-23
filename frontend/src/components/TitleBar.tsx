@@ -65,22 +65,37 @@ export function TitleBar() {
 
   return (
     <div className="title-bar">
-      <div
-        className="title-bar-drag"
-        data-tauri-drag-region
-        onDoubleClick={toggleMaximize}
-        title="双击最大化/还原"
-      >
+      <div className="title-bar-drag" data-tauri-drag-region onDoubleClick={toggleMaximize} title="双击最大化/还原">
         <img className="title-bar-logo" src="/assets/logo.png" alt="" draggable={false} />
         <span className="title-bar-wordmark" data-tauri-drag-region>
           AI Manga Drama Studio
         </span>
       </div>
       <nav className="title-bar-nav" aria-label="主导航">
-        <Link to="/" className={isActive("/") ? "active" : ""} aria-current={isActive("/") ? "page" : undefined}>项目</Link>
-        <Link to="/assets" className={isActive("/assets") ? "active" : ""} aria-current={isActive("/assets") ? "page" : undefined}>素材</Link>
-        <Link to="/workflows" className={isActive("/workflows") ? "active" : ""} aria-current={isActive("/workflows") ? "page" : undefined}>工作流</Link>
-        <Link to="/settings" className={isActive("/settings") ? "active" : ""} aria-current={isActive("/settings") ? "page" : undefined}>设置</Link>
+        <Link to="/" className={isActive("/") ? "active" : ""} aria-current={isActive("/") ? "page" : undefined}>
+          项目
+        </Link>
+        <Link
+          to="/assets"
+          className={isActive("/assets") ? "active" : ""}
+          aria-current={isActive("/assets") ? "page" : undefined}
+        >
+          素材
+        </Link>
+        <Link
+          to="/workflows"
+          className={isActive("/workflows") ? "active" : ""}
+          aria-current={isActive("/workflows") ? "page" : undefined}
+        >
+          工作流
+        </Link>
+        <Link
+          to="/settings"
+          className={isActive("/settings") ? "active" : ""}
+          aria-current={isActive("/settings") ? "page" : undefined}
+        >
+          设置
+        </Link>
       </nav>
       <div className="title-bar-spacer" data-tauri-drag-region />
       <Link to="/projects/new" className="title-bar-new-project" title="新建项目" draggable={false}>
@@ -90,7 +105,12 @@ export function TitleBar() {
         <button type="button" aria-label="最小化" title="最小化" onClick={minimize}>
           <Minus size={15} weight="bold" />
         </button>
-        <button type="button" aria-label={maximized ? "还原" : "最大化"} title={maximized ? "还原" : "最大化"} onClick={toggleMaximize}>
+        <button
+          type="button"
+          aria-label={maximized ? "还原" : "最大化"}
+          title={maximized ? "还原" : "最大化"}
+          onClick={toggleMaximize}
+        >
           {maximized ? <Copy size={13} weight="bold" /> : <Square size={12} weight="bold" />}
         </button>
         <button type="button" className="close" aria-label="关闭" title="关闭" onClick={close}>

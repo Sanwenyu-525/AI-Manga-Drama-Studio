@@ -38,7 +38,6 @@ export function isWellFormedEvent(value: unknown): value is StudioEvent {
   );
 }
 
-
 const WS_URL = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/api/v1/events`;
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
@@ -101,8 +100,7 @@ export class EventRouter {
         break; // start handled at submit time (run_id returned synchronously)
       case "agent.plan.created": {
         const plan = event.payload.plan as
-          | { objective?: string; steps?: Array<{ tool: string; arguments: Record<string, unknown> }> }
-          | undefined;
+          { objective?: string; steps?: Array<{ tool: string; arguments: Record<string, unknown> }> } | undefined;
         if (plan) {
           agent.setPlan(
             plan.objective ?? "",
@@ -114,7 +112,7 @@ export class EventRouter {
       case "agent.tool.started":
         agent.toolStarted(
           event.payload.tool as string,
-          ((event.payload.target as { id?: string } | undefined)?.id) as string | undefined,
+          (event.payload.target as { id?: string } | undefined)?.id as string | undefined,
         );
         break;
       case "agent.tool.completed":

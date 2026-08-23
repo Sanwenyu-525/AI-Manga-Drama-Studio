@@ -18,11 +18,38 @@ function makeWrapper() {
 }
 
 const versions: CharacterVersion[] = [
-  { id: "cv1", character_id: "char_1", version_number: 1, asset_id: "ast_1", name: null, description: null, status: "stale", checksum: "abc123", is_master: true, created_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-01T00:00:00Z" },
-  { id: "cv2", character_id: "char_1", version_number: 2, asset_id: "ast_2", name: null, description: null, status: "stale", checksum: "def456", is_master: false, created_at: "2026-08-02T00:00:00Z", updated_at: "2026-08-02T00:00:00Z" },
+  {
+    id: "cv1",
+    character_id: "char_1",
+    version_number: 1,
+    asset_id: "ast_1",
+    name: null,
+    description: null,
+    status: "stale",
+    checksum: "abc123",
+    is_master: true,
+    created_at: "2026-08-01T00:00:00Z",
+    updated_at: "2026-08-01T00:00:00Z",
+  },
+  {
+    id: "cv2",
+    character_id: "char_1",
+    version_number: 2,
+    asset_id: "ast_2",
+    name: null,
+    description: null,
+    status: "stale",
+    checksum: "def456",
+    is_master: false,
+    created_at: "2026-08-02T00:00:00Z",
+    updated_at: "2026-08-02T00:00:00Z",
+  },
 ];
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("EntityVersionBlock (character)", () => {
   it("lists versions with the MASTER badge and fetches the right query", async () => {
@@ -51,14 +78,28 @@ describe("EntityVersionBlock (character)", () => {
 });
 describe("EntityVersionBlock (location)", () => {
   const locVersions: LocationVersion[] = [
-    { id: "lv1", location_id: "loc_1", version_number: 2, asset_id: "ast_loc", name: null, description: null, status: "active", checksum: null, is_master: true, created_at: "", updated_at: "" },
+    {
+      id: "lv1",
+      location_id: "loc_1",
+      version_number: 2,
+      asset_id: "ast_loc",
+      name: null,
+      description: null,
+      status: "active",
+      checksum: null,
+      is_master: true,
+      created_at: "",
+      updated_at: "",
+    },
   ];
 
   it("lists location versions and activates via the location endpoint", async () => {
-    const get = vi.fn().mockResolvedValue([
-      ...locVersions,
-      { ...locVersions[0], id: "lv2", version_number: 3, asset_id: "ast_loc2", is_master: false, status: "stale" },
-    ]);
+    const get = vi
+      .fn()
+      .mockResolvedValue([
+        ...locVersions,
+        { ...locVersions[0], id: "lv2", version_number: 3, asset_id: "ast_loc2", is_master: false, status: "stale" },
+      ]);
     vi.spyOn(client.api, "get").mockImplementation(get);
     const post = vi.fn().mockResolvedValue(locVersions[0]);
     vi.spyOn(client.api, "post").mockImplementation(post);
@@ -76,13 +117,24 @@ describe("EntityVersionBlock upload → create version", () => {
     vi.spyOn(client.api, "get").mockResolvedValue(versions);
     const upload = vi.fn().mockResolvedValue({ id: "ast_new", status: "ready" });
     const post = vi.fn().mockImplementation((path: string, _body?: unknown) => {
-      if (path.includes("/versions")) return Promise.resolve({ id: "cv3", version_number: 3, asset_id: "ast_new", is_master: false, status: "stale", checksum: null, created_at: "" });
+      if (path.includes("/versions"))
+        return Promise.resolve({
+          id: "cv3",
+          version_number: 3,
+          asset_id: "ast_new",
+          is_master: false,
+          status: "stale",
+          checksum: null,
+          created_at: "",
+        });
       return Promise.resolve({});
     });
     vi.spyOn(client.api, "upload").mockImplementation(upload);
     vi.spyOn(client.api, "post").mockImplementation(post);
     const { wrapper } = makeWrapper();
-    const { container } = render(<EntityVersionBlock kind="character" entityId="char_1" projectId="proj_1" />, { wrapper });
+    const { container } = render(<EntityVersionBlock kind="character" entityId="char_1" projectId="proj_1" />, {
+      wrapper,
+    });
     await screen.findByText(/V2/);
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["x"], "ref.png", { type: "image/png" });
@@ -92,4 +144,3 @@ describe("EntityVersionBlock upload → create version", () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith("/characters/char_1/versions", { asset_id: "ast_new" }));
   });
 });
-

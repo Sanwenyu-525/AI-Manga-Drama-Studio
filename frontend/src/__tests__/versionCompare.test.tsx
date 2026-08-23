@@ -22,16 +22,65 @@ function renderReview() {
   );
 }
 
-const project: Project = { id: "proj_1", name: "P", description: null, status: "active", aspect_ratio: null, fps: null, cover_url: null, revision: 1, created_at: "", updated_at: "" };
+const project: Project = {
+  id: "proj_1",
+  name: "P",
+  description: null,
+  status: "active",
+  aspect_ratio: null,
+  fps: null,
+  cover_url: null,
+  revision: 1,
+  created_at: "",
+  updated_at: "",
+};
 const shot: Shot = {
-  id: "shot_1", scene_id: "sc_1", shot_number: 5, shot_order: 1, shot_type: "medium", camera_angle: null,
-  camera_movement: null, lens: null, duration: null, action: null, emotion: null, dialogue: null, image_prompt: null,
-  character_ids: [], status: "ready", dirty_state: "clean", revision: 1, created_at: "", updated_at: "",
+  id: "shot_1",
+  scene_id: "sc_1",
+  shot_number: 5,
+  shot_order: 1,
+  shot_type: "medium",
+  camera_angle: null,
+  camera_movement: null,
+  lens: null,
+  duration: null,
+  action: null,
+  emotion: null,
+  dialogue: null,
+  image_prompt: null,
+  character_ids: [],
+  status: "ready",
+  dirty_state: "clean",
+  revision: 1,
+  created_at: "",
+  updated_at: "",
 };
 
 const versions: AssetVersionRead[] = [
-  { id: "ast_old", shot_id: "shot_1", asset_id: "ast_old", media_type: "image", version_number: 1, generation_id: "g1", is_active: true, status: "stale", notes: null, created_at: "2026-08-01T00:00:00Z" },
-  { id: "ast_new", shot_id: "shot_1", asset_id: "ast_new", media_type: "image", version_number: 2, generation_id: "g2", is_active: false, status: "ready", notes: null, created_at: "2026-08-02T00:00:00Z" },
+  {
+    id: "ast_old",
+    shot_id: "shot_1",
+    asset_id: "ast_old",
+    media_type: "image",
+    version_number: 1,
+    generation_id: "g1",
+    is_active: true,
+    status: "stale",
+    notes: null,
+    created_at: "2026-08-01T00:00:00Z",
+  },
+  {
+    id: "ast_new",
+    shot_id: "shot_1",
+    asset_id: "ast_new",
+    media_type: "image",
+    version_number: 2,
+    generation_id: "g2",
+    is_active: false,
+    status: "ready",
+    notes: null,
+    created_at: "2026-08-02T00:00:00Z",
+  },
 ];
 
 function mockApi() {
@@ -43,7 +92,10 @@ function mockApi() {
   });
 }
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("VersionReviewPage A/B compare", () => {
   it("opens the A/B board and shows two versions side by side", async () => {

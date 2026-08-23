@@ -18,9 +18,7 @@ function makeWrapper() {
 }
 
 function notFound(code = "ENTITY_NOT_FOUND") {
-  return Promise.reject(
-    new client.ApiError(404, { error: { code, message: "not found", details: {} } }),
-  );
+  return Promise.reject(new client.ApiError(404, { error: { code, message: "not found", details: {} } }));
 }
 
 function makeTimeline(clipShotId: string | null = null): Timeline {
@@ -36,8 +34,26 @@ function makeTimeline(clipShotId: string | null = null): Timeline {
     created_at: "2026-08-01T00:00:00Z",
     updated_at: "2026-08-01T00:00:00Z",
     tracks: [
-      { id: "t1", timeline_id: "tl1", track_type: "VIDEO", name: null, order_index: 0, locked: 0, muted: 0, created_at: "2026-08-01T00:00:00Z" },
-      { id: "t2", timeline_id: "tl1", track_type: "SUBTITLE", name: null, order_index: 3, locked: 0, muted: 0, created_at: "2026-08-01T00:00:00Z" },
+      {
+        id: "t1",
+        timeline_id: "tl1",
+        track_type: "VIDEO",
+        name: null,
+        order_index: 0,
+        locked: 0,
+        muted: 0,
+        created_at: "2026-08-01T00:00:00Z",
+      },
+      {
+        id: "t2",
+        timeline_id: "tl1",
+        track_type: "SUBTITLE",
+        name: null,
+        order_index: 3,
+        locked: 0,
+        muted: 0,
+        created_at: "2026-08-01T00:00:00Z",
+      },
     ],
     clips: [
       {

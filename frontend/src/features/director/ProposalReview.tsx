@@ -44,8 +44,7 @@ export function ProposalReview({ runId, fallbackStatus }: ProposalReviewProps) {
   const runPendingProposals = runDetail.data?.pending_proposals ?? undefined;
   const list = proposals.data ?? runPendingProposals ?? [];
   // Avoid flashing "暂无提案" while the dedicated proposals query is still loading.
-  const stillLoading =
-    proposals.isLoading || (proposals.data === undefined && runDetail.data === undefined);
+  const stillLoading = proposals.isLoading || (proposals.data === undefined && runDetail.data === undefined);
   const pending = list.filter((p) => p.status === "pending");
   const hasConflict = list.some((p) => p.status === "conflict");
   const canResume = waiting && pending.length === 0 && list.length > 0;
@@ -76,12 +75,18 @@ export function ProposalReview({ runId, fallbackStatus }: ProposalReviewProps) {
     <div className="proposal-review">
       <div className="proposal-review-head">
         <span className="proposal-title">待审批 Proposal</span>
-        <button type="button" className="btn tiny" onClick={refresh} disabled={Boolean(proposals.isFetching)} title="重新拉取 Proposal 与镜头当前值">
+        <button
+          type="button"
+          className="btn tiny"
+          onClick={refresh}
+          disabled={Boolean(proposals.isFetching)}
+          title="重新拉取 Proposal 与镜头当前值"
+        >
           <ArrowsClockwise size={13} /> 刷新
         </button>
       </div>
-      {proposals.isError && (<ApiErrorPanel error={proposals.error} className="proposal-error" />)}
-      {runDetail.isError && (<ApiErrorPanel error={runDetail.error} className="proposal-error" />)}
+      {proposals.isError && <ApiErrorPanel error={proposals.error} className="proposal-error" />}
+      {runDetail.isError && <ApiErrorPanel error={runDetail.error} className="proposal-error" />}
       {hasConflict && (
         <div className="proposal-conflict" role="alert">
           <WarningCircle size={15} weight="fill" />
@@ -92,20 +97,36 @@ export function ProposalReview({ runId, fallbackStatus }: ProposalReviewProps) {
         <p className="muted small proposal-empty">{stillLoading ? "加载中…" : "暂无提案"}</p>
       ) : (
         <div className="proposal-list">
-          {list.map((p) => <ProposalCard key={p.id} proposal={p} deciding={decide.isPending} onDecide={(d) => decide.mutate({ id: p.id, decision: d })} />)}
+          {list.map((p) => (
+            <ProposalCard
+              key={p.id}
+              proposal={p}
+              deciding={decide.isPending}
+              onDecide={(d) => decide.mutate({ id: p.id, decision: d })}
+            />
+          ))}
         </div>
       )}
       {canResume && (
-        <button type="button" className="btn primary resume-btn" onClick={() => resume.mutate()} disabled={resume.isPending}>
+        <button
+          type="button"
+          className="btn primary resume-btn"
+          onClick={() => resume.mutate()}
+          disabled={resume.isPending}
+        >
           <Play size={14} weight="fill" /> {resume.isPending ? "继续中…" : "继续执行"}
         </button>
       )}
-      {resume.isError && (<ApiErrorPanel error={resume.error} className="proposal-error" />)}
+      {resume.isError && <ApiErrorPanel error={resume.error} className="proposal-error" />}
     </div>
   );
 }
 
-function ProposalCard({ proposal, deciding, onDecide }: {
+function ProposalCard({
+  proposal,
+  deciding,
+  onDecide,
+}: {
   proposal: AgentProposal;
   deciding: boolean;
   onDecide: (decision: "approve" | "reject") => void;
@@ -131,7 +152,13 @@ function ProposalCard({ proposal, deciding, onDecide }: {
       )}
       {diffs.length > 0 && (
         <table className="proposal-diff">
-          <thead><tr><th>字段</th><th>当前</th><th>提案</th></tr></thead>
+          <thead>
+            <tr>
+              <th>字段</th>
+              <th>当前</th>
+              <th>提案</th>
+            </tr>
+          </thead>
           <tbody>
             {diffs.map((d, i) => (
               <tr key={i}>
@@ -145,8 +172,12 @@ function ProposalCard({ proposal, deciding, onDecide }: {
       )}
       {!resolved && !conflicted && (
         <div className="proposal-actions">
-          <button type="button" className="btn tiny success" disabled={deciding} onClick={() => onDecide("approve")}><Check size={13} weight="bold" /> 批准</button>
-          <button type="button" className="btn tiny danger" disabled={deciding} onClick={() => onDecide("reject")}><X size={13} weight="bold" /> 拒绝</button>
+          <button type="button" className="btn tiny success" disabled={deciding} onClick={() => onDecide("approve")}>
+            <Check size={13} weight="bold" /> 批准
+          </button>
+          <button type="button" className="btn tiny danger" disabled={deciding} onClick={() => onDecide("reject")}>
+            <X size={13} weight="bold" /> 拒绝
+          </button>
         </div>
       )}
     </div>

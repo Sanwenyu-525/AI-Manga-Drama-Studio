@@ -14,11 +14,7 @@ interface ApiErrorPanelProps {
 export function ApiErrorPanel({ error, className }: ApiErrorPanelProps) {
   const [copied, setCopied] = useState(false);
   const apiError = error instanceof ApiError ? error : null;
-  const message = apiError
-    ? apiError.message
-    : error instanceof Error
-      ? error.message
-      : String(error ?? "未知错误");
+  const message = apiError ? apiError.message : error instanceof Error ? error.message : String(error ?? "未知错误");
   const requestId = apiError?.requestId ?? null;
 
   const copy = async () => {

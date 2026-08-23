@@ -28,7 +28,11 @@ export function SettingsPage() {
   const queryClient = useQueryClient();
   const [results, setResults] = useState<Record<string, TestResult | { error: string }>>({});
 
-  const { data: providers, isLoading, isError } = useQuery({
+  const {
+    data: providers,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ["providers"],
     queryFn: () => api.get<ProviderStatus[]>("/providers"),
     refetchInterval: 10_000,
@@ -53,16 +57,21 @@ export function SettingsPage() {
             <p>生成服务与连接状态 · 真实反映 Studio Service 的 Provider 注册表</p>
           </div>
           <div className="row gap">
-                  {(location.state as { fromProject?: string } | null)?.fromProject ? (
-        <Link to={`/projects/${(location.state as { fromProject: string }).fromProject}`} className="btn secondary compact">
-          <ArrowLeft size={15} /> 返回工作台
-        </Link>
-      ) : (
-        <Link to="/" className="btn secondary compact">
-          <ArrowLeft size={15} /> 返回项目
-        </Link>
-      )}
-            <button className="btn secondary compact" onClick={refresh}>刷新状态</button>
+            {(location.state as { fromProject?: string } | null)?.fromProject ? (
+              <Link
+                to={`/projects/${(location.state as { fromProject: string }).fromProject}`}
+                className="btn secondary compact"
+              >
+                <ArrowLeft size={15} /> 返回工作台
+              </Link>
+            ) : (
+              <Link to="/" className="btn secondary compact">
+                <ArrowLeft size={15} /> 返回项目
+              </Link>
+            )}
+            <button className="btn secondary compact" onClick={refresh}>
+              刷新状态
+            </button>
           </div>
         </div>
 
@@ -78,7 +87,9 @@ export function SettingsPage() {
                   <div className="provider-card-head">
                     <span className={`provider-dot ${provider.status}`} />
                     <strong>{provider.name}</strong>
-                    <span className={`badge ${provider.status === "active" ? "warn" : provider.status === "connected" ? "ok" : "neutral"}`}>
+                    <span
+                      className={`badge ${provider.status === "active" ? "warn" : provider.status === "connected" ? "ok" : "neutral"}`}
+                    >
                       {STATUS_LABELS[provider.status] ?? provider.status}
                     </span>
                     {provider.base_url && <code className="provider-url">{provider.base_url}</code>}
@@ -108,7 +119,10 @@ export function SettingsPage() {
 
         <div className="settings-note">
           <span className="field-label">当前生成服务</span>
-          <p>生成任务按创建时选定的 Provider 执行；<code>STUDIO_IMAGE_PROVIDER</code> 决定默认值（mock / comfyui）。连接 ComfyUI 后建议先「测试连接」确认健康检查与默认工作流预检通过。</p>
+          <p>
+            生成任务按创建时选定的 Provider 执行；<code>STUDIO_IMAGE_PROVIDER</code> 决定默认值（mock / comfyui）。连接
+            ComfyUI 后建议先「测试连接」确认健康检查与默认工作流预检通过。
+          </p>
         </div>
       </main>
     </div>
@@ -117,10 +131,18 @@ export function SettingsPage() {
 
 function TestResultView({ result }: { result: TestResult | { error: string } }) {
   if ("error" in result) {
-    return <span className="test-result fail"><WarningCircle size={14} /> {result.error}</span>;
+    return (
+      <span className="test-result fail">
+        <WarningCircle size={14} /> {result.error}
+      </span>
+    );
   }
   if (!result.connected) {
-    return <span className="test-result fail"><WarningCircle size={14} /> 无法连接（ComfyUI 未启动？）</span>;
+    return (
+      <span className="test-result fail">
+        <WarningCircle size={14} /> 无法连接（ComfyUI 未启动？）
+      </span>
+    );
   }
   const wf = result.workflow;
   return (
@@ -133,5 +155,12 @@ function TestResultView({ result }: { result: TestResult | { error: string } }) 
 }
 
 function capLabel(key: string): string {
-  return ({ image_generation: "图片生成", reference_image: "参考图", video_generation: "视频生成" } as Record<string, string>)[key] ?? key;
+  return (
+    (
+      { image_generation: "图片生成", reference_image: "参考图", video_generation: "视频生成" } as Record<
+        string,
+        string
+      >
+    )[key] ?? key
+  );
 }

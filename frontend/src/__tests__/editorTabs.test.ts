@@ -107,7 +107,10 @@ describe("editorTabsStore — integration", () => {
     expect(useEditorTabsStore.getState().open).toHaveLength(1);
   });
   it("ensureScriptTab re-inserts the base tab if missing", () => {
-    const s = ensureScriptTab({ open: [{ id: "scene:s1", kind: "scene", title: "Scene 1", sceneId: "s1" }], activeTabId: "scene:s1" });
+    const s = ensureScriptTab({
+      open: [{ id: "scene:s1", kind: "scene", title: "Scene 1", sceneId: "s1" }],
+      activeTabId: "scene:s1",
+    });
     expect(s.open.some((t) => t.id === SCRIPT_TAB_ID)).toBe(true);
   });
 });

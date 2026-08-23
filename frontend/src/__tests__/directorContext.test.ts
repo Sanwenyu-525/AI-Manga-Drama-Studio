@@ -21,7 +21,9 @@ describe("Director context", () => {
   });
 
   it("uses the shot detail URL as the authoritative shot selection", () => {
-    expect(buildDirectorContext(route({ episodeId: "e1", sceneId: "s1", shotId: "sh1", workspace: "shot" }), selection)).toMatchObject({
+    expect(
+      buildDirectorContext(route({ episodeId: "e1", sceneId: "s1", shotId: "sh1", workspace: "shot" }), selection),
+    ).toMatchObject({
       workspace: "storyboard",
       episode_id: "e1",
       scene_id: "s1",
@@ -31,14 +33,16 @@ describe("Director context", () => {
   });
 
   it("keeps storyboard context on the URL scene while using temporary shot selection", () => {
-    expect(buildDirectorContext(route({ episodeId: "e1", sceneId: "s1", workspace: "storyboard" }), selection)).toEqual({
-      workspace: "storyboard",
-      project_id: "p1",
-      episode_id: "e1",
-      scene_id: "s1",
-      shot_ids: ["shot-selected"],
-      asset_ids: [],
-    });
+    expect(buildDirectorContext(route({ episodeId: "e1", sceneId: "s1", workspace: "storyboard" }), selection)).toEqual(
+      {
+        workspace: "storyboard",
+        project_id: "p1",
+        episode_id: "e1",
+        scene_id: "s1",
+        shot_ids: ["shot-selected"],
+        asset_ids: [],
+      },
+    );
   });
 
   it("keeps timeline context episode-aware without leaking shot or asset selection", () => {

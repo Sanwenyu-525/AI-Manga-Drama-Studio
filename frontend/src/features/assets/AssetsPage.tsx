@@ -24,7 +24,11 @@ export function AssetsPage() {
   const location = useLocation();
   const [preview, setPreview] = useState<AssetItem | null>(null);
 
-  const { data: generations, isLoading, isError } = useQuery({
+  const {
+    data: generations,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ["generations", "recent"],
     queryFn: () => api.get<GenerationRead[]>("/generations/recent"),
     refetchInterval: 15_000,
@@ -63,15 +67,18 @@ export function AssetsPage() {
             <h1>素材</h1>
             <p>{assets.length} 个已生成素材 · 来自全部项目的生成记录</p>
           </div>
-                {(location.state as { fromProject?: string } | null)?.fromProject ? (
-        <Link to={`/projects/${(location.state as { fromProject: string }).fromProject}`} className="btn secondary compact">
-          <ArrowLeft size={15} /> 返回工作台
-        </Link>
-      ) : (
-        <Link to="/" className="btn secondary compact">
-          <ArrowLeft size={15} /> 返回项目
-        </Link>
-      )}
+          {(location.state as { fromProject?: string } | null)?.fromProject ? (
+            <Link
+              to={`/projects/${(location.state as { fromProject: string }).fromProject}`}
+              className="btn secondary compact"
+            >
+              <ArrowLeft size={15} /> 返回工作台
+            </Link>
+          ) : (
+            <Link to="/" className="btn secondary compact">
+              <ArrowLeft size={15} /> 返回项目
+            </Link>
+          )}
         </div>
 
         {isLoading && <div className="home-loading">正在读取素材…</div>}
@@ -89,7 +96,11 @@ export function AssetsPage() {
           <div className="asset-grid">
             {assets.map((item) => (
               <button key={item.assetId} className="asset-card" onClick={() => setPreview(item)} title="点击查看大图">
-                <img loading="lazy" src={`/api/v1/assets/${item.assetId}/thumbnail`} alt={`素材 ${item.assetId.slice(0, 8)}`} />
+                <img
+                  loading="lazy"
+                  src={`/api/v1/assets/${item.assetId}/thumbnail`}
+                  alt={`素材 ${item.assetId.slice(0, 8)}`}
+                />
                 <span className="asset-index">{shotLabel(item.shotId)}</span>
               </button>
             ))}
@@ -98,13 +109,26 @@ export function AssetsPage() {
       </main>
 
       {preview && (
-        <div className="lightbox" role="dialog" aria-modal="true" aria-label="素材大图预览" onClick={() => setPreview(null)}>
+        <div
+          className="lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label="素材大图预览"
+          onClick={() => setPreview(null)}
+        >
           <div className="lightbox-inner" onClick={(e) => e.stopPropagation()}>
-            <button className="icon-button lightbox-close" aria-label="关闭预览" onClick={() => setPreview(null)}><X size={18} /></button>
+            <button className="icon-button lightbox-close" aria-label="关闭预览" onClick={() => setPreview(null)}>
+              <X size={18} />
+            </button>
             <img src={`/api/v1/assets/${preview.assetId}/content`} alt="素材大图" />
             <div className="lightbox-meta">
-              <strong>{projectNames.get(preview.projectId) ?? "项目"} · {shotLabel(preview.shotId)}</strong>
-              <span>{preview.provider}{preview.model ? ` · ${preview.model}` : ""} · {formatDate(preview.createdAt)}</span>
+              <strong>
+                {projectNames.get(preview.projectId) ?? "项目"} · {shotLabel(preview.shotId)}
+              </strong>
+              <span>
+                {preview.provider}
+                {preview.model ? ` · ${preview.model}` : ""} · {formatDate(preview.createdAt)}
+              </span>
             </div>
           </div>
         </div>
@@ -120,5 +144,10 @@ function shotLabel(shotId: string | null): string {
 function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }

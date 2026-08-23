@@ -58,7 +58,11 @@ export function sanitizeLayout(raw: Partial<LayoutState> | undefined): LayoutSta
   return {
     explorerWidth: clampPanelSize(raw.explorerWidth ?? d.explorerWidth, PANEL_BOUNDS.explorer, d.explorerWidth),
     rightWidth: clampPanelSize(raw.rightWidth ?? d.rightWidth, PANEL_BOUNDS.right, d.rightWidth),
-    bottomDockHeight: clampPanelSize(raw.bottomDockHeight ?? d.bottomDockHeight, PANEL_BOUNDS.bottom, d.bottomDockHeight),
+    bottomDockHeight: clampPanelSize(
+      raw.bottomDockHeight ?? d.bottomDockHeight,
+      PANEL_BOUNDS.bottom,
+      d.bottomDockHeight,
+    ),
     explorerCollapsed: Boolean(raw.explorerCollapsed ?? d.explorerCollapsed),
     rightPanelCollapsed: Boolean(raw.rightPanelCollapsed ?? d.rightPanelCollapsed),
     bottomDockExpanded: Boolean(raw.bottomDockExpanded ?? d.bottomDockExpanded),

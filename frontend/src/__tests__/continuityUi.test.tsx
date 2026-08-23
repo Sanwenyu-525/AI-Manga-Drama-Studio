@@ -18,11 +18,16 @@ import { ShotContinuityCard } from "../features/continuity/ShotContinuityCard";
 
 function makeWrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  const wrapper = ({ children }: { children: React.ReactNode }) => (<QueryClientProvider client={qc}>{children}</QueryClientProvider>);
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  );
   return { qc, wrapper };
 }
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 // ---- lib helpers ----
 describe("continuity lib", () => {
@@ -38,7 +43,12 @@ describe("continuity lib", () => {
     expect(lib.sceneSeverityTier([])).toBe("");
   });
   it("countByTier totals per severity", () => {
-    const c = lib.countByTier([{ severity: "error" }, { severity: "warning" }, { severity: "info" }, { severity: "warning" }]);
+    const c = lib.countByTier([
+      { severity: "error" },
+      { severity: "warning" },
+      { severity: "info" },
+      { severity: "warning" },
+    ]);
     expect(c).toEqual({ info: 1, warning: 2, error: 1 });
   });
   it("severityTierLabel + categoryLabel provide Chinese labels", () => {
@@ -63,8 +73,21 @@ describe("continuity lib", () => {
   });
 });
 // ---- fixture ----
-const warningError: ContinuityWarning = { id: "w_error", severity: "error", category: "prop", message: "篮球在 Shot 19→20 间消失", status: "open", evidence: "obj_missing basketball" };
-const warningWarn: ContinuityWarning = { id: "w_warn", severity: "warning", category: "costume", message: "角色换装未过渡", status: "open" };
+const warningError: ContinuityWarning = {
+  id: "w_error",
+  severity: "error",
+  category: "prop",
+  message: "篮球在 Shot 19→20 间消失",
+  status: "open",
+  evidence: "obj_missing basketball",
+};
+const warningWarn: ContinuityWarning = {
+  id: "w_warn",
+  severity: "warning",
+  category: "costume",
+  message: "角色换装未过渡",
+  status: "open",
+};
 const sceneRead: ContinuitySceneRead = {
   scene_id: "scene_1",
   scene_warnings: [warningWarn],
@@ -91,7 +114,8 @@ describe("SceneWarningBadge", () => {
 
   it("shows 无警告 and keeps actions reachable when no warnings", async () => {
     const get = vi.fn().mockImplementation((path: string) => {
-      if (path === "/scenes/scene_1/continuity") return Promise.resolve({ scene_id: "scene_1", scene_warnings: [], shots: [] } as ContinuitySceneRead);
+      if (path === "/scenes/scene_1/continuity")
+        return Promise.resolve({ scene_id: "scene_1", scene_warnings: [], shots: [] } as ContinuitySceneRead);
       if (path === "/scenes/scene_1/continuity-warnings") return Promise.resolve([] as ContinuityWarning[]);
       return Promise.reject(new Error("unexpected " + path));
     });
@@ -180,7 +204,16 @@ describe("ContinuityWarningList actions", () => {
 const shotCard: ContinuityShotReadCard = {
   shot_id: "shot_a",
   end_state: {
-    characters: [{ character_id: "char_1", character_version_id: "cv_1", costume_id: "cost_1", position: "左", action: "持球", emotion: "冷静" }],
+    characters: [
+      {
+        character_id: "char_1",
+        character_version_id: "cv_1",
+        costume_id: "cost_1",
+        position: "左",
+        action: "持球",
+        emotion: "冷静",
+      },
+    ],
     environment: { location_id: "loc_1", time_of_day: "夜", lighting: "暗" },
   },
 };
@@ -207,7 +240,12 @@ describe("ShotContinuityCard", () => {
     expect(screen.getByText("镜间状态一致，无连续性警告。")).toBeTruthy();
   });
   it("shows warnings list when the shot has warnings", async () => {
-    const withWarn = { ...shotCard, start_state: null, end_state: null, warnings: [warningError] as ContinuityWarning[] };
+    const withWarn = {
+      ...shotCard,
+      start_state: null,
+      end_state: null,
+      warnings: [warningError] as ContinuityWarning[],
+    };
     const get = vi.fn().mockImplementation((path: string) => {
       if (path === "/shots/shot_a") return Promise.resolve({ scene_id: "scene_1" });
       if (path === "/shots/shot_a/continuity-state") return Promise.resolve(withWarn);
@@ -226,7 +264,17 @@ describe("EventRouter continuity events", () => {
     const qc = new QueryClient();
     const spy = vi.spyOn(qc, "invalidateQueries");
     const router = new EventRouter(qc);
-    router.handle({ event_id: "e1", event_type: "continuity.warning.created", event_version: 1, project_id: "p1", entity_type: "warning", entity_id: "w1", timestamp: "2026-01-01", sequence: 1, payload: { scene_id: "scene_1", shot_id: "shot_a" } });
+    router.handle({
+      event_id: "e1",
+      event_type: "continuity.warning.created",
+      event_version: 1,
+      project_id: "p1",
+      entity_type: "warning",
+      entity_id: "w1",
+      timestamp: "2026-01-01",
+      sequence: 1,
+      payload: { scene_id: "scene_1", shot_id: "shot_a" },
+    });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["sceneContinuity", "scene_1"] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["continuityWarnings", "scene_1"] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["shotContinuity", "shot_a"] });
@@ -235,7 +283,17 @@ describe("EventRouter continuity events", () => {
     const qc = new QueryClient();
     const spy = vi.spyOn(qc, "invalidateQueries");
     const router = new EventRouter(qc);
-    router.handle({ event_id: "e2", event_type: "continuity.warning.acknowledged", event_version: 1, project_id: "p1", entity_type: "warning", entity_id: "w1", timestamp: "2026-01-01", sequence: 2, payload: {} });
+    router.handle({
+      event_id: "e2",
+      event_type: "continuity.warning.acknowledged",
+      event_version: 1,
+      project_id: "p1",
+      entity_type: "warning",
+      entity_id: "w1",
+      timestamp: "2026-01-01",
+      sequence: 2,
+      payload: {},
+    });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["sceneContinuity"] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["continuityWarnings"] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["shotContinuity"] });
@@ -243,6 +301,18 @@ describe("EventRouter continuity events", () => {
   it("unknown events are ignored (no crash)", () => {
     const qc = new QueryClient();
     const router = new EventRouter(qc);
-    expect(() => router.handle({ event_id: "e3", event_type: "some.other", event_version: 1, project_id: null, entity_type: "x", entity_id: "y", timestamp: "2026-01-01", sequence: 3, payload: {} })).not.toThrow();
+    expect(() =>
+      router.handle({
+        event_id: "e3",
+        event_type: "some.other",
+        event_version: 1,
+        project_id: null,
+        entity_type: "x",
+        entity_id: "y",
+        timestamp: "2026-01-01",
+        sequence: 3,
+        payload: {},
+      }),
+    ).not.toThrow();
   });
 });

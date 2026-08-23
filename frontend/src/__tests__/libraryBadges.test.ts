@@ -21,13 +21,19 @@ function version(partial: Partial<EntityVersion> & { id: string; version_number:
 
 describe("deriveEntityVersionBadges", () => {
   it("flags the MASTER version with ★ MASTER", () => {
-    const badges = deriveEntityVersionBadges(version({ id: "v2", version_number: 2, is_master: true, status: "active" }), false);
+    const badges = deriveEntityVersionBadges(
+      version({ id: "v2", version_number: 2, is_master: true, status: "active" }),
+      false,
+    );
     expect(badges.map((b) => b.kind)).toContain("master");
     expect(badges.find((b) => b.kind === "master")?.label).toBe("★ MASTER");
   });
 
   it("yet still warns a MASTER that became stale (★ MASTER + ⚠ STALE)", () => {
-    const badges = deriveEntityVersionBadges(version({ id: "v1", version_number: 1, is_master: true, status: "stale" }), false);
+    const badges = deriveEntityVersionBadges(
+      version({ id: "v1", version_number: 1, is_master: true, status: "stale" }),
+      false,
+    );
     expect(badges.map((b) => b.kind)).toEqual(["master", "stale"]);
   });
 

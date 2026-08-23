@@ -39,10 +39,14 @@ export function normalizeProposalChanges(changes: AgentProposalChanges | undefin
 /** Short human label for a proposal's target type ("shot" → "镜头"). */
 export function targetTypeLabel(targetType: string | undefined | null): string {
   switch (targetType) {
-    case "shot": return "镜头";
-    case "scene": return "场景";
-    case "character": return "角色";
-    default: return targetType ?? "目标";
+    case "shot":
+      return "镜头";
+    case "scene":
+      return "场景";
+    case "character":
+      return "角色";
+    default:
+      return targetType ?? "目标";
   }
 }
 
@@ -56,21 +60,30 @@ export function proposalTarget(proposal: AgentProposal): string {
 /** Chinese label for a proposal status (await + resolved). */
 export function proposalStatusLabel(status: AgentProposal["status"] | string | undefined): string {
   switch (status) {
-    case "pending": return "待审批";
-    case "approved": return "已批准";
-    case "rejected": return "已拒绝";
-    case "conflict": return "冲突";
-    default: return status ?? "未知";
+    case "pending":
+      return "待审批";
+    case "approved":
+      return "已批准";
+    case "rejected":
+      return "已拒绝";
+    case "conflict":
+      return "冲突";
+    default:
+      return status ?? "未知";
   }
 }
 
 /** Chinese label for a proposal's tool. */
 export function proposalToolLabel(tool: string | undefined | null): string {
   switch (tool) {
-    case "update_shot": return "修改镜头";
-    case "get_shot": return "读取镜头";
-    case "generate_image": return "生成图片";
-    default: return tool ?? "未知工具";
+    case "update_shot":
+      return "修改镜头";
+    case "get_shot":
+      return "读取镜头";
+    case "generate_image":
+      return "生成图片";
+    default:
+      return tool ?? "未知工具";
   }
 }
 

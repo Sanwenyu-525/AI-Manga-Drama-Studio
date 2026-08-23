@@ -42,7 +42,13 @@ function asset(over: Partial<AssetRead> & { id: string }): AssetRead {
 }
 
 const shotAsset = asset({ id: "ast_1", name: "EP01 · SC01 · SH001", source_type: "generated" });
-const charMaster = asset({ id: "ast_char_master", name: "沈亦 master", source_type: "character_master", version_number: 4, status: "active" });
+const charMaster = asset({
+  id: "ast_char_master",
+  name: "沈亦 master",
+  source_type: "character_master",
+  version_number: 4,
+  status: "active",
+});
 const video = asset({ id: "ast_video", type: "video", name: "clip vid", source_type: "generated" });
 
 function list(): AssetListRead {
@@ -68,7 +74,10 @@ function mockApi() {
   });
 }
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("AssetBrowserView", () => {
   it("renders server-listed assets with source labels and MASTER flags", async () => {

@@ -50,7 +50,6 @@ export function useVirtualizedGrid(total: number, options: VirtualizedGridOption
   const [endIndex, setEndIndex] = useState(() => Math.min(total, pageSize));
   const [viewportHeight, setViewportHeight] = useState(600);
 
-
   useEffect(() => {
     const node = gridRef.current;
     if (!node) return;

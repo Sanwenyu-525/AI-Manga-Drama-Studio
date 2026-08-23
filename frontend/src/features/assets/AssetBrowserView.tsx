@@ -5,7 +5,18 @@
 // GET /assets/{id} and reuses ProvenancePanel for the deep-dive drawer.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle, ImageSquare, FileImage, TreeStructure, VideoCamera, UsersThree, MapPin, SquaresFour, X, Star } from "@phosphor-icons/react";
+import {
+  CheckCircle,
+  ImageSquare,
+  FileImage,
+  TreeStructure,
+  VideoCamera,
+  UsersThree,
+  MapPin,
+  SquaresFour,
+  X,
+  Star,
+} from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { queryKeys } from "../../api/queryKeys";
@@ -71,7 +82,9 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
         <div>
           <span className="eyebrow">ASSET BROWSER</span>
           <h1>项目媒体库</h1>
-          <p className="muted">{filtered.length} / {total} 个资产{isLoading ? " · 加载中…" : ""}</p>
+          <p className="muted">
+            {filtered.length} / {total} 个资产{isLoading ? " · 加载中…" : ""}
+          </p>
         </div>
         <div className="asset-filters" role="tablist" aria-label="资产类型筛选">
           {FILTERS.map((f) => (
@@ -103,12 +116,24 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
             <button
               key={item.id}
               className={"asset-card" + (item.id === selectedId ? " selected" : "")}
-              onClick={() => { setSelectedId(item.id); selectAsset(item.id); setProvenanceOpen(false); }}
+              onClick={() => {
+                setSelectedId(item.id);
+                selectAsset(item.id);
+                setProvenanceOpen(false);
+              }}
               title={item.label + (item.versionNumber ? " · V" + item.versionNumber : "")}
             >
               <img loading="lazy" src={`/api/v1/assets/${item.id}/thumbnail`} alt={`资产 ${item.label}`} />
-              {item.isMaster && <span className="master-badge asset-master-flag"><Star size={11} weight="fill" /> MASTER</span>}
-              {item.isActive && <span className="asset-active-flag"><CheckCircle size={12} /> 当前</span>}
+              {item.isMaster && (
+                <span className="master-badge asset-master-flag">
+                  <Star size={11} weight="fill" /> MASTER
+                </span>
+              )}
+              {item.isActive && (
+                <span className="asset-active-flag">
+                  <CheckCircle size={12} /> 当前
+                </span>
+              )}
               <span className="asset-index">{item.label}</span>
             </button>
           ))}
@@ -116,7 +141,16 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
       )}
 
       {selected && (
-        <AssetInspector entry={selected} open={provenanceOpen} onToggleProvenance={() => setProvenanceOpen((o) => !o)} onClose={() => setProvenanceOpen(false)} onDismiss={() => { setSelectedId(null); clearAssets(); }} />
+        <AssetInspector
+          entry={selected}
+          open={provenanceOpen}
+          onToggleProvenance={() => setProvenanceOpen((o) => !o)}
+          onClose={() => setProvenanceOpen(false)}
+          onDismiss={() => {
+            setSelectedId(null);
+            clearAssets();
+          }}
+        />
       )}
     </div>
   );
@@ -129,7 +163,14 @@ function AssetInspector({
   onClose,
   onDismiss,
 }: {
-  entry: { id: string; label: string; mediaType: string; versionNumber: number | null; source: AssetSource; checksum: string | null };
+  entry: {
+    id: string;
+    label: string;
+    mediaType: string;
+    versionNumber: number | null;
+    source: AssetSource;
+    checksum: string | null;
+  };
   open: boolean;
   onToggleProvenance: () => void;
   onClose: () => void;
@@ -144,8 +185,15 @@ function AssetInspector({
   return (
     <aside className="asset-inspector" aria-label="资产详情">
       <header className="asset-inspector-head">
-        <div><span className="eyebrow">ASSET INSPECTOR</span><h2><FileImage size={16} /> 资产详情</h2></div>
-        <button type="button" className="icon-button" aria-label="关闭资产详情" onClick={onDismiss}><X size={16} /></button>
+        <div>
+          <span className="eyebrow">ASSET INSPECTOR</span>
+          <h2>
+            <FileImage size={16} /> 资产详情
+          </h2>
+        </div>
+        <button type="button" className="icon-button" aria-label="关闭资产详情" onClick={onDismiss}>
+          <X size={16} />
+        </button>
       </header>
 
       <div className="asset-inspector-preview">
@@ -160,7 +208,16 @@ function AssetInspector({
           <KV k="名称" v={data?.name ?? entry.label} />
           <KV k="类型" v={data?.type ?? entry.mediaType} />
           <KV k="状态" v={statusText(data?.status ?? "ready")} />
-          <KV k="版本" v={data?.version_number != null ? `V${data.version_number}` : entry.versionNumber != null ? `V${entry.versionNumber}` : "—"} />
+          <KV
+            k="版本"
+            v={
+              data?.version_number != null
+                ? `V${data.version_number}`
+                : entry.versionNumber != null
+                  ? `V${entry.versionNumber}`
+                  : "—"
+            }
+          />
           <KV k="来源" v={data?.source_type ? sourceTypeText(data.source_type) : SOURCE_LABEL[entry.source]} />
           <KV k="尺寸" v={dimension(data?.width, data?.height)} />
           <KV k="文件大小" v={fileSize(data?.file_size)} mono />
@@ -175,14 +232,22 @@ function AssetInspector({
         </button>
       </div>
 
-      <ProvenancePanel assetId={entry.id} label={entry.versionNumber != null ? `V${entry.versionNumber}` : entry.label} open={open} onClose={onClose} />
+      <ProvenancePanel
+        assetId={entry.id}
+        label={entry.versionNumber != null ? `V${entry.versionNumber}` : entry.label}
+        open={open}
+        onClose={onClose}
+      />
     </aside>
   );
 }
 
 function KV({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
   return (
-    <div className="provenance-kv"><span>{k}</span><strong className={mono ? "mono" : ""}>{v}</strong></div>
+    <div className="provenance-kv">
+      <span>{k}</span>
+      <strong className={mono ? "mono" : ""}>{v}</strong>
+    </div>
   );
 }
 
@@ -203,9 +268,20 @@ function checksumShort(c: string | null | undefined): string {
 }
 
 function statusText(s: string): string {
-  return ({ ready: "就绪", active: "生效", stale: "旧版", missing: "缺失", archiving: "归档中" } as Record<string, string>)[s] ?? s;
+  return (
+    ({ ready: "就绪", active: "生效", stale: "旧版", missing: "缺失", archiving: "归档中" } as Record<string, string>)[
+      s
+    ] ?? s
+  );
 }
 
 function sourceTypeText(s: string): string {
-  return ({ generated: "生成", imported: "导入", character_master: "角色参考", location_master: "地点参考" } as Record<string, string>)[s] ?? s;
+  return (
+    (
+      { generated: "生成", imported: "导入", character_master: "角色参考", location_master: "地点参考" } as Record<
+        string,
+        string
+      >
+    )[s] ?? s
+  );
 }

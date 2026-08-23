@@ -71,7 +71,11 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
   const [previewTs, setPreviewTs] = useState(0);
   const [addToStart, setAddToStart] = useState<number | null>(null);
 
-  const { data: timeline, isLoading, error } = useQuery({
+  const {
+    data: timeline,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: queryKeys.timeline(episodeId),
     queryFn: () => api.get<Timeline>("/episodes/" + episodeId + "/timeline"),
     enabled: Boolean(episodeId),
@@ -144,8 +148,14 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
         if (!clip) return prev;
         let range: { start_time: number; end_time: number };
         if (drag.mode === "left") range = trimLeft({ start_time: drag.baseStart, end_time: drag.baseEnd }, delta);
-        else if (drag.mode === "right") range = trimRight({ start_time: drag.baseStart, end_time: drag.baseEnd }, delta);
-        else range = shiftedClip({ start_time: drag.baseStart, end_time: drag.baseEnd }, delta, Math.max(duration, clip.end_time));
+        else if (drag.mode === "right")
+          range = trimRight({ start_time: drag.baseStart, end_time: drag.baseEnd }, delta);
+        else
+          range = shiftedClip(
+            { start_time: drag.baseStart, end_time: drag.baseEnd },
+            delta,
+            Math.max(duration, clip.end_time),
+          );
         return { ...prev, [clip.id]: { start_time: range.start_time, end_time: range.end_time } };
       });
     };
@@ -166,7 +176,13 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
   const startDrag = (event: React.PointerEvent, clip: TimelineClip, mode: Exclude<DragMode, null>) => {
     if (mode !== "move" && clip.asset?.type !== "image") return; // trims are image-clip only
     event.preventDefault();
-    dragRef.current = { clipId: clip.id, mode, startX: event.clientX, baseStart: clip.start_time, baseEnd: clip.end_time };
+    dragRef.current = {
+      clipId: clip.id,
+      mode,
+      startX: event.clientX,
+      baseStart: clip.start_time,
+      baseEnd: clip.end_time,
+    };
     setSelected(clip);
   };
 
@@ -199,7 +215,7 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
   const tracks = [...timeline.tracks].sort((a, b) => {
     const ia = TRACK_ORDER.indexOf(a.track_type);
     const ib = TRACK_ORDER.indexOf(b.track_type);
-    return ((ia < 0 ? 9 : ia) - (ib < 0 ? 9 : ib)) || a.order_index - b.order_index;
+    return (ia < 0 ? 9 : ia) - (ib < 0 ? 9 : ib) || a.order_index - b.order_index;
   });
 
   return (
@@ -217,7 +233,12 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
         <div className="timeline-actions">
           <div className="seg-control" role="group" aria-label="时间轴缩放">
             {[30, 60, 100, 160, 240].map((z) => (
-              <button key={z} className={pxPerSec === z ? "active" : ""} onClick={() => setPxPerSec(z)} title={String(z) + "px/秒"}>
+              <button
+                key={z}
+                className={pxPerSec === z ? "active" : ""}
+                onClick={() => setPxPerSec(z)}
+                title={String(z) + "px/秒"}
+              >
                 {z}
               </button>
             ))}
@@ -299,13 +320,28 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
 
         <aside className="timeline-side">
           <div className="timeline-side-tabs" role="tablist">
-            <button role="tab" aria-selected={sideTab === "clip"} className={sideTab === "clip" ? "active" : ""} onClick={() => setSideTab("clip")}>
+            <button
+              role="tab"
+              aria-selected={sideTab === "clip"}
+              className={sideTab === "clip" ? "active" : ""}
+              onClick={() => setSideTab("clip")}
+            >
               <ListBullets size={13} /> 片段
             </button>
-            <button role="tab" aria-selected={sideTab === "preview"} className={sideTab === "preview" ? "active" : ""} onClick={() => setSideTab("preview")}>
+            <button
+              role="tab"
+              aria-selected={sideTab === "preview"}
+              className={sideTab === "preview" ? "active" : ""}
+              onClick={() => setSideTab("preview")}
+            >
               <VideoCamera size={13} /> 预览
             </button>
-            <button role="tab" aria-selected={sideTab === "media"} className={sideTab === "media" ? "active" : ""} onClick={() => setSideTab("media")}>
+            <button
+              role="tab"
+              aria-selected={sideTab === "media"}
+              className={sideTab === "media" ? "active" : ""}
+              onClick={() => setSideTab("media")}
+            >
               <ImageIcon size={13} /> 素材
             </button>
           </div>
@@ -319,7 +355,11 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
                 onGoPreview={() => setSideTab("preview")}
               />
             )}
-            {sideTab === "clip" && !selected && <div className="muted small timeline-side-hint">点击时间线上的片段查看/编辑（拖动位移、两端裁剪、替换版本）。</div>}
+            {sideTab === "clip" && !selected && (
+              <div className="muted small timeline-side-hint">
+                点击时间线上的片段查看/编辑（拖动位移、两端裁剪、替换版本）。
+              </div>
+            )}
             {sideTab === "preview" && (
               <PreviewPanel
                 timelineId={timeline.id}
@@ -415,7 +455,9 @@ function ClipBlock({
         onStartDrag(e, clip, "move");
       }}
       role="button"
-      title={clip.start_time.toFixed(1) + "s – " + clip.end_time.toFixed(1) + "s" + (clip.text ? " · " + clip.text : "")}
+      title={
+        clip.start_time.toFixed(1) + "s – " + clip.end_time.toFixed(1) + "s" + (clip.text ? " · " + clip.text : "")
+      }
     >
       {kind === "video" && clip.asset?.thumbnail_url ? (
         <img className="timeline-clip-thumb" src={clip.asset.thumbnail_url} alt="" draggable={false} />
@@ -530,13 +572,21 @@ function ClipInspectorPanel({
         <div>
           <dt>开始</dt>
           <dd>
-            <input value={start} onChange={(e) => setStart(e.target.value)} onBlur={() => updateClip({ start_time: snapTime(Number(start) || 0) })} />
+            <input
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              onBlur={() => updateClip({ start_time: snapTime(Number(start) || 0) })}
+            />
           </dd>
         </div>
         <div>
           <dt>结束</dt>
           <dd>
-            <input value={end} onChange={(e) => setEnd(e.target.value)} onBlur={() => updateClip({ end_time: snapTime(Number(end) || 0) })} />
+            <input
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              onBlur={() => updateClip({ end_time: snapTime(Number(end) || 0) })}
+            />
           </dd>
         </div>
         <div>
@@ -546,7 +596,11 @@ function ClipInspectorPanel({
         <div>
           <dt>源起点</dt>
           <dd>
-            <input value={sourceIn} onChange={(e) => setSourceIn(e.target.value)} onBlur={() => updateClip({ source_in: snapTime(Number(sourceIn) || 0) })} />
+            <input
+              value={sourceIn}
+              onChange={(e) => setSourceIn(e.target.value)}
+              onBlur={() => updateClip({ source_in: snapTime(Number(sourceIn) || 0) })}
+            />
           </dd>
         </div>
       </dl>
@@ -556,7 +610,11 @@ function ClipInspectorPanel({
           usable.length ? (
             <div className="version-options">
               {usable.map((v) => (
-                <button key={v.id} className={v.asset_id === clip.asset_id ? "active" : ""} onClick={() => replaceAsset(v.asset_id)}>
+                <button
+                  key={v.id}
+                  className={v.asset_id === clip.asset_id ? "active" : ""}
+                  onClick={() => replaceAsset(v.asset_id)}
+                >
                   <strong>V{v.version_number}</strong>
                   {v.is_active ? <em>当前</em> : null}
                   <span className="muted small">{v.status}</span>
@@ -616,7 +674,14 @@ function PreviewPanel({
     <div className="preview-panel">
       <header>
         <h3>非渲染预览</h3>
-        <button className="icon-button" onClick={() => { setPreviewOk(true); onRefresh(); }} title="刷新">
+        <button
+          className="icon-button"
+          onClick={() => {
+            setPreviewOk(true);
+            onRefresh();
+          }}
+          title="刷新"
+        >
           <ArrowsClockwise size={15} />
         </button>
       </header>
@@ -667,10 +732,21 @@ interface MediaItem {
   status: string;
 }
 
-function MediaLibrary({ projectId, timelineId, startTime, onAdded }: { projectId: string; timelineId: string; startTime: number; onAdded: () => void }) {
+function MediaLibrary({
+  projectId,
+  timelineId,
+  startTime,
+  onAdded,
+}: {
+  projectId: string;
+  timelineId: string;
+  startTime: number;
+  onAdded: () => void;
+}) {
   const { data } = useQuery({
     queryKey: queryKeys.projectAssets(projectId, "image"),
-    queryFn: () => api.get<{ total: number; items: MediaItem[] }>("/projects/" + projectId + "/assets?asset_type=image&limit=100"),
+    queryFn: () =>
+      api.get<{ total: number; items: MediaItem[] }>("/projects/" + projectId + "/assets?asset_type=image&limit=100"),
   });
   const items = data?.items ?? [];
   return (
@@ -688,7 +764,13 @@ function MediaLibrary({ projectId, timelineId, startTime, onAdded }: { projectId
               void addToVideoTrack(timelineId, a.id, startTime).then(onAdded);
             }}
           >
-            {a.thumbnail_url ? <img src={a.thumbnail_url} alt="" /> : <div className="media-item-ph"><ImageIcon size={18} /></div>}
+            {a.thumbnail_url ? (
+              <img src={a.thumbnail_url} alt="" />
+            ) : (
+              <div className="media-item-ph">
+                <ImageIcon size={18} />
+              </div>
+            )}
             <span>{a.name}</span>
           </button>
         ))}
