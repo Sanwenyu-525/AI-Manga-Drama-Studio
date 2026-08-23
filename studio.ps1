@@ -7,7 +7,7 @@
     .\studio.ps1 start         启动前后端 + 桌面端（自动执行数据库迁移）
     .\studio.ps1 stop          停止前后端 + 桌面端
     .\studio.ps1 restart       重启前后端 + 桌面端
-    .\studio.ps1 desktop       仅启动桌面端（Tauri 窗口，依赖前端 17821 已运行）
+    .\studio.ps1 desktop       启动桌面端（Tauri 窗口；若后端/前端未运行会自动拉起）
     .\studio.ps1 status        查看运行状态
     .\studio.ps1 logs          查看日志（.studio\*.log）
 
@@ -74,6 +74,17 @@ function Get-PortOwner([int]$port) {
 
 function Test-PidAlive([int]$processId) {
     return [bool](Get-Process -Id $processId -ErrorAction SilentlyContinue)
+}
+
+# 与 Tauri 的检查一致：HTTP 可达才算前端就绪（TCP 监听 ≠ 能响应请求，避免 tauri dev 干等 180s 后失败）
+function Test-HttpReady([int]$port, [int]$timeoutSeconds = 3) {
+    try {
+        $null = Invoke-WebRequest -Uri "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec $timeoutSeconds
+        return $true
+    }
+    catch {
+        return $false
+    }
 }
 
 function Kill-ProcessTree([int]$processId) {
@@ -165,6 +176,26 @@ function Start-Desktop {
     # 兜底：即使 PID 记录失效，若桌面端窗口进程仍存活也不再重复启动
     if (Get-Process -Name "ai-manga-studio" -ErrorAction SilentlyContinue) {
         Write-Warning "桌面端窗口进程 ai-manga-studio 已在运行，跳过启动"
+        return $false
+    }
+
+    # 依赖就绪：桌面端窗口加载 http://127.0.0.1:${FrontendPort}，Tauri 连不上会干等 180s 后放弃。
+    # 菜单 4 单独使用时，若后端/前端未运行则自动拉起（start 流程中此时已运行，均为 no-op）。
+    if (-not (Test-PortListening $BackendPort)) {
+        Start-Backend | Out-Null
+    }
+    if (-not (Test-PortListening $FrontendPort)) {
+        Start-Frontend | Out-Null
+    }
+
+    # 与 Tauri 的检查一致（HTTP 可达）；最多重试 20 秒，覆盖 vite 刚监听但尚未就绪的窗口期
+    $frontendReady = $false
+    for ($i = 0; $i -lt 10; $i++) {
+        if (Test-HttpReady $FrontendPort) { $frontendReady = $true; break }
+        Start-Sleep -Seconds 2
+    }
+    if (-not $frontendReady) {
+        Write-Host "[desktop] 前端 (:${FrontendPort}) 未就绪，桌面端无法启动。请先执行 stop 释放端口后重试；日志: $FrontendLog" -ForegroundColor Red
         return $false
     }
 
