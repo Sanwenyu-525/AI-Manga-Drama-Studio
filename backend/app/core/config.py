@@ -41,9 +41,10 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
-    # LLM (Stage B): "fake" = deterministic FakeLLMGateway (no key needed, default for dev/tests);
+    # LLM (Stage B): "fake" = deterministic FakeLLMGateway (dev/test only, no key needed);
     # "openai" = OpenAI-compatible endpoint via LangChain ChatOpenAI (DeepSeek / Ollama / vLLM / OpenAI).
-    llm_mode: str = "fake"  # fake | openai
+    # fake 仅用于测试与无 key 开发；真实产品链路必须 openai（见 app.llm.factory 降级策略）。
+    llm_mode: str = "fake"  # fake | openai  (fake = dev/test only)
     llm_base_url: str | None = None
     llm_api_key: str | None = None  # prefer env STUDIO_LLM_API_KEY; never stored in DB
     llm_model: str = "deepseek-chat"

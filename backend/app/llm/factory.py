@@ -1,7 +1,12 @@
 """LLM gateway factory — returns the gateway selected by STUDIO_LLM_MODE (mvp-spec §101).
 
-- fake   → FakeLLMGateway (default; deterministic, keyless; used by tests & dev)
-- openai → LangChainOpenAIGateway (OpenAI-compatible endpoints)
+- fake   → FakeLLMGateway (dev/test only; deterministic keyword rules, no key)
+- openai → LangChainOpenAIGateway (production OpenAI-compatible endpoints)
+
+降级策略: fake 是键控开发/测试的默认值，**不算降级**——它是确定性规则输出，不代表真实
+模型质量。真实产品链路应设 `STUDIO_LLM_MODE=openai`。openai 路径任一调用失败会以
+ProviderUnavailableError 上报（业务层如 continuity_service.semantic_check 若有需要会自己
+降级到规则路径），gateway 本身不做静默切换，避免把模型故障掩盖成"看起来正常"。
 
 APP_ENV / STUDIO_LLM_MODE switch freely; business code only ever sees the LLMGateway protocol.
 """

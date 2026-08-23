@@ -1,5 +1,9 @@
 """FakeLLMGateway — deterministic fake for tests and keyless development (mvp-spec §100, §101).
 
+DEV-ONLY (不要用于生产): 作为测试与无 key 开发的默认实现。分析/分镜/连续性均为
+关键词规则输出，**不代表真实模型质量**。切真实产品链路必须 `STUDIO_LLM_MODE=openai`
+（LangChainOpenAIGateway）。两侧实现同一 LLMGateway 协议，业务代码无感知差异。
+
 Returns heuristic but valid ScenePlan / ShotPlan so the whole Stage B chain
 (analyze → preview → create scenes → generate shots → storyboard) runs without
 any LLM API key. Switch with STUDIO_LLM_MODE=openai for real models.

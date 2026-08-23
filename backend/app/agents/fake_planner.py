@@ -1,5 +1,13 @@
 """Fake intent/plan parsing — deterministic rules so the Director chain runs keyless.
 
+DEV-ONLY (不要用于生产): 本模块仅作为 `FakeLLMGateway` 的确定性实现，供测试与无 key
+的开发环境使用。关键词规则（6 景别 + 6 情绪 + 时长秒数）**不是**真实语言理解，无法覆盖
+自然语言的组合意图。生产/真实数据验证必须 `STUDIO_LLM_MODE=openai` 走真实模型。
+
+降级策略: 与 `continuity_service.semantic_check` 对齐 —— fake 路径 = 规则输出（确定、
+可测试）；openai 路径 = 真实结构化生成。两者共用同一 schema（ProductionIntent /
+DirectorPlan），因此业务层（graph 的 understand/plan 节点）感知不到底层是哪条路径。
+
 Extends FakeLLMGateway to answer DirectorPlan structured calls by parsing the user
 message with simple keyword rules (agent-director §70: Structured Planner works even
 with weak tool-calling models — here it is fully deterministic).
