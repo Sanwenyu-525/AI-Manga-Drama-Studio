@@ -23,6 +23,7 @@ from app.core.config import settings
 from app.core.errors import ValidationError
 from app.core.logging import get_logger
 from app.providers.image.base import ImageProvider
+from app.providers.image.agnes import AgnesImageProvider
 from app.providers.image.comfyui import ComfyUIProvider
 from app.providers.image.mock import MockImageProvider
 from app.providers.render.base import RenderProviderProtocol
@@ -35,7 +36,7 @@ from app.providers.workflow import ComfyUIWorkflowProviderAdapter, WorkflowProvi
 logger = get_logger("providers.registry")
 
 # Canonical provider-id sets per type.
-IMAGE_PROVIDERS = ("mock", "comfyui")
+IMAGE_PROVIDERS = ("mock", "comfyui", "agnes")
 VIDEO_PROVIDERS = ("mock",)
 RENDER_PROVIDERS = ("auto", "mock", "ffmpeg")
 WORKFLOW_PROVIDERS = ("comfyui",)
@@ -77,9 +78,12 @@ def get_image_provider(provider_id: str | None = None) -> ImageProvider:
     if pid == "comfyui":
         provider: ImageProvider = get_comfyui_provider()
         logger.info("image provider: comfyui (%s)", settings.comfyui_url)
+    elif pid == "agnes":
+        provider = AgnesImageProvider()
+        logger.info("image provider: agnes (STUDIO_IMAGE_PROVIDER=agnes)")
     else:
         provider = MockImageProvider()
-        logger.info("image provider: mock (STUDIO_IMAGE_PROVIDER=mock; set comfyui for real generation)")
+        logger.info("image provider: mock (STUDIO_IMAGE_PROVIDER=mock; set comfyui/agnes for real generation)")
     _image_providers[pid] = provider
     return provider
 
@@ -195,6 +199,7 @@ def get_llm_provider(provider_id: str | None = None) -> LlmProviderAdapter:
 _CAPABILITIES: dict[str, dict[str, bool]] = {
     "image.mock": {"image_generation": True, "reference_image": False},
     "image.comfyui": {"image_generation": True, "reference_image": True},
+    "image.agnes": {"image_generation": True, "reference_image": False},
     "video.mock": {"video_generation": False},  # registered but unavailable (MVP)
     "workflow.comfyui": {"workflow": True},
     "render.mock": {"video_render": True},
@@ -225,6 +230,14 @@ def provider_status() -> list[dict]:
             "status": "unknown",
             "capabilities": dict(_CAPABILITIES["image.comfyui"]),
             "base_url": settings.comfyui_url,
+        },
+        {
+            "id": "agnes",
+            "name": "Agnes Cloud Image",
+            "type": "image",
+            "status": "active" if settings.image_provider == "agnes" else "unknown",
+            "capabilities": dict(_CAPABILITIES["image.agnes"]),
+            "base_url": settings.agnes_base_url,
         },
         # MVP video placeholder — visible capability, explicitly unavailable.
         {

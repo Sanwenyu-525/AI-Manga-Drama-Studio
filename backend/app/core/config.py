@@ -53,8 +53,13 @@ class Settings(BaseSettings):
     # Generation (Stage C): "mock" = MockImageProvider (deterministic test image, default);
     # "comfyui" = external ComfyUI server (user-started, mvp-spec §8).
     # P1-E2-T01: Literal type → invalid provider values fail at startup/preflight.
-    image_provider: Literal["mock", "comfyui"] = "mock"
+    image_provider: Literal["mock", "comfyui", "agnes"] = "mock"
     comfyui_url: str = "http://127.0.0.1:8188"
+    # Agnes image API (real cloud text-to-image; stage C real generation without a GPU).
+    # Key is optional in Settings so startup never fails without it — the provider
+    # surfaces a clear error only when an agnes generation is actually requested.
+    agnes_api_key: str | None = None  # prefer env STUDIO_AGNES_API_KEY; never stored in DB
+    agnes_base_url: str = "https://api.agnes-ai.cn/v1"
     generation_concurrency: int = 1  # P1-E2-T02: MVP supports exactly ONE worker — see validator
     generation_max_attempts: int = 3
     generation_lease_seconds: int = 120  # P1-E2-T02: claim lease (crash recovery window)
