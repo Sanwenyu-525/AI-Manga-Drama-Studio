@@ -55,6 +55,7 @@ SHOT_PLAN_SYSTEM_PROMPT = (
     "每个镜头包含：镜头编号、景别（extreme_wide/wide/full/medium/close_up/extreme_close_up）、"
     "机位角度、镜头运动、时长（秒）、动作、情绪、对白、图片生成提示词。"
     "镜头之间保持动作与空间连续性。严格遵守输出的 JSON 结构，不要输出任何额外文字。"
+    "图片生成提示词（image_prompt）必须使用英文——中文描述会导致图片模型生成效果不稳定（TASK-008 实测结论）。"
 )
 
 # Idempotency keys hash the EXACT input sent to the LLM (not the LLM output —
