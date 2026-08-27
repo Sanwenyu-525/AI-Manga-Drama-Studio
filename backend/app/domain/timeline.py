@@ -119,11 +119,12 @@ class TimelineClipCreate(BaseModel):
     source_out: float | None = None
     order_index: float | None = None  # None → after the current max on the track
     enabled: int = 1
+    text: str | None = Field(default=None, max_length=4000)  # subtitle/voiceover copy
 
 
 class TimelineClipUpdatePatch(BaseModel):
     """Drag → start_time/end_time (with same duration unless trimmed); trim → edges;
-    re-track → track_id; disable → enabled."""
+    re-track → track_id; disable → enabled; text → subtitle/voiceover copy."""
 
     track_id: str | None = None
     start_time: float | None = None
@@ -132,6 +133,7 @@ class TimelineClipUpdatePatch(BaseModel):
     source_out: float | None = None
     order_index: float | None = None
     enabled: int | None = None
+    text: str | None = Field(default=None, max_length=4000)
 
 
 class TimelineClipUpdateRequest(BaseModel):

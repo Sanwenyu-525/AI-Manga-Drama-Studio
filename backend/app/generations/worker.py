@@ -41,8 +41,9 @@ from app.events.bus import (
 )
 from app.generations.retry_policy import RetryOutcome, classify_failure
 from app.generations.state import validate_transition
+from app.providers.audio.base import AudioRequest
 from app.providers.image.base import ImageRequest
-from app.providers.registry import get_image_provider, get_render_provider
+from app.providers.registry import get_audio_provider, get_image_provider, get_render_provider
 from app.providers.render.base import RenderClip, RenderRequest
 from app.services.asset_service import AssetService
 from app.services.version_service import VersionService
@@ -368,6 +369,12 @@ async def run_generation(generation_id: str) -> None:
         await _run_render_generation(factory, gen_id, project_id, provider_id, params)
         return
 
+    # TASK-012: type="audio" (voiceover) runs through the AudioProvider and its
+    # output registers as an AUDIO asset re-bound to the source timeline clip.
+    if generation.type == "audio":
+        await _run_audio_generation(factory, gen_id, project_id, provider_id, params)
+        return
+
     # P1-E2-T01: the stored provider id IS the implementation to run — the
     # registry resolves it (unknown ids are rejected at creation, 422).
     provider = get_image_provider(provider_id)
@@ -668,6 +675,8 @@ async def _run_render_generation(
     output_path = str(out_dir / (f"gen_{generation_id}_out" + (".mp4" if provider.name == "ffmpeg" else ".avi")))
 
     requests = []
+    audio_requests = []
+    subtitle_requests = []
     skipped = 0
     with factory() as session:
         from app.db.models import Asset
@@ -695,6 +704,39 @@ async def _run_render_generation(
                     text=c.get("text"),
                 )
             )
+        for c in params.get("audio_clips", []):  # TASK-013: VOICE/MUSIC/SFX bed
+            asset = session.get(Asset, c.get("asset_id")) if c.get("asset_id") else None
+            if asset is None or asset.deleted_at:
+                skipped += 1
+                continue
+            try:
+                source = str(asset_svc.absolute_path(asset))
+            except Exception:  # noqa: BLE001 — missing/broken file → skip clip
+                skipped += 1
+                continue
+            audio_requests.append(
+                RenderClip(
+                    source_path=source,
+                    kind="audio",
+                    start=float(c.get("start") or 0),
+                    end=float(c.get("end") or 0),
+                    source_in=float(c.get("source_in") or 0),
+                    source_out=c.get("source_out"),
+                )
+            )
+        for c in params.get("subtitle_clips", []):  # TASK-013: burned captions
+            text = (c.get("text") or "").strip()
+            if not text:
+                continue
+            subtitle_requests.append(
+                RenderClip(
+                    source_path="",
+                    kind="subtitle",
+                    start=float(c.get("start") or 0),
+                    end=float(c.get("end") or 0),
+                    text=text,
+                )
+            )
     if not requests:
         _handle_failure(
             factory, generation_id, project_id, None,
@@ -708,6 +750,8 @@ async def _run_render_generation(
         height=height,
         fps=fps,
         clips=requests,
+        audio_clips=audio_requests,
+        subtitle_clips=subtitle_requests,
         meta={"generation_id": generation_id, "skipped": skipped},
     )
 
@@ -905,4 +949,197 @@ def _persist_render_output(
         logger.info(
             "render generation %s completed -> FINAL_VIDEO V%d (episode %s)",
             generation_id, asset.version_number, episode_id,
+        )
+
+
+# ------------------------------------------------------------------ TASK-012 voiceover
+
+
+async def _run_audio_generation(
+    factory: Callable,
+    generation_id: str,
+    project_id: str,
+    provider_id: str,
+    params: dict,
+) -> None:
+    """Execute a type='audio' generation: synthesize through the AudioProvider,
+    persist the AUDIO asset + clip re-bind on success (shared failure routing)."""
+    provider = get_audio_provider(provider_id)
+
+    request = AudioRequest(
+        text=params.get("text", ""),
+        voice=params.get("voice"),
+        rate=params.get("rate"),
+        metadata={"generation_id": generation_id, "timeline_clip_id": params.get("timeline_clip_id")},
+    )
+
+    def _on_progress(percent: int, stage: str) -> None:
+        _persist_progress(factory, generation_id, percent, stage)
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_GENERATION_PROGRESS,
+                entity_type="generation",
+                entity_id=generation_id,
+                project_id=project_id,
+                payload={
+                    "shot_id": None,
+                    "type": "audio",
+                    "progress": percent,
+                    "stage": stage,
+                },
+            )
+        )
+
+    try:
+        result = await provider.synthesize(request, _on_progress)
+    except Exception as exc:  # noqa: BLE001 — provider error
+        logger.exception("voiceover generation %s provider error", generation_id)
+        _handle_failure(factory, generation_id, project_id, None, f"Provider error: {exc}", exc=exc)
+        return
+
+    if generation_id in _cancelled or _db_status(factory, generation_id) == "cancelling":
+        _handle_cancelled(factory, generation_id, project_id, None)
+        return
+    if not result.success:
+        _handle_failure(factory, generation_id, project_id, None, result.error or "Voiceover failed.")
+        return
+
+    _persist_voiceover_output(factory, generation_id, project_id, params, result)
+
+
+def _persist_voiceover_output(
+    factory: Callable,
+    generation_id: str,
+    project_id: str,
+    params: dict,
+    result,
+) -> None:
+    """Register the synthesized audio as an immutable AUDIO asset in ONE transaction.
+
+    - Asset: type audio under vg:clip:{clip_id}:AUDIO (V1/V2... never overwrite).
+    - The VOICE clip is re-bound to the newest asset (replace-asset semantics).
+    """
+    from pathlib import Path as _Path
+
+    from app.db.models import TimelineClip
+    from app.events.bus import EVENT_TIMELINE_CLIP_UPDATED
+    from app.services.audio_service import clip_audio_version_group
+
+    clip_id = params.get("timeline_clip_id")
+
+    with factory() as session:
+        generation = session.get(Generation, generation_id)
+        if generation is None or generation.status in ("cancelled", "cancelling") or generation_id in _cancelled:
+            return
+        if not result.output_path or not _Path(result.output_path).is_file():
+            validate_transition(generation.status, "failed")
+            generation.status = "failed"
+            generation.error_message = "Voiceover returned no output file."
+            generation.completed_at = _now()
+            session.commit()
+            bus.publish(
+                StudioEvent(
+                    event_type=EVENT_GENERATION_FAILED,
+                    entity_type="generation",
+                    entity_id=generation_id,
+                    project_id=project_id,
+                    payload={"type": "audio", "error": {"code": "GENERATION_FAILED", "message": "No output file."}},
+                )
+            )
+            return
+
+        asset_svc = AssetService(session)
+        asset = asset_svc.register_asset(
+            project_id=project_id,
+            asset_type="audio",
+            source_path=result.output_path,
+            shot_id=None,
+            generation_id=generation_id,
+            meta={
+                "provider": generation.provider,
+                "voice": (result.extra or {}).get("voice") or params.get("voice"),
+                "role": "VOICEOVER",
+                "timeline_clip_id": clip_id,
+                "text_head": (params.get("text") or "")[:120],
+            },
+            make_thumbnail=False,
+            commit=False,  # caller-owned transaction
+        )
+        session.flush()  # materialize asset.id before version group / outputs reference it
+
+        name = asset.name.lower()
+        asset.mime_type = "audio/wav" if name.endswith(".wav") else "audio/mpeg"
+        asset.duration = result.duration
+
+        # Immutable VOICEOVER version group (mirrors FINAL_VIDEO numbering).
+        from app.db.models import Asset
+
+        group = clip_audio_version_group(clip_id or "")
+        current = session.scalar(
+            select(func.max(Asset.version_number)).where(
+                Asset.version_group_id == group, Asset.deleted_at.is_(None)
+            )
+        )
+        asset.version_group_id = group
+        asset.version_number = (current or 0) + 1
+
+        session.add(
+            GenerationOutput(
+                generation_id=generation_id,
+                asset_id=asset.id,
+                role="primary",
+                order_index=1000,
+            )
+        )
+
+        # Re-bind the VOICE clip to the newest synthesis (replace-asset semantics).
+        timeline_id = params.get("timeline_id")
+        clip: TimelineClip | None = session.get(TimelineClip, clip_id) if clip_id else None
+        if clip is not None and clip.asset_id != asset.id:
+            clip.asset_id = asset.id
+
+        validate_transition(generation.status, "completed")
+        generation.status = "completed"
+        generation.output_asset_id = asset.id
+        generation.completed_at = _now()
+        generation.stage = "completed"
+        session.commit()
+
+        bus.publish(
+            StudioEvent(
+                event_type="asset.created",
+                entity_type="asset",
+                entity_id=asset.id,
+                project_id=project_id,
+                payload={"type": "audio", "role": "VOICEOVER", "timeline_clip_id": clip_id},
+            )
+        )
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_GENERATION_COMPLETED,
+                entity_type="generation",
+                entity_id=generation_id,
+                project_id=project_id,
+                payload={
+                    "shot_id": None,
+                    "type": "audio",
+                    "asset_id": asset.id,
+                    "version_number": asset.version_number,
+                    "timeline_clip_id": clip_id,
+                },
+            )
+        )
+        if clip is not None:
+            bus.publish(
+                StudioEvent(
+                    event_type=EVENT_TIMELINE_CLIP_UPDATED,
+                    entity_type="timeline_clip",
+                    entity_id=clip.id,
+                    project_id=project_id,
+                    payload={"timeline_id": timeline_id, "track_id": clip.track_id, "event": "updated"},
+                )
+            )
+        logger.info(
+            "voiceover generation %s completed -> AUDIO V%d (clip %s)",
+            generation_id, asset.version_number, clip_id,
         )

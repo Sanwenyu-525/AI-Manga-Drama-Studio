@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.core.errors import NotFoundError
-from app.domain.generation import AssetVersionRead, GenerationCreate, GenerationRead
+from app.domain.generation import AssetVersionRead, GenerationCreate, GenerationRead, VoiceoverGenerateRequest
 from app.generations.worker import cancel_running, pause_queue, queue_status, resume_queue
 from app.services import GenerationService, VersionService
 
@@ -37,6 +37,18 @@ def _to_read(g) -> GenerationRead:
 @router.post("/shots/{shot_id}/generations", response_model=GenerationRead, status_code=status.HTTP_202_ACCEPTED)
 def create_generation(shot_id: str, data: GenerationCreate, db: Session = Depends(get_db)) -> GenerationRead:
     return _to_read(GenerationService(db).create_generation(shot_id, data))
+
+
+@router.post(
+    "/timeline-clips/{clip_id}/generate-voiceover",
+    response_model=GenerationRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def generate_voiceover(clip_id: str, data: VoiceoverGenerateRequest, db: Session = Depends(get_db)) -> GenerationRead:
+    """TASK-012: queue TTS voiceover for a VOICE-track clip (202 + type="audio" generation)."""
+    from app.services.audio_service import AudioService
+
+    return _to_read(AudioService(db).create_voiceover_generation(clip_id, data))
 
 
 @router.get("/generations/recent", response_model=list[GenerationRead])

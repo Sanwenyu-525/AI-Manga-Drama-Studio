@@ -23,7 +23,6 @@ from app.domain.timeline import (
     TimelineClipUpdatePatch,
     TimelineTrackCreate,
     TimelineTrackUpdatePatch,
-    TimelineUpdateRequest,
 )
 from app.events.bus import (
     EVENT_TIMELINE_CLIP_CREATED,
@@ -207,7 +206,7 @@ class TimelineService:
             source_out=data.source_out,
             order_index=float(order),
             enabled=data.enabled if data.enabled is not None else 1,
-            text=None,
+            text=data.text,
         )
         self.session.add(clip)
         self.session.flush()
@@ -244,6 +243,8 @@ class TimelineService:
             clip.order_index = float(patch.order_index)
         if patch.enabled is not None:
             clip.enabled = int(patch.enabled)
+        if patch.text is not None:
+            clip.text = patch.text  # subtitle/voiceover copy (TASK-012)
 
         if clip.end_time <= clip.start_time:
             raise ValidationError("end_time must be greater than start_time.", {})

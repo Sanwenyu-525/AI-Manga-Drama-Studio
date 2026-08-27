@@ -7,10 +7,11 @@ fallback. The existing get_image_provider() signature is preserved so current
 callers (GenerationService / worker) are untouched.
 
 Types / canonical provider ids:
-  image    : mock | comfyui          (existing, unchanged)
+  image    : mock | comfyui | agnes  (existing, unchanged)
   video    : mock                     (MVP placeholder -> "unavailable", fails fast)
   workflow : comfyui                  (WorkflowProviderAdapter over WorkflowMapper)
   llm      : fake | openai            (LlmProviderAdapter = LLMGateway, via factory)
+  audio    : mock | edge              (TASK-012 voiceover synthesis)
 
 provider_status() now emits every registered provider with complete capabilities
 (image_generation / reference_image / video_generation / text_generation), merged
@@ -22,6 +23,7 @@ from __future__ import annotations
 from app.core.config import settings
 from app.core.errors import ValidationError
 from app.core.logging import get_logger
+from app.providers.audio import AudioProvider, EdgeTTSAudioProvider, MockAudioProvider
 from app.providers.image.base import ImageProvider
 from app.providers.image.agnes import AgnesImageProvider
 from app.providers.image.comfyui import ComfyUIProvider
@@ -41,6 +43,7 @@ VIDEO_PROVIDERS = ("mock",)
 RENDER_PROVIDERS = ("auto", "mock", "ffmpeg")
 WORKFLOW_PROVIDERS = ("comfyui",)
 LLM_PROVIDERS = ("fake", "openai")
+AUDIO_PROVIDERS = ("mock", "edge")
 
 # --- image ---
 _image_providers: dict[str, ImageProvider] = {}
@@ -57,6 +60,9 @@ _workflow_providers: dict[str, WorkflowProviderAdapter] = {}
 
 # --- llm ---
 _llm_providers: dict[str, LlmProviderAdapter] = {}
+
+# --- audio (TASK-012 voiceover) ---
+_audio_providers: dict[str, AudioProvider] = {}
 
 
 # ------------------------------ image ------------------------------
@@ -194,6 +200,32 @@ def get_llm_provider(provider_id: str | None = None) -> LlmProviderAdapter:
     return _llm_providers[pid]
 
 
+# ------------------------------ audio ------------------------------
+def get_audio_provider(provider_id: str | None = None) -> AudioProvider:
+    """Resolve a canonical audio provider id -> the implementation that will run.
+
+    provider_id=None -> studio default (settings.audio_provider). Unknown ids
+    raise ValidationError (422) — same fail-fast rule as the other types.
+    """
+    pid = provider_id or settings.audio_provider
+    if pid not in AUDIO_PROVIDERS:
+        raise ValidationError(
+            "Unknown audio provider.",
+            {"provider": pid, "supported": list(AUDIO_PROVIDERS)},
+        )
+    cached = _audio_providers.get(pid)
+    if cached is not None:
+        return cached
+    if pid == "edge":
+        provider: AudioProvider = EdgeTTSAudioProvider()
+        logger.info("audio provider: edge (STUDIO_AUDIO_PROVIDER=edge; needs the edge-tts package)")
+    else:
+        provider = MockAudioProvider()
+        logger.info("audio provider: mock (deterministic WAV — dev/test default)")
+    _audio_providers[pid] = provider
+    return provider
+
+
 # --------------------------- capabilities --------------------------
 # Complete capability map per canonical (type, provider_id) — contract §47 / §130-131.
 _CAPABILITIES: dict[str, dict[str, bool]] = {
@@ -206,6 +238,8 @@ _CAPABILITIES: dict[str, dict[str, bool]] = {
     "render.ffmpeg": {"video_render": True},
     "llm.fake": {"text_generation": True},
     "llm.openai": {"text_generation": True},
+    "audio.mock": {"audio_generation": True},
+    "audio.edge": {"audio_generation": True},
 }
 
 
@@ -269,6 +303,20 @@ def provider_status() -> list[dict]:
             "capabilities": dict(_CAPABILITIES["llm.openai"]),
             "base_url": settings.llm_base_url,
         },
+        {
+            "id": "audio_mock",
+            "name": "Mock Audio Provider",
+            "type": "audio",
+            "status": "connected",
+            "capabilities": dict(_CAPABILITIES["audio.mock"]),
+        },
+        {
+            "id": "audio_edge",
+            "name": "Edge Neural TTS (online)",
+            "type": "audio",
+            "status": "active" if settings.audio_provider == "edge" else "unknown",
+            "capabilities": dict(_CAPABILITIES["audio.edge"]),
+        },
     ]
     if settings.image_provider == "comfyui":
         providers[1]["status"] = "active"
@@ -283,5 +331,6 @@ def reset_providers() -> None:
     _render_providers.clear()
     _workflow_providers.clear()
     _llm_providers.clear()
+    _audio_providers.clear()
     _comfyui_provider = None
     reset_gateway()

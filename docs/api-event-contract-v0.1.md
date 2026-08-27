@@ -1413,6 +1413,83 @@ GET /api/v1/providers
 
 ---
 
+# 47.1 LLM Runtime Config API
+
+让设置页在运行时改 LLM 连接（无需改环境变量/重启）。缺省取自环境变量
+（`STUDIO_LLM_MODE` / `STUDIO_LLM_BASE_URL` / `STUDIO_LLM_API_KEY` / `STUDIO_LLM_MODEL`），
+可选的 `{data_dir}/llm.json` 覆盖层可改写；更新后重置缓存 gateway，下次 AI 调用即用新连接。
+
+```http
+GET /api/v1/llm/config        → 当前生效配置（api_key 只回掩码）
+PUT /api/v1/llm/config        → 局部更新（省略字段保持原值）
+```
+
+GET Response（api_key 永不明文回传，只给掩码提示）：
+
+```json
+{
+  "mode": "fake",
+  "base_url": "https://api.deepseek.com",
+  "model": "deepseek-chat",
+  "api_key_set": true,
+  "api_key_hint": "••••1234"
+}
+```
+
+PUT Request（`mode` 限定 fake | openai；`api_key` 未改动时省略即保持）：
+
+```json
+{ "mode": "openai", "base_url": "https://api.deepseek.com", "model": "deepseek-chat" }
+```
+
+> 校验：`mode=openai` 必须同时提供非空 `base_url`，否则 422（`VALIDATION_ERROR`）。
+> 更新成功即 `reset_gateway()`，`llm/factory.create_gateway()` 下次按新配置重建。
+
+## 47.2 LLM 连接测试与模型列表
+
+业界标配（对齐 LiteLLM / one-api 等高星网关的连接管理体验）：保存前连通性测试、
+`GET {base_url}/models` 拉取模型列表填充下拉。探测走 httpx 直连 OpenAI 兼容端点。
+
+```http
+POST /api/v1/llm/test    → 连通性测试（body 可选：未保存的 base_url/api_key/model 覆盖）
+GET /api/v1/llm/models   → 已保存端点的模型 id 列表（供下拉建议）
+```
+
+POST /llm/test Request（全部可选；api_key 仅在用户输入新值时携带，否则用已存 key）：
+
+```json
+{ "base_url": "https://api.deepseek.com", "api_key": "sk-...", "model": "deepseek-chat" }
+```
+
+POST /llm/test Response（**永不抛错**，对齐 `/providers/comfyui/test` 形态）：
+
+```json
+{
+  "connected": true,
+  "mode": "openai",
+  "latency_ms": 380,
+  "models_count": 2,
+  "sample_models": ["deepseek-chat", "deepseek-reasoner"],
+  "detail": "GET /models 探测通过"
+}
+```
+
+- fake 模式（且无 base_url 覆盖参数）→ `connected=true, mode="fake"`。
+- 探测链：`GET {base}/models`（鉴权/连通）→ 404/405/网络失败时降级最小
+  `POST {base}/chat/completions`（`max_tokens=1`）；401/403 → `connected=false` 且
+  error 提示鉴权失败。网络失败 `latency_ms=null`。
+
+GET /llm/models Response：
+
+```json
+{ "models": ["deepseek-chat", "deepseek-reasoner"] }
+```
+
+- fake 模式 → `["fake-chat"]`；openai 拉取失败 → 503（`PROVIDER_UNAVAILABLE`），
+  前端回退手动输入模型名。
+
+---
+
 # 48. Test ComfyUI
 
 P1-E2-T01：连接成功时同时报告默认 workflow 的 preflight 状态（模板缺失 /
@@ -2596,11 +2673,13 @@ PATCH  /timelines/{timeline_id}                    更新 duration/fps/width/hei
 POST   /timelines/{timeline_id}/tracks             新增轨道
 PATCH  /timelines/{timeline_id}/tracks/{track_id}  改 mute/lock/name/order_index
 DELETE /timelines/{timeline_id}/tracks/{track_id}  删除轨道（级联删 clip）
-POST   /timelines/{timeline_id}/clips              新增 TimelineClip
+POST   /timelines/{timeline_id}/clips              新增 TimelineClip（text 可选：字幕/配音文案）
 PATCH  /timeline-clips/{clip_id}                   编辑（移动 start_time/end_time、微调 source_in/source_out、
-                                                   换轨 track_id、order_index、enabled）——即拖拽/裁剪的落库接口
+                                                   换轨 track_id、order_index、enabled、text）——即拖拽/裁剪/文案的落库接口
 DELETE /timeline-clips/{clip_id}                   删除 clip
 POST   /timeline-clips/{clip_id}/replace-asset     替换为另一个 Asset（版本替换）
+POST   /timeline-clips/{clip_id}/generate-voiceover 202 → 入队 type=audio 的配音 Generation（TASK-012，
+                                                    仅 VOICE 轨 clip；text 取请求或 clip.text）
 POST   /timelines/{timeline_id}/sequence-from-shots 一键排片：按 scene+shot 顺序建成 VIDEO 轨
                                                     （绑定 shot.active_video_asset_id，缺失则回退 active_image_asset_id）
                                                     + 按 dialogue 建 SUBTITLE 轨，片段首尾相接
@@ -2635,6 +2714,27 @@ POST /timelines/{id}/render → 202 { "generation_id", "job_status": "queued", "
 
 渲染产物注册为 `vg:episode:{episode_id}:FINAL_VIDEO` 版本组下的 `type=video` Asset；
 渲染完成发布 `timeline.rendered`（payload 含 output_asset_id / version_number / duration）。
+
+渲染计划（TASK-013）除 VIDEO 轨外同时收集：未静音的 VOICE/MUSIC/SFX clip（混为
+一路音频床）与有 text 的 SUBTITLE clip（ffmpeg 渲染经 subtitles 滤镜烧录、mock
+渲染逐帧绘制）；两者均缺失时产物与 Phase 9 一致（无声视频）。
+
+## 93.3a 配音（TASK-012，2026-08）
+
+```text
+POST /timeline-clips/{clip_id}/generate-voiceover → 202 GenerationRead
+     body: { "text"?, "provider"?, "voice"?, "rate"? }   # text 缺省用 clip.text
+```
+
+- 仅接受 VOICE 轨 clip；text/rate/provider 校验失败 422，clip 不存在 404。
+- 产物注册为 `vg:clip:{clip_id}:AUDIO` 版本组下的 `type=audio` Asset
+  （V1/V2… 不可变），并把该 clip 重新绑定到最新版本（replace-asset 语义）。
+- 事件复用 `generation.queued/started/progress/completed/failed`（payload 带
+  `type: "audio"`、`timeline_clip_id`）+ `asset.created`（payload 带
+  `role: "VOICEOVER"`）+ `timeline.clip.updated`（回绑后刷新前端缓存）。
+- AudioProvider（registry type=audio）：`mock`（确定性 WAV，默认/CI）与
+  `edge`（edge-tts 在线神经网络音色，`STUDIO_AUDIO_PROVIDER=edge`，
+  dev/原型用途——依赖非公开微软端点，不作为产品默认）。
 
 ## 93.4 Timeline 事件
 
@@ -3964,6 +4064,10 @@ warnings 来源 = shot_continuity_states.warnings_json（source=RULE）；并行
 
 /providers/comfyui/test
 
+/llm/config            （GET / PUT，运行时 LLM 连接配置）
+/llm/test              （POST，连通性测试，§47.2）
+/llm/models            （GET，模型列表，§47.2）
+
 /workflows
 
 /health
@@ -3985,6 +4089,10 @@ warnings 来源 = shot_continuity_states.warnings_json（source=RULE）；并行
 /prompts/{id}/versions              （列表/创建 vN+1）
 
 /prompts/{id}/versions/{versionId}/activate
+
+/projects/{id}/prompts              （提示词库：项目级预设 target_type=PROJECT，GET/创建，复用 prompts 模型）
+
+/prompts/{id}                       （DELETE，删除提示词或其预设及其全部版本）
 
 --- P1（ProjectSetting）---
 

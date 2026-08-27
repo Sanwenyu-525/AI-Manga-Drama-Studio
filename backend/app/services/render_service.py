@@ -77,6 +77,12 @@ class RenderService:
                     }
                     for c in plan["clips"]
                 ],
+                # TASK-013: audio bed (VOICE/MUSIC/SFX) + subtitle captions.
+                "audio_clips": [self._clip_param(c) for c in plan.get("audio_clips", [])],
+                "subtitle_clips": [
+                    {"clip_id": c["clip_id"], "start": c["start"], "end": c["end"], "text": c["text"]}
+                    for c in plan.get("subtitle_clips", [])
+                ],
             },
             ensure_ascii=False,
         )
@@ -109,8 +115,19 @@ class RenderService:
         return generation
 
     # ----------------------------------------------------------- plan resolve
+    def _clip_param(self, c: dict) -> dict:
+        return {
+            "asset_id": c["asset_id"],
+            "start": c["start"],
+            "end": c["end"],
+            "source_in": c.get("source_in", 0),
+            "source_out": c.get("source_out"),
+        }
+
     def _resolve_render_plan(self, timeline: Timeline) -> dict:
-        """Collect enabled VIDEO-track clips in chronological order (resolved assets)."""
+        """Collect enabled clips chronologically (resolved assets):
+        VIDEO → visual program; VOICE/MUSIC/SFX (unmuted) → audio bed;
+        SUBTITLE (with text) → burned-in captions."""
         project = self.session.get(Project, timeline.project_id) if timeline.project_id else None
         fps = timeline.fps or (project.fps if project and project.fps else DEFAULT_FPS)
         width = timeline.width or DEFAULT_WIDTH
@@ -121,27 +138,60 @@ class RenderService:
             (c for c in self.timelines.list_clips(timeline.id) if c.enabled),
             key=lambda c: (c.start_time, c.order_index),
         )
-        resolved = []
+        resolved: list[dict] = []
+        resolved_audio: list[dict] = []
+        resolved_subs: list[dict] = []
         for clip in clips[:MAX_RENDER_CLIPS]:
             track = track_by_id.get(clip.track_id)
-            if track is None or track.track_type != "VIDEO":
+            if track is None:
                 continue
-            asset = self.session.get(Asset, clip.asset_id) if clip.asset_id else None
-            if asset is None or asset.deleted_at:
-                continue
-            resolved.append(
-                {
-                    "clip_id": clip.id,
-                    "asset_id": asset.id,
-                    "kind": "image" if asset.type == "image" else "video",
-                    "start": float(clip.start_time),
-                    "end": float(clip.end_time),
-                    "source_in": float(clip.source_in or 0),
-                    "source_out": clip.source_out,
-                    "text": clip.text,
-                },
-            )
-        return {"fps": float(fps), "width": int(width), "height": int(height), "clips": resolved}
+            if track.track_type == "VIDEO":
+                asset = self.session.get(Asset, clip.asset_id) if clip.asset_id else None
+                if asset is None or asset.deleted_at:
+                    continue
+                resolved.append(
+                    {
+                        "clip_id": clip.id,
+                        "asset_id": asset.id,
+                        "kind": "image" if asset.type == "image" else "video",
+                        "start": float(clip.start_time),
+                        "end": float(clip.end_time),
+                        "source_in": float(clip.source_in or 0),
+                        "source_out": clip.source_out,
+                        "text": clip.text,
+                    },
+                )
+            elif track.track_type in ("VOICE", "MUSIC", "SFX") and not track.muted:
+                asset = self.session.get(Asset, clip.asset_id) if clip.asset_id else None
+                if asset is None or asset.deleted_at:
+                    continue
+                resolved_audio.append(
+                    {
+                        "clip_id": clip.id,
+                        "asset_id": asset.id,
+                        "start": float(clip.start_time),
+                        "end": float(clip.end_time),
+                        "source_in": float(clip.source_in or 0),
+                        "source_out": clip.source_out,
+                    },
+                )
+            elif track.track_type == "SUBTITLE" and (clip.text or "").strip():
+                resolved_subs.append(
+                    {
+                        "clip_id": clip.id,
+                        "start": float(clip.start_time),
+                        "end": float(clip.end_time),
+                        "text": clip.text.strip(),
+                    },
+                )
+        return {
+            "fps": float(fps),
+            "width": int(width),
+            "height": int(height),
+            "clips": resolved,
+            "audio_clips": resolved_audio,
+            "subtitle_clips": resolved_subs,
+        }
 
     # ------------------------------------------------------------ final video
     def get_final_video(self, episode_id: str) -> dict | None:

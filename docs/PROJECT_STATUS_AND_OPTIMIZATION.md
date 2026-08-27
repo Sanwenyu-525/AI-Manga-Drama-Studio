@@ -426,8 +426,12 @@ EventBus ← Services(commit 后 publish)  → WS → 前端 Query invalidate
 - [ ] TASK-009 openai 路径契约测试：HTTP 层 mock OpenAI API，覆盖 structured 输出解析与失败分支
 - [ ] TASK-010 制作真实 ComfyUI workflow 模板替换 default_image_api.json 占位符，真机出图→回填→V2 验证
 - [ ] TASK-011 Director 接真实 LLM 意图理解；fake_planner 标记 dev-only 并文档化降级策略
-- [ ] TASK-012 TTS Provider 立项：base 接口 + registry/preflight 接入 + 首个实现选型（含成本评估）
-- [ ] TASK-013 渲染器音频混流：ffmpeg amix 合成 VOICE/MUSIC 轨 + SUBTITLE 烧录，mock 渲染确定性占位音轨
+- [x] TASK-012 TTS Provider 立项：base 接口 + registry/preflight 接入 + 首个实现选型（含成本评估）
+      → 完成（2026-08）：AudioProvider（mock+edge，高星 edge-tts 11.8k★ LGPL）；云 API/本地 CosyVoice
+      （Apache-2.0，22.9k★）留作后续实现，选型依据见 api-event-contract §93.3a
+- [x] TASK-013 渲染器音频混流：ffmpeg amix 合成 VOICE/MUSIC 轨 + SUBTITLE 烧录，mock 渲染确定性占位音轨
+      → 完成（2026-08）：ffmpeg adelay+amix+AAC+subtitles 滤镜；mock AVI auds/01wb PCM + 逐帧字幕绘制；
+      配音任务 type=audio（`POST /timeline-clips/{id}/generate-voiceover`），pytest +14
 - [ ] TASK-014 OpenAPI codegen 评估：openapi-typescript 生成 types，制定 types.ts 迁移计划
 - [ ] TASK-015 抽取 service 基类/mixin：revision 冲突 + 分页 + 软删除三合一，先迁 character 验证再推广
 - [ ] TASK-016 agents 层去 Session：tools.py/context_resolver.py/runner.py 改为经 Service 边界注入，

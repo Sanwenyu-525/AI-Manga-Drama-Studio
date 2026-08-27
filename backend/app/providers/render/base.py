@@ -17,12 +17,12 @@ class RenderClip:
     """One timeline clip resolved to a real source file for the renderer."""
 
     source_path: str  # absolute path to the bound asset file
-    kind: str  # "image" | "video"
+    kind: str  # "image" | "video" | "audio" | "subtitle"
     start: float  # timeline start (seconds)
     end: float  # timeline end (seconds)
     source_in: float = 0.0  # offset into the source media
     source_out: float | None = None
-    text: str | None = None  # subtitle/voice text (metadata)
+    text: str | None = None  # subtitle text (SUBTITLE clips); narration copy (metadata)
 
 
 @dataclass
@@ -32,6 +32,10 @@ class RenderRequest:
     height: int = 1280
     fps: float = 24.0
     clips: list[RenderClip] = field(default_factory=list)
+    # TASK-013: VOICE/MUSIC/SFX clips (kind="audio", real files) mixed under the
+    # video track, and SUBTITLE clips burned in / drawn onto frames.
+    audio_clips: list[RenderClip] = field(default_factory=list)
+    subtitle_clips: list[RenderClip] = field(default_factory=list)
     meta: dict = field(default_factory=dict)
 
 

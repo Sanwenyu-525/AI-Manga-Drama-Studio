@@ -17,6 +17,19 @@ class GenerationCreate(BaseModel):
     max_attempts: int = Field(default=1, ge=1, le=5)
 
 
+class VoiceoverGenerateRequest(BaseModel):
+    """TASK-012: queue a type="audio" voiceover generation for a timeline clip.
+
+    text=None/blank → the clip's own text is used (PATCH /timeline-clips/{id}).
+    provider=None → studio default (settings.audio_provider).
+    """
+
+    text: str | None = Field(default=None, max_length=4000)
+    provider: str | None = None
+    voice: str | None = None
+    rate: str | None = None  # e.g. "+10%" / "-5%"
+
+
 class GenerationRead(BaseModel):
     id: str
     project_id: str

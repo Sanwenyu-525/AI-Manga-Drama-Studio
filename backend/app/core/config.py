@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     # pure-Python mock (MJPEG AVI). Explicit "mock"/"ffmpeg" override the probe.
     render_provider: Literal["auto", "mock", "ffmpeg"] = "auto"
 
+    # Voiceover TTS (TASK-012): "mock" = deterministic WAV (dev/test default);
+    # "edge" = online neural voices via the edge-tts package (no key/GPU needed,
+    # but an undocumented Microsoft endpoint — dev/prototyping, not prod default).
+    audio_provider: Literal["mock", "edge"] = "mock"
+    tts_default_voice: str = "zh-CN-XiaoxiaoNeural"
+
     @field_validator("generation_concurrency")
     @classmethod
     def _single_worker_only(cls, value: int) -> int:
