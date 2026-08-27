@@ -201,6 +201,7 @@ export class EventRouter {
           progress: 0,
           stage: event.payload.stage as string | null,
           status: event.event_type.replace("generation.", ""),
+          type: (event.payload.type as string) ?? null,
         });
         break;
       case "generation.progress":
@@ -210,6 +211,7 @@ export class EventRouter {
           progress: (event.payload.progress as number) ?? 0,
           stage: event.payload.stage as string | null,
           status: "running",
+          type: (event.payload.type as string) ?? null,
         });
         break;
       case "generation.completed":

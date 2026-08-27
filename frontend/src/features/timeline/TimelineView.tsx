@@ -23,6 +23,7 @@ import { queryKeys } from "../../api/queryKeys";
 import type {
   AssetVersionRead,
   FinalVideoRead,
+  GenerationRead,
   Timeline,
   TimelineClip,
   TimelineRenderRead,
@@ -350,6 +351,11 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
               <ClipInspectorPanel
                 key={selected.id}
                 clip={(visibleClips.find((c) => c.id === selected.id) ?? selected) as TimelineClip}
+                trackType={
+                  timeline.tracks.find(
+                    (t) => t.id === (visibleClips.find((c) => c.id === selected.id) ?? selected).track_id,
+                  )?.track_type ?? "VIDEO"
+                }
                 onClose={() => setSelected(null)}
                 onChanged={() => void queryClient.invalidateQueries({ queryKey: queryKeys.timeline(episodeId) })}
                 onGoPreview={() => setSideTab("preview")}
@@ -497,11 +503,13 @@ function ClipBlock({
 
 function ClipInspectorPanel({
   clip,
+  trackType,
   onClose,
   onChanged,
   onGoPreview,
 }: {
   clip: TimelineClip;
+  trackType?: string;
   onClose: () => void;
   onChanged: () => void;
   onGoPreview: () => void;
@@ -509,6 +517,12 @@ function ClipInspectorPanel({
   const [start, setStart] = useState(String(clip.start_time.toFixed(1)));
   const [end, setEnd] = useState(String(clip.end_time.toFixed(1)));
   const [sourceIn, setSourceIn] = useState(String((clip.source_in ?? 0).toFixed(1)));
+  // TASK-012: subtitle/voiceover copy on VOICE/SUBTITLE clips (draft → PATCH on blur)
+  const [text, setText] = useState(clip.text ?? "");
+  const [voState, setVoState] = useState<"idle" | "queued" | "error">("idle");
+  const [voError, setVoError] = useState<string | null>(null);
+  const isVoice = trackType === "VOICE";
+  const isSubtitle = trackType === "SUBTITLE";
 
   const { data: versions } = useQuery({
     queryKey: queryKeys.shotVersionEntries(clip.shot_id ?? "none"),
@@ -520,7 +534,7 @@ function ClipInspectorPanel({
     [versions, clip.asset?.type],
   );
 
-  const updateClip = (patch: Record<string, number>) => {
+  const updateClip = (patch: Record<string, number | string>) => {
     void api
       .patch<TimelineClip>("/timeline-clips/" + clip.id, { patch })
       .then(() => {
@@ -528,6 +542,32 @@ function ClipInspectorPanel({
         onGoPreview();
       })
       .catch(() => onChanged());
+  };
+
+  const saveText = () => {
+    const next = text.trim();
+    if (next === (clip.text ?? "")) return;
+    void api
+      .patch<TimelineClip>("/timeline-clips/" + clip.id, { patch: { text: next } })
+      .then(onChanged)
+      .catch(onChanged);
+  };
+
+  const generateVoiceover = () => {
+    setVoState("idle");
+    setVoError(null);
+    void api
+      .post<GenerationRead>("/timeline-clips/" + clip.id + "/generate-voiceover", {})
+      .then(() => {
+        setVoState("queued");
+        onChanged();
+      })
+      .catch((err: unknown) => {
+        setVoState("error");
+        setVoError(
+          err instanceof Error && err.message ? err.message : "配音任务创建失败，请确认已填写台词。",
+        );
+      });
   };
 
   const replaceAsset = (assetId: string) => {
@@ -628,6 +668,38 @@ function ClipInspectorPanel({
           <div className="muted small">该片段未关联镜头，无法枚举版本</div>
         )}
       </div>
+      {(isVoice || isSubtitle) && (
+        <div className="clip-text">
+          <h4>{isVoice ? "配音台词" : "字幕文案"}</h4>
+          <textarea
+            value={text}
+            rows={3}
+            maxLength={4000}
+            placeholder={isVoice ? "输入台词/旁白，用于生成配音" : "输入要烧录的字幕文案"}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={saveText}
+          />
+          {isVoice && (
+            <div className="clip-voice-actions">
+              <button className="btn secondary compact" onClick={generateVoiceover} disabled={!text.trim()}>
+                <MagicWand size={14} /> 生成配音
+              </button>
+              {voState === "queued" && (
+                <span className="muted small">已加入生成队列，完成后自动回填到本片段。</span>
+              )}
+              {voState === "error" && <span className="small danger-text">{voError}</span>}
+            </div>
+          )}
+          {isVoice && clip.asset?.type === "audio" && (
+            <audio
+              className="clip-audio-preview"
+              controls
+              preload="none"
+              src={"/api/v1/assets/" + clip.asset.id + "/content"}
+            />
+          )}
+        </div>
+      )}
       <div className="clip-actions">
         <button className="btn danger compact" onClick={del}>
           <Trash size={14} /> 删除片段

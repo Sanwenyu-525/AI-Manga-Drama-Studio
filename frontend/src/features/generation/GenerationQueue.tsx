@@ -23,6 +23,7 @@ import type { GenerationRead, JobRead, JobSummaryRead } from "../../api/types";
 import { queryKeys } from "../../api/queryKeys";
 import { useGenerationStore } from "../../stores/generationStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { generationTypeText } from "./generationTypeText";
 
 const JOB_STATUS_TEXT: Record<string, string> = {
   queued: "排队中",
@@ -145,8 +146,10 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
                   <div key={generation.id} className="queue-item running">
                     <HourglassMedium size={18} className="queue-status-icon" />
                     <div className="queue-primary">
-                      <strong>{shotLabel(generation.shotId)}</strong>
-                      <span>{generation.stage ?? "图片生成"}</span>
+                      <strong>
+                        {generationTypeText(generation.type)} · {shotLabel(generation.shotId)}
+                      </strong>
+                      <span>{generation.stage ?? generationTypeText(generation.type)}</span>
                     </div>
                     <div className="progress-track">
                       <div className="progress-fill" style={{ width: `${generation.progress}%` }} />
@@ -180,7 +183,7 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
                   <div className="queue-primary">
                     <strong>{shotLabel(generation.shot_id)}</strong>
                     <span>
-                      {generation.type} · {generation.provider}
+                      {generationTypeText(generation.type)} · {generation.provider}
                     </span>
                   </div>
                   <span className={`badge ${generation.status}`}>{generationStatusText(generation.status)}</span>

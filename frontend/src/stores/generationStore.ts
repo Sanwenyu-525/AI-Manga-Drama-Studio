@@ -9,6 +9,7 @@ export interface LiveGeneration {
   progress: number;
   stage: string | null;
   status: string;
+  type?: string | null; // image | render | audio (TASK-012) — payload may omit it
 }
 
 interface GenerationState {
@@ -20,7 +21,15 @@ interface GenerationState {
 
 export const useGenerationStore = create<GenerationState>((set) => ({
   live: {},
-  upsert: (gen) => set((s) => ({ live: { ...s.live, [gen.id]: gen } })),
+  // Merge sparse events: null/undefined fields (e.g. generation.started carries no
+  // `type`) are dropped so they never clobber values set by earlier events.
+  upsert: (gen) =>
+    set((s) => {
+      const patch = Object.fromEntries(
+        Object.entries(gen).filter(([, v]) => v !== null && v !== undefined),
+      ) as LiveGeneration;
+      return { live: { ...s.live, [gen.id]: { ...s.live[gen.id], ...patch } } };
+    }),
   remove: (id) =>
     set((s) => {
       const { [id]: _removed, ...rest } = s.live;
