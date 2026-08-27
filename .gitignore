@@ -51,6 +51,7 @@ Thumbs.db
 
 # --- Design scratch (never commit) ---
 .design-qa/
+.impeccable/
 stitch_ai_manga_drama_studio/
 
 # --- Logs ---

@@ -242,3 +242,85 @@ Playwright 验证：1600px 与 1100px 下均无重叠、无文档横向溢出；
 - 契约文档 §143 事件清单补 episode/scene 事件。
 
 验证：后端 105 项 pytest 全过；前端 build + 12 项测试；Playwright 全流程：剧集重命名、场景重命名、删除场景（含当前打开场景自动跳回剧本）、删除剧集，均无 console 错误。
+
+## UI 改造 Pass 17 (2026-08) — DeepSeek Harness 设计系统全量迁移（DESIGN.md / P0 冻结 Shell）
+
+按根目录 `DESIGN.md` 与 P00–P12 设计文档对全部界面做设计系统级改造；保留全部功能与 157 项测试。
+
+**Token 层（§2/§3/§5）**
+
+- `:root` 全量置换：Abyss #0D1117 / Workbench #121821 / Panel #18202B / Elevated #202A36 / Border #2B3745 / Ink 三阶；唯一品牌强调色 Harness Blue `--accent` #4F7DBA（旧琥珀 #E8A33D 退役）；语义色 --orange #C78943 / --green #4D9F72 / --red #C45F68 + 各 dim 底。
+- 字体：Geist Variable + 中文回退栈收敛为 `--font-sans`；技术等宽统一 `--font-mono`（JetBrains Mono 栈），正文 13px，标题 650；圆角 panel 8px / 控件 6px。
+- 152 处 amber 引用机械迁移为 accent；识别出 AI 注意语义的场景改挂 orange（导演头像、AI 预览 orbit、等待审批徽标、Proposal pending/conflict、连续性 warning、badge.warn 等）；时间线轨道去紫去琥珀（音频 clip 中性化）。
+
+**冻结 Shell（§4 / P0）**
+
+- 新增全局 Shell：AppHeader 52px（DeepSeek Harness 品牌 + `[Harness|漫剧智能体]` 模式切换 + 新建项目 + Tauri 窗口控制与拖拽区整合）、ProjectContextBar 40px（二级工作区切换 + 绑定摘要「漫剧项目《X》· 模块」）、ActivityRail 188px、SystemStatusBar 28px（WS 已连接/Provider/队列 实时值）。
+- TitleBar 组件删除，功能并入 AppHeader；AppFrame 重构为 router 布局路由。
+- Activity Rail 固定 15 项五分组（工作台/创作/管线/追溯/系统）：项目→项目库、工作区/AI导演/故事/角色→工作台对应视图、分镜/镜头→按最近编辑 tabs 直达、工作流/资产/设置→全局页、时间线→逐集；新增真实页面 提示词历史（GET /projects/{id}/prompts + versions 版本链展开）与 生产日志（generations/recent 过滤+实时合并）；知识库/智能体工作区诚实锁定 tooltip。
+
+**Agent Dock（§4）**
+
+- Studio 右栏改为固定外壳 Agent Dock：tab = AI导演 | 镜头检查器（可收起/持久化不变，默认宽 328）；两个面板组件内部重复 tab 条移除，由 Dock 统一渲染；URL 直达镜头时自动切到检查器 Tab。
+
+**状态语言（§7）/ 中文化（P0-D）**
+
+- 「进行中/生成中」统一为「运行中」（含队列摘要与断言更新）；19 处英文 eyebrow（ASSET LIBRARY / SHOT DETAILS…）全部中文化；修复 UA 暗色按钮底色漏出（collapse 按钮）。
+
+**修复的连带 bug**
+
+- `.panel-tab-content{min-height:100%}` 叠加 Dock tab 行造成 22px 内部滚动条 → Dock 内容 flex 布局重排。
+- 旧 abyss rgba(13,15,19,*) 字面量 → #0D1117 对应 alpha；全部 100vh 页面高度链改为冻结 Shell 弹性主区（.app-frame-main flex），审片页大图高度基数同步修正。
+- PromptsHistory/ProductionLog 直连路由取不到 projectId → useParams 兜底。
+
+**验证**：tsc -b + vite build 通过；eslint 0 问题；vitest 157/157；Chrome DevTools 走查 1920×1080 与 1600×900：主页/新建/剧本/分镜/镜头检查器/AI导演/提示词历史/生产日志/时间线/素材/工作流/设置 12 屏截图通过，无页面级水平溢出、无 console error/warning；Rail 高亮与上下文栏绑定摘要随路由联动正确。
+
+final result: passed（Harness 设计系统层面对齐 DESIGN.md §1–§8；P1/P2 目标态页面中未实现模块保持诚实锁定）
+
+## UI 改造 Pass 19 (2026-08) — 大模型模块接入（连接测试 / 模型列表 / 流式协议）
+
+调研 GitHub 高星项目（LiteLLM ~2万 commits、one-api、OpenRouter 等）后的结论：不引入
+LiteLLM SDK（与既有 LangChain 栈重复造轮子），按业界标配补齐连接管理三件套：
+
+- **POST /llm/test**：连通性探测（body 可选未保存的 base_url/api_key/model 覆盖）。
+  链路 = GET {base}/models → 404/网络失败降级最小 chat ping；401/403 给鉴权失败文案；
+  永不抛错，200 + {connected, latency_ms, error?}（对齐 /providers/comfyui/test 形态）。
+  修复真实 bug：httpx 默认跟随系统代理，把回环端点探测劫持成 502 —— 探测改直连
+  `trust_env=False`（用户自配端点常为本地 Ollama/vLLM，不应经代理）。
+- **GET /llm/models**：已保存端点的模型 id 列表；fake → ["fake-chat"]；失败 503，前端回退手输。
+- **LLMGateway.stream 协议**：LangChainOpenAIGateway（astream）+ FakeLLMGateway（确定性分片）
+  双实现 + 单测（GenericFakeChatModel）。说明：AI 导演为 Structured Planner 架构（结构化
+  输出无 token 流场景），stream 服务于后续自由对话/长文生成界面，本轮不做假流式 UI。
+- **前端设置页**：LLM 卡片新增「测试连接」按钮（可测未保存表单值，成功显示模式/延迟/模型数/
+  样例，失败红色详情）+ 模型输入接 datalist 下拉（保存后自动拉取，失败回退手输 + 占位提示）；
+  测试结果色 token 化（旧硬编码绿/红清除）。
+- 契约文档 api-event-contract §47.2 新增两端点并登记 §142 清单。
+
+**验证**：后端 pytest 全量 354 passed（含新增 10 项：test/models 端点形态、未保存覆盖、
+死端点 200+connected=false、鉴权失败、503、fake/LangChain stream 分片）；前端 build + 165/165
+vitest + eslint ✓；浏览器实测：fake 测试绿（含文案）、死端口诚实红（ConnectError 文案）、
+代理劫持修复前后对比通过。
+
+final result: passed
+
+## UI 改造 Pass 18 (2026-08) — P1/P2 目标态页面落地（真实数据版）
+
+按 P01/P02 设计文档在冻结 Shell 内落地两级工作区，全部由真实端点驱动、不伪造数据：
+
+**P2 漫剧工作区 · 生产控制中心 `/projects/:id/workspace`（并设为 Studio 默认首页）**
+
+- 数据源：`GET /projects/{id}/tree`（episodes→scenes→shots 单次聚合）+ `GET /projects/{id}/bootstrap`（活跃生成/Agent 数）+ `GET /generations/recent`（最近产出/失败数）+ timeline / final-video 探针（404=未建）。
+- 布局：panel 网格（剧集进度｜生产管线／最近输出｜需要关注／快捷入口），无 SaaS KPI 卡、无营销图；每集行 = 场/镜头数 + 图片 x/y + 进度条（失败红）。
+- 生产管线：`derivePipeline` 纯函数推导，语义对齐设计 P2——✓=各项独立真实完成（允许跳步）、●=首个未完成（当前行动点，蓝脉冲 1.2s、respect prefers-reduced-motion）、等待=灰；展示 x/y 计数。
+- 需要关注：失败生成（红+跳生产日志）、活跃生成/Agent、连续性入口（分镜板徽标）、提示词库入口。
+
+**P1 源内容工作区 `/projects/:id/source`（智能体工作区落地版）**
+
+- MVP 源内容 = Episode.source_text（后端 analyze 的真实输入），非本地文件目录 → 不伪造 D:\ 路径/文件树；页面=左（剧集原文库 + 设定库统计）｜中（原文只读阅读器 72ch 行宽 + 来源映射「本文→EPxx/n场/m镜」（tree 真实聚合）+ 打开剧本/查看分镜）。「分析变化/影响分析」需源目录监听能力 → 锁定并说明。
+- ContextBar 二级工作区切换接活：[智能体工作区]→/source、[漫剧工作区]→/workspace（按路由高亮，无项目禁用）；Studio index redirect 改为 → workspace；Rail「工作区」项指向 P2 并高亮 /workspace。
+
+**新文件**：`lib/workspaceMetrics.ts`（summarizeEpisodes/derivePipeline/percent 纯函数）+ `features/workspace/WorkspaceOverviewPage.tsx` + `features/source/SourceWorkspacePage.tsx` + 8 项 vitest。
+
+**验证**：tsc -b + vite build ✓；eslint ✓；vitest 165/165（exit 0）✓；Chrome DevTools 走查：P2 管线随数据联动（导入原文后 小说分析✓→图片生成● 0/7 成为行动点）、P1 空态/已导入态（PATCH 写入真实原文后 171 字·只读渲染 + 映射正确）、1920/1600 两档无溢出；console 仅管线探针的预期 404 资源日志（REST 语义，无 JS 错误）。
+
+final result: passed
