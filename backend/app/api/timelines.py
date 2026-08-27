@@ -113,7 +113,6 @@ def preview_timeline(timeline_id: str, db: Session = Depends(get_db)):
 @router.post("/timelines/{timeline_id}/render", response_model=TimelineRenderRead, status_code=status.HTTP_202_ACCEPTED)
 def render_timeline(timeline_id: str, db: Session = Depends(get_db)) -> TimelineRenderRead:
     """Queue an episode render: 202 + the queued type="render" generation."""
-    service = TimelineService(db)
     timeline = TimelineService(db).get_timeline(timeline_id)
     generation = RenderService(db).create_render_generation(timeline_id)
     return TimelineRenderRead(

@@ -39,6 +39,7 @@ __all__ = [
     "SceneService",
     "ScriptService",
     "ShotService",
+    "TimelineService",
     "VersionService",
     "WorkflowService",
 ]

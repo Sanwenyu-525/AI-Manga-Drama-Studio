@@ -7,7 +7,6 @@ v​g:episode:{episode_id}:FINAL_VIDEO. Also covers preview + contract errors.
 import asyncio
 
 import struct
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 

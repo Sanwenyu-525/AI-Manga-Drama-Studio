@@ -3,7 +3,7 @@
 //   - Generation Queue/History (existing): live generation progress + persisted recent.
 //   - Jobs (P6-T022/023/024): scene-generation jobs (P5-E1/E2) with detail, per-status
 //     controls and recovery flags for interrupted/paused jobs.
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowsClockwise,
@@ -26,7 +26,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 const JOB_STATUS_TEXT: Record<string, string> = {
   queued: "排队中",
-  running: "进行中",
+  running: "运行中",
   paused: "已暂停",
   completed: "已完成",
   failed: "失败",
@@ -42,6 +42,43 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
   const expanded = useWorkspaceStore((state) => state.bottomDockExpanded);
   const setExpanded = useWorkspaceStore((state) => state.setBottomDockExpanded);
   const queryClient = useQueryClient();
+
+  // 顶部把手：拖拽 header 空白区上下调整底部高度（上拖=增高）。仅当按下的是
+  // header 本身（而非内部 tab/按钮）时启动拖拽，避免与点按 tab 冲突。
+  const headerStartY = useRef(0);
+  const headerStartHeight = useRef(0);
+  const [headerDragging, setHeaderDragging] = useState(false);
+
+  const onHeaderPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    headerStartY.current = event.clientY;
+    headerStartHeight.current = useWorkspaceStore.getState().bottomDockHeight;
+    setHeaderDragging(true);
+  }, []);
+
+  const onHeaderPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!headerDragging) return;
+      const delta = event.clientY - headerStartY.current;
+      useWorkspaceStore.getState().setPanelSize("bottom", headerStartHeight.current - delta);
+    },
+    [headerDragging],
+  );
+
+  const stopHeaderDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!headerDragging) return;
+      setHeaderDragging(false);
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        /* pointer may already be released */
+      }
+    },
+    [headerDragging],
+  );
 
   const { data: history } = useQuery({
     queryKey: queryKeys.recentGenerations,
@@ -67,7 +104,14 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
 
   return (
     <div className="queue-dock">
-      <div className="queue-header">
+      <div
+        className={`queue-header${headerDragging ? " is-dragging" : ""}`}
+        title="拖动底部空白区可调整高度"
+        onPointerDown={onHeaderPointerDown}
+        onPointerMove={onHeaderPointerMove}
+        onPointerUp={stopHeaderDrag}
+        onPointerCancel={stopHeaderDrag}
+      >
         <div className="queue-tabs">
           <button className={tab === "queue" ? "active" : ""} onClick={() => setTab("queue")}>
             <ListBullets size={16} /> 生成队列 <span>{Object.keys(live).length}</span>
@@ -207,7 +251,7 @@ function JobSummary({ jobs }: { jobs?: JobSummaryRead[] }) {
   const failedCount = byStatus("failed") + byStatus("interrupted");
   return (
     <div className="queue-summary job-summary">
-      {runningCount > 0 && <span>进行中 {runningCount}</span>}
+      {runningCount > 0 && <span>运行中 {runningCount}</span>}
       {queuedCount > 0 && <span>排队 {queuedCount}</span>}
       {failedCount > 0 && <span className="failed-summary">失败 {failedCount}</span>}
     </div>
@@ -423,7 +467,7 @@ function generationStatusText(status: string): string {
         completed: "完成",
         cancelled: "已取消",
         queued: "排队中",
-        running: "生成中",
+        running: "运行中",
         retrying: "重试中",
         paused: "已暂停",
         interrupted: "已中断",

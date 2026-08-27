@@ -8,7 +8,6 @@ import {
   DotsThree,
   ImageSquare,
   MagicWand,
-  CaretLineRight,
   Trash,
   VideoCamera,
 } from "@phosphor-icons/react";
@@ -19,7 +18,6 @@ import type { AssetVersionRead, Character, GenerationRead, Shot, ShotUpdatePatch
 import { SHOT_TYPES, SHOT_TYPE_LABELS } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { VersionStrip } from "../versioning/VersionStrip";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { ShotContinuityCard } from "../continuity/ShotContinuityCard";
 import { canonicalStoryboardPath, useStudioRoute } from "../studio/studioRoute";
 
@@ -28,7 +26,6 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
   const route = useStudioRoute();
   const selectedShotId = useSelectionStore((s) => s.selection.shotIds[0]);
   const activeShotId = route.shotId ?? selectedShotId;
-  const setRightPanelTab = useWorkspaceStore((s) => s.setRightPanelTab);
   const clearShots = useSelectionStore((s) => s.clearShots);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -171,7 +168,6 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
   if (!activeShotId) {
     return (
       <div className="panel-tab-content">
-        {variant !== "center" && <PanelTabs active="inspector" onSwitch={setRightPanelTab} />}
         <div className="placeholder-note inspector-empty">
           <ImageSquare size={32} />
           <h3>选择一个镜头</h3>
@@ -184,7 +180,6 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
   if (isLoading || !shot) {
     return (
       <div className="panel-tab-content">
-        {variant !== "center" && <PanelTabs active="inspector" onSwitch={setRightPanelTab} />}
         <p className="muted inspector-loading">正在读取镜头…</p>
       </div>
     );
@@ -192,12 +187,11 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
 
   return (
     <div className={variant === "center" ? "inspector-center" : "panel-tab-content"}>
-      {variant !== "center" && <PanelTabs active="inspector" onSwitch={setRightPanelTab} />}
 
       <div className="inspector">
         <div className="inspector-title-row">
           <div>
-            <span className="eyebrow">SHOT DETAILS</span>
+            <span className="eyebrow">镜头检查器</span>
             <h2>Shot {String(shot.shot_number).padStart(3, "0")}</h2>
             <span className="ready-line">
               <CheckCircle size={15} weight="fill" /> {shot.status === "image_ready" ? "已出图" : "可编辑"} · rev{" "}
@@ -463,47 +457,6 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
         title="把选中的版本切换为当前生效版本"
       >
         {selectedIsActive ? "当前生效" : activate.isPending ? "切换中…" : "设为当前版本"}
-      </button>
-    </div>
-  );
-}
-
-function PanelTabs({
-  active,
-  onSwitch,
-}: {
-  active: "inspector" | "director";
-  onSwitch: (tab: "inspector" | "director") => void;
-}) {
-  const setRightPanelCollapsed = useWorkspaceStore((state) => state.setRightPanelCollapsed);
-  return (
-    <div className="panel-tabs" role="tablist" aria-label="右侧面板">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={active === "inspector"}
-        className={`tab ${active === "inspector" ? "active" : ""}`}
-        onClick={() => onSwitch("inspector")}
-      >
-        镜头检查器
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={active === "director"}
-        className={`tab ${active === "director" ? "active" : ""}`}
-        onClick={() => onSwitch("director")}
-      >
-        AI Director
-      </button>
-      <button
-        type="button"
-        className="panel-collapse-tab"
-        title="收起右侧面板"
-        aria-label="收起右侧面板"
-        onClick={() => setRightPanelCollapsed(true)}
-      >
-        <CaretLineRight size={15} />
       </button>
     </div>
   );

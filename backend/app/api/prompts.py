@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.core.errors import NotFoundError
 from app.domain.prompt import PromptCreate, PromptRead, PromptVersionCreate, PromptVersionRead
-from app.services.prompt_service import PromptService
+from app.services.prompt_service import PROJECT_TARGET, PromptService
 
 router = APIRouter(tags=["prompts"])
 
@@ -108,6 +108,55 @@ def activate_prompt_version(prompt_id: str, version_id: str, db: Session = Depen
     service = PromptService(db)
     version = service.activate_version(version_id)
     return _version_read(version, version.id)
+
+
+def _ensure_project(db: Session, project_id: str) -> None:
+    from app.repositories import ProjectRepository
+
+    if ProjectRepository(db).get(project_id) is None:
+        raise NotFoundError("Project does not exist.", {"project_id": project_id})
+
+
+# --- 提示词库：项目级预设（target_type=PROJECT），复用 prompts 领域模型 ---
+
+@router.get("/projects/{project_id}/prompts", response_model=list[PromptRead])
+def list_project_prompts(project_id: str, db: Session = Depends(get_db)) -> list[PromptRead]:
+    _ensure_project(db, project_id)
+    service = PromptService(db)
+    result: list[PromptRead] = []
+    for p in service.list_project_presets(project_id):
+        active = service.get_active_version(p) if p.active_version_id else None
+        result.append(
+            _prompt_read(p, len(service.list_versions(p.id))).model_copy(
+                update={
+                    "active_positive_prompt": active.positive_prompt if active else None,
+                    "active_negative_prompt": active.negative_prompt if active else None,
+                }
+            )
+        )
+    return result
+
+
+@router.post("/projects/{project_id}/prompts", response_model=PromptVersionRead, status_code=status.HTTP_201_CREATED)
+def create_project_preset(project_id: str, data: PromptCreate, db: Session = Depends(get_db)) -> PromptVersionRead:
+    _ensure_project(db, project_id)
+    service = PromptService(db)
+    version = service.create_version(
+        project_id=project_id,
+        target_type=PROJECT_TARGET,
+        target_id=project_id,
+        prompt_type=data.prompt_type,
+        positive=data.positive_prompt,
+        negative=data.negative_prompt,
+        generated_by=data.generated_by,
+    )
+    return _version_read(version, version.id)
+
+
+@router.delete("/prompts/{prompt_id}", status_code=status.HTTP_200_OK)
+def delete_prompt(prompt_id: str, db: Session = Depends(get_db)) -> dict:
+    PromptService(db).delete_prompt(prompt_id)
+    return {"deleted": True}
 
 
 def _project_id_of(db: Session, shot) -> str:

@@ -8,6 +8,7 @@ import { Link, useLocation } from "react-router-dom";
 import { ArrowLeft, FlowArrow, GearSix, ImageSquare, TreeStructure } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
+import { lastProjectId } from "../../lib/lastProject";
 
 interface WorkflowRead {
   id: string;
@@ -24,6 +25,7 @@ interface WorkflowRead {
 
 export function WorkflowsPage() {
   const location = useLocation();
+  const backProjectId = (location.state as { fromProject?: string } | null)?.fromProject ?? lastProjectId();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const {
     data: workflows,
@@ -40,15 +42,12 @@ export function WorkflowsPage() {
       <main className="project-home-main">
         <div className="page-heading">
           <div>
-            <span className="eyebrow">WORKFLOW CATALOG</span>
+            <span className="eyebrow">工作流目录</span>
             <h1>工作流</h1>
             <p>{workflows?.length ?? 0} 个 ComfyUI 模板 · 只读目录（模板入库管理）</p>
           </div>
-          {(location.state as { fromProject?: string } | null)?.fromProject ? (
-            <Link
-              to={`/projects/${(location.state as { fromProject: string }).fromProject}`}
-              className="btn secondary compact"
-            >
+          {backProjectId ? (
+            <Link to={`/projects/${backProjectId}`} className="btn secondary compact">
               <ArrowLeft size={15} /> 返回工作台
             </Link>
           ) : (
@@ -97,7 +96,7 @@ export function WorkflowsPage() {
             <section className="workflow-detail">
               {selected ? (
                 <>
-                  <span className="eyebrow">TEMPLATE DETAILS</span>
+                  <span className="eyebrow">模板详情</span>
                   <h2>{selected.id}</h2>
                   <div className="workflow-facts">
                     <div>

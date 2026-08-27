@@ -104,7 +104,8 @@ describe("VersionReviewPage A/B compare", () => {
     await screen.findByText("审片与定版"); // page loaded
     await screen.findByText("V1"); // versions loaded (sidebar + board)
     fireEvent.click(screen.getByRole("button", { name: (name: string) => name.includes("对比") }));
-    expect(await screen.findByText("A/B COMPARE")).toBeTruthy();
+    // 工具栏按钮与 A/B 看板头部共用同一文案，故断言出现次数 ≥1
+    expect((await screen.findAllByText("A/B 对比")).length).toBeGreaterThanOrEqual(1);
     // default A = active (V1), B = the other (V2): both side captions render
     expect(screen.getAllByText("V1").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("V2").length).toBeGreaterThanOrEqual(1);

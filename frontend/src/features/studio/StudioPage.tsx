@@ -1,26 +1,22 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CaretLineLeft,
   CaretLineRight,
-  Circle,
   FilmStrip,
-  ImageSquare,
-  MagicWand,
   Play,
-  Scroll,
-  SquaresFour,
 } from "@phosphor-icons/react";
 import { Link, Navigate, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { queryKeys } from "../../api/queryKeys";
-import type { Episode, GenerationRead, Project, ProviderStatus, Scene, Storyboard } from "../../api/types";
+import type { Episode, GenerationRead, Project, Scene, Storyboard } from "../../api/types";
 import { EventRouter, setEventRouter, startEventSocket } from "../../events/socket";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useEditorTabsStore } from "../../stores/editorTabsStore";
 import { applyWorkspace, attachWorkspacePersistence, hydrateWorkspace } from "../../stores/persistence";
+import { rememberProject } from "../../lib/lastProject";
 import { ResizeHandle } from "../../components/resizable/ResizeHandle";
 import { WorkspaceHost, SceneEmptyState } from "../../components/workspace/WorkspaceHost";
 import { AIDirectorPanel } from "../director/AIDirectorPanel";
@@ -58,11 +54,35 @@ export function StudioPage() {
   const rightWidth = useWorkspaceStore((state) => state.rightWidth);
   const bottomDockHeight = useWorkspaceStore((state) => state.bottomDockHeight);
   const setPanelSize = useWorkspaceStore((state) => state.setPanelSize);
+  const [compactLayout, setCompactLayout] = useState(
+    () => typeof window !== "undefined" && window.matchMedia?.("(max-width: 1100px)").matches === true,
+  );
+  const [compactPanel, setCompactPanel] = useState<"explorer" | "right" | null>(null);
+
+  // At the desktop window minimum, both fixed sidebars would leave almost no
+  // usable workspace. Compact mode keeps them available as rails and opens one
+  // at a time without overwriting the user's persisted wide-screen layout.
+  useEffect(() => {
+    const media = window.matchMedia?.("(max-width: 1100px)");
+    if (!media) return;
+    const sync = () => {
+      setCompactLayout(media.matches);
+      if (!media.matches) setCompactPanel(null);
+    };
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
   // P6-T003: hydrate persisted workspace once, then keep saving on any change.
   useEffect(() => {
     applyWorkspace(hydrateWorkspace());
     return attachWorkspacePersistence();
   }, []);
+
+  // D：进入工作台时记住该项目，供 /assets /settings /workflows 返回时直达工作台。
+  useEffect(() => {
+    if (projectId) rememberProject(projectId);
+  }, [projectId]);
 
   useEffect(() => {
     startEventSocket();
@@ -96,16 +116,9 @@ export function StudioPage() {
     queryFn: () => api.get<Episode[]>(`/projects/${projectId}/episodes`),
     enabled: Boolean(projectId),
   });
-  const { data: providers } = useQuery({
-    queryKey: queryKeys.providers,
-    queryFn: () => api.get<ProviderStatus[]>("/providers"),
-    staleTime: 30_000,
-  });
 
   const activeEpisode =
     episodes?.find((episode) => episode.id === route.episodeId) ?? (route.legacy ? episodes?.[0] : undefined);
-  const provider =
-    providers?.find((item) => item.status === "active") ?? providers?.find((item) => item.status === "connected");
   const selectedShotId = useSelectionStore((state) => state.selection.shotIds[0]);
 
   useEffect(() => {
@@ -123,11 +136,9 @@ export function StudioPage() {
   });
 
   const routeEpisodeId = route.episodeId ?? activeEpisode?.id;
-  const scriptPath = routeEpisodeId ? canonicalScriptPath(projectId, routeEpisodeId) : `/projects/${projectId}/script`;
-  const storyboardPath =
-    route.sceneId && route.episodeId ? canonicalStoryboardPath(projectId, route.episodeId, route.sceneId) : null;
-  const onScript = route.workspace === "script";
-  const onStoryboard = route.workspace === "storyboard" || route.workspace === "shot";
+  void routeEpisodeId;
+  const explorerHidden = explorerCollapsed || (compactLayout && compactPanel !== "explorer");
+  const rightPanelHidden = rightPanelCollapsed || (compactLayout && compactPanel !== "right");
 
   // Layout CSS variables: widths/heights come from the (persisted) store. Collapsed
   // states keep the rail widths via CSS modifiers on the shell.
@@ -139,65 +150,36 @@ export function StudioPage() {
 
   return (
     <div
-      className={`app-shell ${dockExpanded ? "dock-expanded" : ""} ${explorerCollapsed ? "explorer-collapsed" : ""} ${rightPanelCollapsed ? "right-collapsed" : ""}`}
+      className={`app-shell ${dockExpanded ? "dock-expanded" : ""} ${explorerHidden ? "explorer-collapsed" : ""} ${rightPanelHidden ? "right-collapsed" : ""}`}
       style={style}
     >
+      {/* Canvas toolbar: module navigation moved to the global Activity Rail;
+          this bar carries project identity + primary production action. */}
       <header className="top-bar">
         <Link to="/" className="studio-project-name">
-          <img src="/assets/logo.png" alt="" className="app-logo" /> {project?.name ?? "AI Manga Drama Studio"}
+          {project?.name ?? "漫剧工作台"}
         </Link>
-        <nav className="studio-nav" aria-label="工作台导航">
-          <Link to={scriptPath} className={onScript ? "active" : ""}>
-            <Scroll size={17} /> 剧本
-          </Link>
-          <Link
-            to={storyboardPath ?? scriptPath}
-            className={onStoryboard ? "active" : ""}
-            aria-disabled={!storyboardPath}
-            onClick={(event) => {
-              if (!storyboardPath) event.preventDefault();
-            }}
-            title={storyboardPath ? "返回分镜视图" : "先选择一个场景"}
-          >
-            <SquaresFour size={17} /> 分镜
-          </Link>
-          <Link
-            to={`/projects/${projectId}/assets`}
-            className={route.workspace === "assets" ? "active" : ""}
-            title="项目资产库"
-          >
-            <ImageSquare size={17} /> 素材
-          </Link>
-          <Link
-            to={routeEpisodeId ? canonicalTimelinePath(projectId, routeEpisodeId) : `/projects/${projectId}/timeline`}
-            className={route.workspace === "timeline" ? "active" : ""}
-            title="逐集时间线与导出"
-          >
-            <FilmStrip size={17} /> 时间线
-          </Link>
-          <button
-            className={rightPanelTab === "director" ? "active" : ""}
-            onClick={() => setRightPanelTab("director")}
-            title="打开 AI Director"
-          >
-            <MagicWand size={17} /> AI Director
-          </button>
-        </nav>
+        <span className="muted small top-bar-hint">{activeEpisode ? "剧集已打开 · 从活动栏切换模块" : "从资源树新建剧集后开始生产"}</span>
+        <div className="grow" />
         <div className="studio-statuses">
-          <span className="connection-status">
-            <Circle size={9} weight="fill" /> {provider?.name ?? "Provider"}
-          </span>
-          <span className="director-status">
-            <Circle size={9} weight="fill" /> AI 导演 {rightPanelTab === "director" ? "已打开" : "空闲"}
-          </span>
-          <button
-            className="btn primary compact"
-            disabled={!selectedShotId || generateSelectedShot.isPending}
-            onClick={() => generateSelectedShot.mutate()}
-            title={selectedShotId ? "为当前镜头提交图片生成任务" : "先选择一个镜头"}
+          <span
+            className="studio-generate-wrap"
+            title={
+              generateSelectedShot.isPending
+                ? "正在提交生成任务…"
+                : selectedShotId
+                  ? "为当前镜头提交图片生成任务"
+                  : "先选择一个镜头（点左侧树里的场景，再点它的镜头）"
+            }
           >
-            <Play size={14} weight="fill" /> {generateSelectedShot.isPending ? "提交中…" : "生成图片"}
-          </button>
+            <button
+              className="btn primary compact"
+              disabled={!selectedShotId || generateSelectedShot.isPending}
+              onClick={() => generateSelectedShot.mutate()}
+            >
+              <Play size={14} weight="fill" /> {generateSelectedShot.isPending ? "提交中…" : "生成图片"}
+            </button>
+          </span>
           {generateSelectedShot.isError && (
             <span
               className="error-text studio-generate-error"
@@ -216,22 +198,31 @@ export function StudioPage() {
       </header>
 
       <aside className="explorer">
-        {explorerCollapsed ? (
+        {explorerHidden ? (
           <button
             type="button"
             className="panel-rail-btn"
             title="展开资源树"
             aria-label="展开资源树"
-            onClick={() => setExplorerCollapsed(false)}
+            onClick={() => {
+              setExplorerCollapsed(false);
+              if (compactLayout) setCompactPanel("explorer");
+            }}
           >
             <CaretLineRight size={16} />
           </button>
         ) : (
-          <ProjectExplorer projectId={projectId} onCollapse={() => setExplorerCollapsed(true)} />
+          <ProjectExplorer
+            projectId={projectId}
+            onCollapse={() => {
+              setExplorerCollapsed(true);
+              setCompactPanel(null);
+            }}
+          />
         )}
       </aside>
 
-      <ResizeHandle axis="vertical" label="调整左侧面板宽度" onDelta={onExplorerDelta} disabled={explorerCollapsed} />
+      <ResizeHandle axis="vertical" label="调整左侧面板宽度" onDelta={onExplorerDelta} disabled={explorerHidden} />
 
       <main className="workspace">
         <Outlet context={{ projectId, activeEpisode } satisfies StudioContext} />
@@ -241,25 +232,59 @@ export function StudioPage() {
         axis="vertical"
         label="调整右侧面板宽度"
         onDelta={onRightDelta}
-        disabled={rightPanelCollapsed}
+        disabled={rightPanelHidden}
         variant="right"
       />
 
-      <aside className="right-panel">
-        {rightPanelCollapsed ? (
+      {/* Agent Dock（DESIGN.md §4：右侧固定 Agent 容器，页面 Inspector 作为 Tab）
+          外壳统管 tab 切换与收起；面板内容各自滚动。 */}
+      <aside className="right-panel agent-dock">
+        {rightPanelHidden ? (
           <button
             type="button"
             className="panel-rail-btn"
-            title="展开检查器"
-            aria-label="展开检查器"
-            onClick={() => setRightPanelCollapsed(false)}
+            title="展开面板"
+            aria-label="展开右侧面板"
+            onClick={() => {
+              setRightPanelCollapsed(false);
+              if (compactLayout) setCompactPanel("right");
+            }}
           >
             <CaretLineLeft size={16} />
           </button>
-        ) : rightPanelTab === "inspector" ? (
-          <ShotInspector />
         ) : (
-          <AIDirectorPanel />
+          <>
+            <div className="panel-tabs" role="tablist" aria-label="右侧面板">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={rightPanelTab === "director"}
+                className={`tab ${rightPanelTab === "director" ? "active" : ""}`}
+                onClick={() => setRightPanelTab("director")}
+              >
+                AI导演
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={rightPanelTab === "inspector"}
+                className={`tab ${rightPanelTab === "inspector" ? "active" : ""}`}
+                onClick={() => setRightPanelTab("inspector")}
+              >
+                镜头检查器
+              </button>
+              <button
+                type="button"
+                className="panel-collapse-tab"
+                title="收起右侧面板"
+                aria-label="收起右侧面板"
+                onClick={() => setRightPanelCollapsed(true)}
+              >
+                <CaretLineRight size={15} />
+              </button>
+            </div>
+            {rightPanelTab === "inspector" ? <ShotInspector /> : <AIDirectorPanel />}
+          </>
         )}
       </aside>
 
@@ -338,11 +363,14 @@ export function ShotDetailWorkspace() {
   const { projectId, activeEpisode } = useStudio();
   const { episodeId = "", sceneId = "", shotId = "" } = useParams();
   const openShot = useEditorTabsStore((state) => state.openShot);
+  const setRightPanelTab = useWorkspaceStore((state) => state.setRightPanelTab);
   useEffect(() => {
     if (projectId && episodeId && sceneId && shotId) {
       openShot({ projectId, episodeId, sceneId, shotId, title: `Shot ${shotId.slice(-4)}` });
+      // URL 直达镜头 → Agent Dock 切到镜头检查器（P6 职责边界）
+      setRightPanelTab("inspector");
     }
-  }, [episodeId, openShot, projectId, sceneId, shotId]);
+  }, [episodeId, openShot, projectId, sceneId, setRightPanelTab, shotId]);
   return <WorkspaceHost projectId={projectId} activeEpisode={activeEpisode} />;
 }
 

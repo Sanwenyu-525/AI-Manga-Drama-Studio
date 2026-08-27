@@ -111,7 +111,7 @@ export function VersionReviewPage() {
         <aside className="version-sidebar">
           <div className="version-sidebar-head">
             <div>
-              <span className="eyebrow">GENERATED VERSIONS</span>
+              <span className="eyebrow">已生成版本</span>
               <h1>审片与定版</h1>
             </div>
             <SlidersHorizontal size={19} />
@@ -187,7 +187,7 @@ export function VersionReviewPage() {
         </section>
 
         <aside className="review-inspector">
-          <span className="eyebrow">DECISION</span>
+          <span className="eyebrow">审核决定</span>
           <h2>{selected ? `V${selected.version_number}` : "未选择版本"}</h2>
           <div className={`review-status-card ${selected && !selected.is_active ? "candidate" : ""}`}>
             {selected?.is_active ? (
@@ -287,7 +287,7 @@ function VersionCompareBoard({ versions, aId, bId, onSetA, onSetB, activeId, act
   return (
     <div className="compare-board">
       <div className="compare-board-head">
-        <span className="eyebrow">A/B COMPARE</span>
+        <span className="eyebrow">A/B 对比</span>
         <p className="muted">左右各选一个版本，即可直接激活其一。</p>
       </div>
       <div className="compare-split">

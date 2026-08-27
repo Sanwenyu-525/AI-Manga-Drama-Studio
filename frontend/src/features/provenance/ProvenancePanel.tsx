@@ -34,7 +34,7 @@ function ProvPanelBody({ assetId, label, onClose }: { assetId: string; label?: s
     <aside className="provenance-panel" aria-label="资产溯源">
       <header className="provenance-head">
         <div>
-          <span className="eyebrow">PROVENANCE</span>
+          <span className="eyebrow">生成溯源</span>
           <h2>
             <TreeStructure size={17} /> 资产溯源{label ? ` · ${label}` : ""}
           </h2>

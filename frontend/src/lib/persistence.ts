@@ -41,9 +41,9 @@ export interface LegacyWorkspaceSnapshot {
 export type ParsedWorkspaceSnapshot = WorkspaceSnapshot | LegacyWorkspaceSnapshot;
 
 export const DEFAULT_LAYOUT: LayoutState = {
-  explorerWidth: PANEL_BOUNDS.explorer.max - 100, // 300 matches the current shell default
-  rightWidth: 380,
-  bottomDockHeight: 104,
+  explorerWidth: 260, // 略收窄，把更多横向空间留给中央工作台
+  rightWidth: 328, // DESIGN.md §4：Agent Dock 固定宽
+  bottomDockHeight: 100,
   explorerCollapsed: false,
   rightPanelCollapsed: false,
   bottomDockExpanded: false,

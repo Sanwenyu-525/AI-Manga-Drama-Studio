@@ -132,7 +132,7 @@ export function ProjectSettingsModal({ projectId, open, onClose }: ProjectSettin
       <div className="settings-modal" role="dialog" aria-modal="true" aria-label="项目设置">
         <header className="settings-modal-head">
           <div>
-            <span className="eyebrow">PROJECT SETTINGS</span>
+            <span className="eyebrow">项目设置</span>
             <h2>
               <SlidersHorizontal size={18} /> 项目设置
             </h2>

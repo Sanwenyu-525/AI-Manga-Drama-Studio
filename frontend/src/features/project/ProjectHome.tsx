@@ -122,7 +122,7 @@ export function ProjectHome() {
       <main className="project-home-main">
         <div className="page-heading">
           <div>
-            <span className="eyebrow">DIRECTOR'S CONSOLE</span>
+            <span className="eyebrow">导演工作台</span>
             <h1>项目</h1>
             <p>
               {filterCount} 个项目{statusFilter !== "all" ? `（${statusLabel[statusFilter] ?? statusFilter}）` : ""} ·

@@ -17,8 +17,14 @@ test.describe("Studio 主路径冒烟", () => {
     page.on("pageerror", (err) => errors.push(String(err)));
 
     // ---- 1. 打开新建项目页 ----
+    await page.setViewportSize({ width: 1024, height: 700 });
     await page.goto("/projects/new");
     await expect(page.locator(".new-project-page")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".new-project-header .app-logo")).toHaveCSS("width", "22px");
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth),
+      "新建页应适配桌面最小窗口",
+    ).toBe(false);
 
     // ---- 2. 填名称 + 选"空白项目" ----
     const nameInput = page.locator('.project-form-column input[value], input[type="text"]').first();
@@ -35,6 +41,9 @@ test.describe("Studio 主路径冒烟", () => {
     await expect(page.locator(".app-shell")).toBeVisible({ timeout: 20_000 });
     await expect(page.locator(".explorer")).toBeVisible({ timeout: 10_000 });
     await expect(page.locator(".top-bar")).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".app-shell")).toHaveClass(/explorer-collapsed/);
+    await expect(page.locator(".app-shell")).toHaveClass(/right-collapsed/);
+    await expect(page.getByRole("button", { name: "生成图片" })).toBeVisible();
 
     // ---- 4. 无页面级横向滚动（R2 冒烟回归）----
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);

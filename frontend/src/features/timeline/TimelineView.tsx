@@ -222,7 +222,7 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
     <div className="timeline-workspace">
       <header className="timeline-toolbar">
         <div className="timeline-title-group">
-          <span className="eyebrow">EPISODE TIMELINE</span>
+          <span className="eyebrow">剧集时间线</span>
           <h1>时间线</h1>
           <span className={"timeline-status status-" + timeline.status.toLowerCase()}>{timeline.status}</span>
           <span className="muted">

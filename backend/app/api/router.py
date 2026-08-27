@@ -12,6 +12,7 @@ from app.api import (
     generations,
     health,
     jobs,
+    llm,
     locations,
     operations,
     projects,
@@ -41,6 +42,7 @@ api_router.include_router(locations.router)
 api_router.include_router(costumes.router)
 api_router.include_router(operations.router)
 api_router.include_router(generations.router)
+api_router.include_router(llm.router)
 api_router.include_router(assets.router)
 api_router.include_router(assets.project_assets)
 api_router.include_router(providers.router)

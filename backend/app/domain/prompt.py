@@ -33,6 +33,9 @@ class PromptRead(BaseModel):
     versions_count: int
     created_at: str
     updated_at: str
+    # 提示词库（项目级预设）展示用的当前正/负向内容；镜头级 prompt 恒为空。
+    active_positive_prompt: str | None = None
+    active_negative_prompt: str | None = None
 
 
 class PromptVersionRead(BaseModel):

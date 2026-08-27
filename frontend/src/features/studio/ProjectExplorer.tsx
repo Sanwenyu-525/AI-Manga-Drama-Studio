@@ -12,7 +12,9 @@ import {
   MapPin,
   PencilSimple,
   Plus,
+  Quotes,
   SlidersHorizontal,
+  Sparkle,
   Star,
   Trash,
   UsersThree,
@@ -265,6 +267,7 @@ export function ProjectExplorer({ projectId, onCollapse }: { projectId: string; 
 
       <CharactersSection projectId={projectId} />
       <LocationsSection projectId={projectId} />
+      <PromptsSection projectId={projectId} />
 
       <ProjectSettingsModal projectId={projectId} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
@@ -485,6 +488,188 @@ function LocationsSection({ projectId }: { projectId: string }) {
           <Plus size={14} /> 地点
         </button>
       )}
+    </div>
+  );
+}
+
+// 提示词库（项目级预设，P）：复用 prompts 领域模型（target_type=PROJECT）。
+// 每个预设 = 一条 prompt 记录；编辑落成不可变的新版本（vN+1）并自动置为当前。
+// 样式与角色/地点库保持一致。
+const PROMPT_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "SHOT_IMAGE", label: "镜头图" },
+  { value: "SHOT_VIDEO", label: "镜头视频" },
+  { value: "CHARACTER", label: "角色" },
+  { value: "LOCATION", label: "地点" },
+  { value: "VOICE", label: "配音" },
+  { value: "MUSIC", label: "音乐" },
+  { value: "DIRECTOR_INSTRUCTION", label: "导演指令" },
+  { value: "CUSTOM", label: "自定义" },
+];
+
+interface PromptPreset {
+  id: string;
+  project_id: string;
+  target_type: string;
+  target_id: string;
+  prompt_type: string;
+  active_version_id: string | null;
+  versions_count: number;
+  active_positive_prompt: string | null;
+  active_negative_prompt: string | null;
+}
+
+function promptTypeLabel(value: string): string {
+  return PROMPT_TYPE_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
+function PromptsSection({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newType, setNewType] = useState("CUSTOM");
+  const [newPositive, setNewPositive] = useState("");
+
+  const { data: presets } = useQuery({
+    queryKey: queryKeys.projectPrompts(projectId),
+    queryFn: () => api.get<PromptPreset[]>("/projects/" + projectId + "/prompts"),
+  });
+
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.projectPrompts(projectId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.prompts });
+  };
+
+  const createPreset = useMutation({
+    mutationFn: () =>
+      api.post("/projects/" + projectId + "/prompts", {
+        prompt_type: newType,
+        positive_prompt: newPositive.trim(),
+      }),
+    onSuccess: () => {
+      invalidate();
+      setCreating(false);
+      setNewPositive("");
+      setNewType("CUSTOM");
+      setExpandedId(null);
+    },
+  });
+
+  return (
+    <div className="tree-section quiet-section">
+      <div className="tree-section-title">
+        <Quotes size={18} /> 提示词 <span className="tree-section-badge">库</span>
+      </div>
+      {(presets ?? []).map((preset) => (
+        <div key={preset.id} className="tree-item">
+          <button
+            className={"tree-row child " + (expandedId === preset.id ? "active" : "")}
+            onClick={() => setExpandedId(expandedId === preset.id ? null : preset.id)}
+          >
+            <Quotes size={14} />
+            <span className="tree-label">
+              {promptTypeLabel(preset.prompt_type)}
+              {preset.active_positive_prompt ? ` · ${preset.active_positive_prompt}` : " · 空"}
+            </span>
+            <span className="tree-count">{preset.versions_count}</span>
+          </button>
+          {expandedId === preset.id && (
+            <PromptPresetEditor key={preset.id} preset={preset} onChanged={invalidate} />
+          )}
+        </div>
+      ))}
+      {!presets?.length && !creating && (
+        <span className="tree-muted-item">还没有提示词预设 · 手动添加</span>
+      )}
+
+      {creating ? (
+        <div className="char-editor">
+          <label className="field">
+            <span className="field-label">类型</span>
+            <select value={newType} onChange={(e) => setNewType(e.target.value)}>
+              {PROMPT_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <textarea
+            autoFocus
+            rows={2}
+            value={newPositive}
+            placeholder="提示词内容（必填）"
+            onChange={(e) => setNewPositive(e.target.value)}
+          />
+          <div className="char-editor-actions">
+            <button
+              className="btn primary tiny"
+              disabled={!newPositive.trim() || createPreset.isPending}
+              onClick={() => createPreset.mutate()}
+            >
+              <Check size={13} /> {createPreset.isPending ? "添加中…" : "添加预设"}
+            </button>
+            <button className="btn secondary tiny" onClick={() => setCreating(false)}>
+              <X size={13} /> 取消
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button className="tree-add-row" onClick={() => setCreating(true)}>
+          <Plus size={14} /> 提示词
+        </button>
+      )}
+    </div>
+  );
+}
+
+function PromptPresetEditor({
+  preset,
+  onChanged,
+}: {
+  preset: PromptPreset;
+  onChanged: () => void;
+}) {
+  const [positive, setPositive] = useState(preset.active_positive_prompt ?? "");
+  const [negative, setNegative] = useState(preset.active_negative_prompt ?? "");
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.post(`/prompts/${preset.id}/versions`, { positive_prompt: positive, negative_prompt: negative }),
+    onSuccess: onChanged,
+  });
+  const remove = useMutation({
+    mutationFn: () => api.delete(`/prompts/${preset.id}`),
+    onSuccess: onChanged,
+  });
+  const dirty = positive !== (preset.active_positive_prompt ?? "") || negative !== (preset.active_negative_prompt ?? "");
+
+  return (
+    <div className="char-editor">
+      <label className="field">
+        <span className="field-label">正向提示词</span>
+        <textarea rows={3} value={positive} onChange={(e) => setPositive(e.target.value)} placeholder="Positive prompt" />
+      </label>
+      <label className="field">
+        <span className="field-label">负向提示词</span>
+        <textarea rows={2} value={negative} onChange={(e) => setNegative(e.target.value)} placeholder="Negative prompt（可选）" />
+      </label>
+      <div className="char-editor-actions">
+        <button className="btn primary tiny" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+          <Sparkle size={13} /> {save.isPending ? "保存中…" : "保存（新版本）"}
+        </button>
+        <button
+          className="btn danger tiny"
+          disabled={remove.isPending}
+          onClick={() => {
+            if (window.confirm("删除该提示词预设？其全部版本将一并删除。")) remove.mutate();
+          }}
+        >
+          <Trash size={13} /> 删除
+        </button>
+      </div>
+      <p className="tree-muted-item" style={{ marginTop: 6 }}>
+        编辑会生成不可变的 V{preset.versions_count + 1} 并设为当前。
+      </p>
     </div>
   );
 }

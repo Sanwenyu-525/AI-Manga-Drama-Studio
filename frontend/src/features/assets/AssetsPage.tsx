@@ -8,6 +8,7 @@ import { Link, useLocation } from "react-router-dom";
 import { ArrowLeft, ImageSquare, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
+import { lastProjectId } from "../../lib/lastProject";
 import type { GenerationRead, Project } from "../../api/types";
 
 interface AssetItem {
@@ -23,6 +24,7 @@ interface AssetItem {
 export function AssetsPage() {
   const location = useLocation();
   const [preview, setPreview] = useState<AssetItem | null>(null);
+  const backProjectId = (location.state as { fromProject?: string } | null)?.fromProject ?? lastProjectId();
 
   const {
     data: generations,
@@ -63,15 +65,12 @@ export function AssetsPage() {
       <main className="project-home-main">
         <div className="page-heading">
           <div>
-            <span className="eyebrow">ASSET LIBRARY</span>
+            <span className="eyebrow">素材库</span>
             <h1>素材</h1>
             <p>{assets.length} 个已生成素材 · 来自全部项目的生成记录</p>
           </div>
-          {(location.state as { fromProject?: string } | null)?.fromProject ? (
-            <Link
-              to={`/projects/${(location.state as { fromProject: string }).fromProject}`}
-              className="btn secondary compact"
-            >
+          {backProjectId ? (
+            <Link to={`/projects/${backProjectId}`} className="btn secondary compact">
               <ArrowLeft size={15} /> 返回工作台
             </Link>
           ) : (

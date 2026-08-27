@@ -333,6 +333,37 @@ export interface Operation {
   completed_at: string | null;
 }
 
+// --- P7 prompt library DTOs (ADR-002, backend app/api/prompts.py) ---
+
+export interface PromptRead {
+  id: string;
+  project_id: string;
+  target_type: string;
+  target_id: string;
+  prompt_type: string;
+  active_version_id: string | null;
+  versions_count: number;
+  created_at: string;
+  updated_at: string;
+  active_positive_prompt?: string | null;
+  active_negative_prompt?: string | null;
+}
+
+export interface PromptVersionRead {
+  id: string;
+  prompt_id: string;
+  version_number: number;
+  positive_prompt: string | null;
+  negative_prompt: string | null;
+  structured_spec: Record<string, unknown> | null;
+  provider: string | null;
+  model: string | null;
+  generated_by: string | null;
+  parent_version_id: string | null;
+  created_at: string;
+  is_active: boolean;
+}
+
 // --- Stage C: generation DTOs (api-event-contract §35-39) ---
 
 export interface GenerationRead {

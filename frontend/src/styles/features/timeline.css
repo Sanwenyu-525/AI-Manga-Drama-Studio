@@ -16,7 +16,7 @@
 }
 .timeline-empty > svg {
   margin-bottom: 8px;
-  color: var(--amber);
+  color: var(--accent);
 }
 .timeline-empty h2 {
   margin-bottom: 4px;
@@ -73,14 +73,14 @@
   background: var(--elevated);
 }
 .timeline-status.status-rendering {
-  color: var(--amber);
-  border-color: rgba(232, 163, 61, 0.45);
-  background: var(--amber-dim);
+  color: var(--accent);
+  border-color: rgba(79, 125, 186, 0.45);
+  background: var(--accent-dim);
 }
 .timeline-status.status-rendered {
   color: var(--green);
-  border-color: rgba(95, 168, 107, 0.4);
-  background: rgba(95, 168, 107, 0.12);
+  border-color: rgba(77, 159, 114, 0.4);
+  background: rgba(77, 159, 114, 0.12);
 }
 .timeline-actions {
   display: flex;
@@ -117,8 +117,8 @@
   color: var(--ink);
 }
 .timeline-workspace .seg-control button.active {
-  background: var(--amber-dim);
-  color: var(--amber);
+  background: var(--accent-dim);
+  color: var(--accent);
 }
 .timeline-workspace > .inline-error {
   flex: 0 0 auto;
@@ -201,9 +201,9 @@
   bottom: -1000px;
   z-index: 5;
   width: 2px;
-  background: var(--amber);
+  background: var(--accent);
   pointer-events: none;
-  box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.12);
+  box-shadow: 0 0 0 1px var(--accent-dim);
 }
 .timeline-lanes {
   min-width: max-content;
@@ -233,10 +233,10 @@
 .timeline-lane[data-track-type="VOICE"],
 .timeline-lane[data-track-type="MUSIC"],
 .timeline-lane[data-track-type="SFX"] {
-  background-color: rgba(232, 163, 61, 0.025);
+  background-color: rgba(162, 173, 186, 0.03);
 }
 .timeline-lane[data-track-type="SUBTITLE"] {
-  background-color: rgba(95, 168, 107, 0.025);
+  background-color: rgba(77, 159, 114, 0.03);
 }
 .timeline-no-tracks {
   padding: 24px 14px;
@@ -263,16 +263,16 @@
     opacity 0.12s ease;
 }
 .timeline-clip:hover {
-  border-color: var(--blue);
+  border-color: var(--accent);
   box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
 }
 .timeline-clip:active {
   cursor: grabbing;
 }
 .timeline-clip.selected {
-  border-color: var(--amber);
+  border-color: var(--accent);
   box-shadow:
-    0 0 0 1px var(--amber),
+    0 0 0 1px var(--accent),
     0 4px 14px rgba(0, 0, 0, 0.25);
 }
 .timeline-clip.disabled {
@@ -280,15 +280,15 @@
   filter: saturate(0.55);
 }
 .timeline-clip.clip-image {
-  background: #3b3021;
-  border-color: rgba(232, 163, 61, 0.58);
+  background: #2c3a49;
+  border-color: rgba(148, 174, 204, 0.55);
 }
 .timeline-clip.clip-video {
   background: #253945;
 }
 .timeline-clip.clip-audio {
-  background: #332b40;
-  border-color: rgba(178, 141, 203, 0.55);
+  background: #2b3542;
+  border-color: rgba(162, 173, 186, 0.5);
 }
 .timeline-clip-thumb {
   width: 42px;
@@ -314,7 +314,7 @@
   white-space: nowrap;
 }
 .timeline-clip-v {
-  color: var(--amber);
+  color: var(--accent);
   font-size: 10px;
 }
 .timeline-clip-text {
@@ -376,8 +376,8 @@
   background: rgba(255, 255, 255, 0.025);
 }
 .timeline-side-tabs button.active {
-  border-bottom-color: var(--amber);
-  color: var(--amber);
+  border-bottom-color: var(--accent);
+  color: var(--accent);
 }
 .timeline-side-body {
   min-width: 0;
@@ -510,8 +510,8 @@
 }
 .version-options button:hover,
 .version-options button.active {
-  border-color: var(--amber);
-  background: var(--amber-dim);
+  border-color: var(--accent);
+  background: var(--accent-dim);
 }
 .version-options button strong {
   font-size: 12px;
@@ -542,7 +542,7 @@
   width: auto;
   height: 15px;
   margin: 0;
-  accent-color: var(--amber);
+  accent-color: var(--accent);
 }
 
 .preview-frame {
@@ -615,7 +615,7 @@
   cursor: pointer;
 }
 .media-item:hover {
-  border-color: var(--amber);
+  border-color: var(--accent);
   background: var(--overlay);
 }
 .media-item img,

@@ -72,6 +72,7 @@ export function NewProjectPage() {
                   type="button"
                   key={ratio}
                   className={aspectRatio === ratio ? "active" : ""}
+                  aria-pressed={aspectRatio === ratio}
                   onClick={() => setAspectRatio(ratio)}
                 >
                   {ratio}
@@ -91,6 +92,7 @@ export function NewProjectPage() {
                   type="button"
                   key={value}
                   className={fps === value ? "active" : ""}
+                  aria-pressed={fps === value}
                   onClick={() => setFps(value)}
                 >
                   {value} FPS
@@ -142,7 +144,11 @@ export function NewProjectPage() {
             </div>
           </div>
 
-          {createProject.isError && <p className="error-text">创建失败：{String(createProject.error)}</p>}
+          {createProject.isError && (
+            <p className="error-text" role="alert">
+              创建失败：{String(createProject.error)}
+            </p>
+          )}
 
           <div className="form-actions">
             <Link to="/" className="btn secondary">
@@ -203,7 +209,12 @@ function StartModeCard({
   description: string;
 }) {
   return (
-    <button type="button" className={`start-mode-card ${active ? "active" : ""}`} onClick={onClick}>
+    <button
+      type="button"
+      className={`start-mode-card ${active ? "active" : ""}`}
+      aria-pressed={active}
+      onClick={onClick}
+    >
       <span className="mode-icon">{icon}</span>
       {active && <Check className="mode-check" size={15} weight="bold" />}
       <strong>{title}</strong>

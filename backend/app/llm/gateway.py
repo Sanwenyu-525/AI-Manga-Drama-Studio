@@ -6,6 +6,7 @@ Internal implementations: FakeLLMGateway (deterministic, no key) and LangChainOp
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
@@ -26,4 +27,12 @@ class LLMGateway(Protocol):
 
     async def structured_list(self, schema: type[T], system: str, prompt: str) -> list[T]:
         """Structured output as a list of Pydantic models."""
+        ...
+
+    def stream(self, system: str, prompt: str) -> AsyncIterator[str]:
+        """Yield text deltas for free-form generations.
+
+        Structured planner calls (ScenePlan/DirectorPlan…) do not stream; this
+        serves future free-form surfaces (production chat, long-form drafting).
+        """
         ...

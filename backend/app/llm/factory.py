@@ -13,11 +13,11 @@ APP_ENV / STUDIO_LLM_MODE switch freely; business code only ever sees the LLMGat
 
 from __future__ import annotations
 
-from app.core.config import settings
 from app.core.logging import get_logger
 from app.llm.fake import FakeLLMGateway
 from app.llm.gateway import LLMGateway
 from app.llm.langchain_gateway import LangChainOpenAIGateway
+from app.services.llm_settings_service import get_llm_config
 
 logger = get_logger("llm.factory")
 
@@ -28,12 +28,17 @@ def create_gateway() -> LLMGateway:
     global _gateway
     if _gateway is not None:
         return _gateway
-    if settings.llm_mode == "openai":
-        _gateway = LangChainOpenAIGateway()
-        logger.info("LLM gateway: openai (%s @ %s)", settings.llm_model, settings.llm_base_url)
+    cfg = get_llm_config()
+    if cfg["mode"] == "openai":
+        _gateway = LangChainOpenAIGateway(
+            base_url=cfg["base_url"],
+            api_key=cfg["api_key"],
+            model=cfg["model"],
+        )
+        logger.info("LLM gateway: openai (%s @ %s)", cfg["model"], cfg["base_url"])
     else:
         _gateway = FakeLLMGateway()
-        logger.info("LLM gateway: fake (STUDIO_LLM_MODE=fake; set openai for real models)")
+        logger.info("LLM gateway: fake (mode=fake; set openai for real models)")
     return _gateway
 
 

@@ -46,10 +46,34 @@ let socket: WebSocket | null = null;
 let reconnectDelay = RECONNECT_BASE_MS;
 let lastSequence = 0;
 
+// Connection-state subscription (SystemStatusBar): additive listener registry so
+// UI can show real WS health without polling.
+export type SocketState = "connecting" | "connected" | "disconnected";
+let socketState: SocketState = "disconnected";
+const stateListeners = new Set<(state: SocketState) => void>();
+
+export function getSocketState(): SocketState {
+  return socketState;
+}
+
+export function onSocketState(listener: (state: SocketState) => void): () => void {
+  stateListeners.add(listener);
+  listener(socketState);
+  return () => stateListeners.delete(listener);
+}
+
+function setSocketState(next: SocketState) {
+  if (socketState === next) return;
+  socketState = next;
+  for (const listener of stateListeners) listener(next);
+}
+
 function connect() {
+  setSocketState("connecting");
   socket = new WebSocket(WS_URL);
   socket.onopen = () => {
     reconnectDelay = RECONNECT_BASE_MS;
+    setSocketState("connected");
   };
   socket.onmessage = (message) => {
     try {
@@ -67,9 +91,11 @@ function connect() {
     }
   };
   socket.onclose = () => {
+    setSocketState("disconnected");
     window.setTimeout(connect, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS); // backoff §76
   };
+  socket.onerror = () => setSocketState("disconnected");
 }
 
 // Router: never write hundreds of ifs in onmessage (contract §74).

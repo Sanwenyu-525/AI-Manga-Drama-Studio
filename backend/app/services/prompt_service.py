@@ -13,13 +13,14 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError, ValidationError
 from app.db.models import Prompt, PromptVersion, Shot
 
 SHOT_TARGET = "SHOT"
+PROJECT_TARGET = "PROJECT"
 CACHE_COLUMNS = {"SHOT_IMAGE": "image_prompt", "SHOT_VIDEO": "video_prompt"}
 
 
@@ -50,6 +51,16 @@ class PromptService:
                 select(Prompt)
                 .where(Prompt.target_type == SHOT_TARGET, Prompt.target_id == shot_id)
                 .order_by(Prompt.prompt_type)
+            )
+        )
+
+    def list_project_presets(self, project_id: str) -> list[Prompt]:
+        """Project-level prompt presets（提示词库），复用 prompts 表 target_type=PROJECT。"""
+        return list(
+            self.session.scalars(
+                select(Prompt)
+                .where(Prompt.target_type == PROJECT_TARGET, Prompt.target_id == project_id)
+                .order_by(Prompt.prompt_type, Prompt.created_at.desc())
             )
         )
 
@@ -143,6 +154,17 @@ class PromptService:
             shot.negative_prompt = negative
         if prompt_type == "SHOT_IMAGE":
             shot.active_prompt_version_id = version_id
+
+    def delete_prompt(self, prompt_id: str, commit: bool = True) -> None:
+        """删除一个提示词（连同其全部版本）。提示词库预设为 PROJECT target 时安全，
+        不会触碰 SHOT 缓存。"""
+        prompt = self.session.get(Prompt, prompt_id)
+        if prompt is None:
+            raise NotFoundError("Prompt does not exist.", {"prompt_id": prompt_id})
+        self.session.execute(delete(PromptVersion).where(PromptVersion.prompt_id == prompt_id))
+        self.session.delete(prompt)
+        if commit:
+            self.session.commit()
 
     def _next_version_number(self, prompt_id: str) -> int:
         current = self.session.scalar(

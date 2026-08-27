@@ -79,17 +79,17 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
     <div className="storyboard">
       <header className="storyboard-head">
         <div>
-          <span className="eyebrow">STORYBOARD</span>
+          <span className="eyebrow">分镜板</span>
           <h1>
-            第 {storyboard?.scene.scene_number ?? "—"} 场 · {storyboard?.scene.name ?? "分镜"}
+            {isLoading
+              ? "正在加载分镜…"
+              : `第 ${storyboard?.scene.scene_number ?? "—"} 场 · ${storyboard?.scene.name ?? "分镜"}`}
           </h1>
-          <p>
-            {storyboard?.shots.length ?? 0} 个镜头 · {totalDuration.toFixed(1)}s
-          </p>
+          <p>{isLoading ? "…" : `${storyboard?.shots.length ?? 0} 个镜头 · ${totalDuration.toFixed(1)}s`}</p>
         </div>
         <div className="storyboard-summary">
           <span>
-            <CheckCircle size={16} /> 已出图 {readyCount}/{storyboard?.shots.length ?? 0}
+            <CheckCircle size={16} /> 已出图 {isLoading ? "…" : `${readyCount}/${storyboard?.shots.length ?? 0}`}
           </span>
           <SceneWarningBadge sceneId={sceneId} />
           <div className="view-toggle" role="tablist" aria-label="Storyboard 视图">

@@ -106,7 +106,7 @@ describe("GenerationQueue Jobs tab", () => {
     expect(screen.getByText(/Queued job/)).toBeTruthy();
     expect(screen.getByText(/Paused job/)).toBeTruthy();
     // task-count summary (P6-T024): running + queued job counts
-    expect(screen.getByText("进行中 1")).toBeTruthy();
+    expect(screen.getByText("运行中 1")).toBeTruthy();
     expect(screen.getByText("排队 1")).toBeTruthy();
   });
 

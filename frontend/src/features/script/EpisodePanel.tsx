@@ -6,11 +6,15 @@ import {
   CheckCircle,
   CloudCheck,
   FileArrowUp,
+  FileText,
+  Folder,
+  FolderOpen,
   MagicWand,
   MapPin,
   Moon,
   Sparkle,
   UsersThree,
+  X,
 } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
@@ -27,7 +31,14 @@ export function EpisodePanel({
 }) {
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
+  const dirRef = useRef<HTMLInputElement>(null);
   const [sourceText, setSourceText] = useState(episode.source_text ?? "");
+  // 原稿目录工作区：选择一个本地目录，列出其中的 .txt/.md 文件，点选即读入原文。
+  // 全部在浏览器/webview 本地完成，不落后端、不存路径（安全且无需 API）。
+  const [workspaceFiles, setWorkspaceFiles] = useState<{ path: string; file: File }[]>([]);
+  const [workspaceDirName, setWorkspaceDirName] = useState<string | null>(null);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [loadingFile, setLoadingFile] = useState<string | null>(null);
   const [preview, setPreview] = useState<ScenePlan[] | null>(null);
   const [activePlanIndex, setActivePlanIndex] = useState(0);
   const [previewError, setPreviewError] = useState<Error | null>(null);
@@ -92,11 +103,40 @@ export function EpisodePanel({
     reader.readAsText(file, "utf-8");
   };
 
+  // 原稿目录工作区：选择一个本地目录，列出其中的文本稿文件供点选读入。
+  const TEXT_EXT = /\.(txt|md|markdown|text)$/i;
+  const pickWorkspaceDir = (files: FileList | null) => {
+    if (!files) return;
+    const picked = Array.from(files)
+      .filter((f) => f.webkitRelativePath && TEXT_EXT.test(f.name))
+      .map((f) => ({ path: f.webkitRelativePath, file: f }))
+      .sort((a, b) => a.path.localeCompare(b.path))
+      .slice(0, 200);
+    setWorkspaceFiles(picked);
+    setWorkspaceDirName(picked[0]?.path.split("/")[0] ?? null);
+    setWorkspaceOpen(picked.length > 0);
+    if (!picked.length) setPreviewError(new Error("该目录里没有找到 .txt / .md 文本文件。"));
+  };
+
+  const loadWorkspaceFile = (item: { path: string; file: File }) => {
+    setLoadingFile(item.path);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSourceText(String(reader.result ?? ""));
+      setLoadingFile(null);
+    };
+    reader.onerror = () => {
+      setPreviewError(new Error(`读取「${item.path}」失败，请重试。`));
+      setLoadingFile(null);
+    };
+    reader.readAsText(item.file, "utf-8");
+  };
+
   return (
     <div className={`episode-panel ${preview ? "has-preview" : ""}`}>
       <header className="analysis-header">
         <div>
-          <span className="eyebrow">SCRIPT ANALYSIS</span>
+          <span className="eyebrow">剧本分析</span>
           <h1>
             EP{String(episode.episode_number).padStart(2, "0")} · {episode.title || "未命名剧集"}
           </h1>
@@ -123,14 +163,33 @@ export function EpisodePanel({
             <div>
               <BookOpenText size={18} />
               <strong>小说原文</strong>
+              {workspaceDirName && (
+                <button
+                  type="button"
+                  className="workspace-dir-chip"
+                  title="切换工作区目录"
+                  onClick={() => dirRef.current?.click()}
+                >
+                  <Folder size={14} /> {workspaceDirName}
+                </button>
+              )}
             </div>
-            <button
-              className="btn secondary compact"
-              onClick={() => fileRef.current?.click()}
-              title="从本地 .txt/.md 文件导入小说原文"
-            >
-              <FileArrowUp size={15} /> 替换原文
-            </button>
+            <div className="row gap">
+              <button
+                className={`btn secondary compact ${workspaceFiles.length ? "workspace-active" : ""}`}
+                onClick={() => dirRef.current?.click()}
+                title="选择一个本地目录，列出其中的小说原稿文件供点选读入"
+              >
+                <FolderOpen size={15} /> 原稿目录
+              </button>
+              <button
+                className="btn secondary compact"
+                onClick={() => fileRef.current?.click()}
+                title="从本地 .txt/.md 文件导入小说原文"
+              >
+                <FileArrowUp size={15} /> 替换原文
+              </button>
+            </div>
             <input
               ref={fileRef}
               type="file"
@@ -141,7 +200,47 @@ export function EpisodePanel({
                 event.target.value = ""; // allow re-importing the same file
               }}
             />
+            <input
+              ref={dirRef}
+              type="file"
+              // @ts-expect-error webkitdirectory 是目录选择扩展属性，未被 TS 声明
+              webkitdirectory=""
+              multiple
+              hidden
+              onChange={(event) => {
+                pickWorkspaceDir(event.target.files);
+                event.target.value = ""; // allow re-picking the same dir
+              }}
+            />
           </div>
+          {workspaceOpen && workspaceFiles.length > 0 && (
+            <div className="workspace-files">
+              <div className="workspace-files-head">
+                <span>
+                  <FolderOpen size={13} /> 原稿目录 · {workspaceFiles.length} 个文件
+                </span>
+                <button type="button" className="text-action" onClick={() => setWorkspaceOpen(false)}>
+                  <X size={13} /> 收起
+                </button>
+              </div>
+              <div className="workspace-files-list">
+                {workspaceFiles.map((item) => (
+                  <button
+                    key={item.path}
+                    type="button"
+                    className="workspace-file-row"
+                    disabled={loadingFile === item.path}
+                    onClick={() => loadWorkspaceFile(item)}
+                    title={`读入 ${item.path}`}
+                  >
+                    <FileText size={13} />
+                    <span>{item.path}</span>
+                    {loadingFile === item.path && <span className="muted small">读取中…</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <textarea
             className="source-editor"
             value={sourceText}
@@ -186,7 +285,7 @@ export function EpisodePanel({
             </section>
 
             <aside className="scene-detail-column">
-              <span className="eyebrow">SCENE BREAKDOWN</span>
+              <span className="eyebrow">场景拆解</span>
               <h2>SC{String(activePlan?.scene_number ?? 0).padStart(2, "0")} 场景解构</h2>
               <div className="scene-fact-grid">
                 <div>
@@ -231,7 +330,7 @@ export function EpisodePanel({
             <div className="analysis-orbit">
               <MagicWand size={30} weight="fill" />
             </div>
-            <span className="eyebrow">STRUCTURED OUTPUT</span>
+            <span className="eyebrow">结构化输出</span>
             <h2>把原文拆成可制作的场景</h2>
             <p>AI 将识别场景、地点、时间、情绪与剧情节点。预览不会写入 Project State。</p>
             <ul>

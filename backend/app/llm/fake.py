@@ -11,7 +11,9 @@ any LLM API key. Switch with STUDIO_LLM_MODE=openai for real models.
 
 from __future__ import annotations
 
+import asyncio
 import math
+from collections.abc import AsyncIterator
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -71,6 +73,14 @@ class FakeLLMGateway:
         if schema is SemanticWarning:
             return self._semantic_continuity_warnings(prompt)  # type: ignore[return-value]
         raise NotImplementedError(f"FakeLLMGateway.structured_list unsupported schema: {schema}")
+
+    async def stream(self, system: str, prompt: str) -> AsyncIterator[str]:
+        """Deterministic delta stream over invoke() output (tests / keyless dev)."""
+        text = await self.invoke(system, prompt)
+        for i in range(0, len(text), 8):
+            yield text[i : i + 8]
+            # 让出事件循环，模拟真实流式节奏（零等待，仅调度）
+            await asyncio.sleep(0)
 
     # --- deterministic heuristics ---
 

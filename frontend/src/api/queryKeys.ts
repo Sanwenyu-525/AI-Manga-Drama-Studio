@@ -11,6 +11,8 @@ export const queryKeys = {
   shot: (shotId: string) => ["shot", shotId] as const,
   shots: (sceneId: string) => ["shots", sceneId] as const,
   characters: (projectId: string) => ["characters", projectId] as const,
+  projectPrompts: (projectId: string) => ["prompts", projectId] as const,
+  promptVersions: (promptId: string) => ["promptVersions", promptId] as const,
   characterVersions: (characterId: string) => ["characterVersions", characterId] as const,
   locations: (projectId: string) => ["locations", projectId] as const,
   locationVersions: (locationId: string) => ["locationVersions", locationId] as const,
@@ -35,6 +37,7 @@ export const queryKeys = {
 
   /** TASK-007: domains that previously used raw array keys — now factory-first. */
   providers: ["providers"] as const,
+  llmConfig: ["llmConfig"] as const,
   workflows: ["workflows"] as const,
   recentGenerations: ["generations", "recent"] as const,
   shotGenerations: (shotId: string) => ["generations", shotId] as const,
@@ -49,6 +52,7 @@ export const queryKeys = {
     shots: ["shots"] as const,
     scenes: ["scenes"] as const,
     storyboard: ["storyboard"] as const,
+    prompts: ["prompts"] as const,
     generations: ["generations"] as const,
     versions: ["versions"] as const,
     timeline: ["timeline"] as const,

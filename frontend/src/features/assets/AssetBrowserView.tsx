@@ -80,7 +80,7 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
     <div className="asset-browser">
       <header className="asset-browser-head">
         <div>
-          <span className="eyebrow">ASSET BROWSER</span>
+          <span className="eyebrow">素材浏览</span>
           <h1>项目媒体库</h1>
           <p className="muted">
             {filtered.length} / {total} 个资产{isLoading ? " · 加载中…" : ""}
@@ -186,7 +186,7 @@ function AssetInspector({
     <aside className="asset-inspector" aria-label="资产详情">
       <header className="asset-inspector-head">
         <div>
-          <span className="eyebrow">ASSET INSPECTOR</span>
+          <span className="eyebrow">素材检查器</span>
           <h2>
             <FileImage size={16} /> 资产详情
           </h2>

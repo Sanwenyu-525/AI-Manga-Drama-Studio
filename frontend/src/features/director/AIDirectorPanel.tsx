@@ -3,11 +3,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Check, Circle, CaretLineRight, X } from "@phosphor-icons/react";
+import { Check, Circle, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { useAgentStore } from "../../stores/agentStore";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
 import type { AgentRunRead } from "../../api/types";
 import { isWaitingHuman } from "../../lib/agentProposals";
 import { ProposalReview } from "./ProposalReview";
@@ -29,8 +28,6 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function AIDirectorPanel() {
   const context = useDirectorContext();
-  const setRightPanelTab = useWorkspaceStore((s) => s.setRightPanelTab);
-  const setRightPanelCollapsed = useWorkspaceStore((s) => s.setRightPanelCollapsed);
   const agent = useAgentStore();
   const [input, setInput] = useState("");
   const [submitError, setSubmitError] = useState<Error | null>(null);
@@ -69,31 +66,7 @@ export function AIDirectorPanel() {
   const waitingHuman = isWaitingHuman(agent.status);
 
   return (
-    <div className="panel-tab-content">
-      <div className="panel-tabs" role="tablist" aria-label="右侧面板">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={false}
-          className="tab"
-          onClick={() => setRightPanelTab("inspector")}
-        >
-          Inspector
-        </button>
-        <button type="button" role="tab" aria-selected={true} className="tab active">
-          AI Director
-        </button>
-        <button
-          type="button"
-          className="panel-collapse-tab"
-          title="收起右侧面板"
-          aria-label="收起右侧面板"
-          onClick={() => setRightPanelCollapsed(true)}
-        >
-          <CaretLineRight size={15} />
-        </button>
-      </div>
-
+    <div className="panel-tab-content director-tab">
       <div className="director">
         {/* selection context (frontend-ux §16, §46) */}
         <div className="director-context">
