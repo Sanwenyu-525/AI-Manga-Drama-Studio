@@ -423,7 +423,7 @@ describe("SettingsPage — 原生目录对话框（Tauri 桌面壳）", () => {
 
   it("Tauri 环境点「浏览」调原生对话框并把绝对路径回填扫描输入框（不开内置弹窗）", async () => {
     (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
-    vi.mocked(nativeOpen).mockResolvedValue("D:\Picked\Models");
+    vi.mocked(nativeOpen).mockResolvedValue("D:\\Picked\\Models");
     vi.spyOn(client.api, "get").mockImplementation(tauriGet());
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
@@ -436,8 +436,8 @@ describe("SettingsPage — 原生目录对话框（Tauri 桌面壳）", () => {
       ),
     );
     await waitFor(() =>
-      expect((screen.getByDisplayValue("D:\Picked\Models") as HTMLInputElement).value).toBe(
-        "D:\Picked\Models",
+      expect((screen.getByDisplayValue("D:\\Picked\\Models") as HTMLInputElement).value).toBe(
+        "D:\\Picked\\Models",
       ),
     );
     expect(screen.queryByRole("dialog")).toBeNull(); // 内置弹窗没有打开
@@ -455,7 +455,7 @@ describe("SettingsPage — 原生目录对话框（Tauri 桌面壳）", () => {
     fireEvent.click(screen.getByTitle(/浏览并选择要扫描的目录/));
     await waitFor(() => expect(nativeOpen).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.queryByDisplayValue("D:\Picked\Models")).toBeNull();
+    expect(screen.queryByDisplayValue("D:\\Picked\\Models")).toBeNull();
 
     // 第二次：旧壳缺插件抛错 → 回落内置目录浏览弹窗（根视图）
     fireEvent.click(screen.getByTitle(/浏览并选择要扫描的目录/));

@@ -74,7 +74,6 @@ def test_video_provider_registered_but_unavailable() -> None:
 def test_video_generation_worker_completes_with_fake_agnes(client: TestClient, tmp_path) -> None:
     """type="video" 的 worker 链路：假 Agnes provider 产出 mp4 → 注册 SHOT_VIDEO 资产版本。"""
     import tempfile
-    from pathlib import Path
 
     from app.generations.worker import run_generation
     import app.providers.registry as registry

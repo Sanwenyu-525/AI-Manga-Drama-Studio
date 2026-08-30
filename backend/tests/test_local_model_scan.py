@@ -289,7 +289,7 @@ def test_api_import_validation_before_202(client, tmp_path) -> None:
 def test_api_llm_detect_local_reports_live_servers(client, monkeypatch) -> None:
     import app.services.llm_settings_service as llm_svc
 
-    async def fake_probe(base_url, api_key, *, timeout=6.0):
+    async def fake_probe(base_url, api_key, *, timeout=6.0):  # noqa: ASYNC109 — mirrors _probe_models (kwarg timeout)
         if "11434" in base_url:
             return 200, ["qwen2.5:7b", "llama3:8b"]
         return -1, []

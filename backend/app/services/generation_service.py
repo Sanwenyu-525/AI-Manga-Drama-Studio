@@ -13,7 +13,6 @@ from datetime import UTC
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.logging import get_logger
 from app.db.models import Generation, GenerationInput, Shot

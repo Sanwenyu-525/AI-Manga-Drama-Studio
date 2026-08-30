@@ -4,7 +4,7 @@
 // P-LocalModels: LLM 卡「检测本地服务」（Ollama/LM Studio 端口探测一键填入）+
 // 图像卡 ComfyUI 本地引擎（地址/checkpoint 拉取选用/本地模型扫描与导入）。
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowClockwise,
@@ -514,7 +514,7 @@ function LlmConfigCard() {
     mutationFn: () => api.post<{ servers: LocalLLMServer[] }>("/llm/detect-local", {}),
   });
 
-  const useLocalServer = (server: LocalLLMServer) => {
+  const applyLocalServer = (server: LocalLLMServer) => {
     setMode("openai");
     setBaseUrl(server.base_url);
     if (!model.trim() && server.sample_models.length > 0) setModel(server.sample_models[0]);
@@ -526,11 +526,11 @@ function LlmConfigCard() {
     queryKey: queryKeys.llmProfiles,
     queryFn: () => api.get<LLMProfilesResponse>("/llm/profiles"),
   });
-  const refreshConnection = () => {
+  const refreshConnection = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.llmProfiles });
     void queryClient.invalidateQueries({ queryKey: queryKeys.llmConfig });
     void queryClient.invalidateQueries({ queryKey: ["llm-models"] });
-  };
+  }, [queryClient]);
   const activate = useMutation({
     mutationFn: (id: string) => api.post<LLMProfile>(`/llm/profiles/${id}/activate`, {}),
     onSuccess: refreshConnection,
@@ -578,7 +578,8 @@ function LlmConfigCard() {
     saveAsProfile.isSuccess,
     removeProfile.isSuccess,
     bindTask.isSuccess,
-    setFallbacks.isSuccess, // eslint-disable-line react-hooks/exhaustive-deps
+    setFallbacks.isSuccess,
+    refreshConnection,
   ]);
 
   const saveAsNewProfile = () => {
@@ -853,7 +854,7 @@ function LlmConfigCard() {
                       {server.models_count} 个模型
                       {server.sample_models.length > 0 ? ` · ${server.sample_models.slice(0, 3).join("、")}` : ""}
                     </span>
-                    <button type="button" className="btn secondary compact" onClick={() => useLocalServer(server)}>
+                    <button type="button" className="btn secondary compact" onClick={() => applyLocalServer(server)}>
                       使用
                     </button>
                   </div>
