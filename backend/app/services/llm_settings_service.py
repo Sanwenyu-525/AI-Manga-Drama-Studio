@@ -4,6 +4,9 @@
 - env（app.core.config.Settings）→  {data_dir}/llm.json 覆盖层：**仅作引导种子**。
   首次读取 Profile Registry 时把两者合并播种成「默认连接」，此后
   {data_dir}/llm_profiles.json 是唯一事实源，llm.json 不再参与解析。
+- **api_key 安全策略：env（STUDIO_LLM_API_KEY）优先于磁盘明文**（llm.json /
+  llm_profiles.json）。磁盘上的 key 仅作兜底——配置了 env 后即使磁盘残留
+  明文也**永不生效**；profile_read 的掩码 hint 也以生效 key 为准。
 - Profiles：命名连接（name/mode/base_url/api_key/model/capabilities），多份共存，
   UI 可切换激活；每个任务（director/script/continuity）可绑定到任意连接，
   未绑定的任务跟随激活连接。
@@ -88,7 +91,8 @@ def get_task_llm_config(task: str = "default") -> dict[str, Any]:
     return {
         "mode": profile["mode"],
         "base_url": profile.get("base_url"),
-        "api_key": profile.get("api_key"),
+        # env 优先：STUDIO_LLM_API_KEY 设置后 profile 磁盘明文永不生效。
+        "api_key": settings.llm_api_key or profile.get("api_key"),
         "model": profile.get("model"),
         "profile_id": profile["id"],
         "profile_name": profile.get("name"),
@@ -165,13 +169,14 @@ def _now() -> str:
 
 
 def _legacy_llm_config() -> dict[str, Any]:
-    """env defaults overridden by the llm.json layer（引导播种专用）。"""
+    """env defaults + optional llm.json layer（引导播种专用；api_key 安全策略：env 优先）。"""
     over = _read_overrides()
     mode = over.get("mode") if over.get("mode") in _MODE_CHOICES else settings.llm_mode
     return {
         "mode": mode,
         "base_url": (over.get("base_url") or None) or settings.llm_base_url,
-        "api_key": (over.get("api_key") or None) or settings.llm_api_key,
+        # env 优先：STUDIO_LLM_API_KEY 设置后磁盘明文（llm.json）永不生效。
+        "api_key": settings.llm_api_key or (over.get("api_key") or None),
         "model": (over.get("model") or None) or settings.llm_model,
     }
 
@@ -243,7 +248,8 @@ def _validate_connection_fields(mode: str, base_url: str | None) -> None:
 def _profile_read(state: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
     from app.llm.capabilities import model_capabilities
 
-    key = profile.get("api_key") or ""
+    # 生效 key = env 优先于 profile 磁盘明文（安全策略，与 get_task_llm_config 一致）。
+    key = settings.llm_api_key or (profile.get("api_key") or "")
     override = profile.get("capabilities")
     return {
         "id": profile["id"],
@@ -456,7 +462,8 @@ def get_task_llm_chain(task: str = "default") -> list[dict[str, Any]]:
                 "profile_name": profile.get("name"),
                 "mode": profile["mode"],
                 "base_url": profile.get("base_url"),
-                "api_key": profile.get("api_key"),
+                # env 优先：STUDIO_LLM_API_KEY 设置后 profile 磁盘明文永不生效。
+                "api_key": settings.llm_api_key or profile.get("api_key"),
                 "model": profile.get("model"),
             }
         )

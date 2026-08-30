@@ -221,3 +221,37 @@ def test_openai_gateway_requires_base_url(missing):
 
     with pytest.raises(ProviderUnavailableError):
         LangChainOpenAIGateway(base_url=None if missing == "base_url" else "x", api_key=None, model="m")
+
+
+# -------------------------------------------------------- api_key 安全策略 -----
+# env（STUDIO_LLM_API_KEY）优先于磁盘明文（llm.json / llm_profiles.json）。
+
+
+def test_env_api_key_beats_profile_plaintext(client, tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    # legacy llm.json 残留明文 + env 同时存在 → 播种的默认连接用 env key
+    monkeypatch.setattr(svc.settings, "llm_api_key", "sk-env-llm-key-123")
+    (tmp_path / svc.LLM_CONFIG_FILE).write_text(
+        '{"mode": "openai", "base_url": "https://api.agnes-ai.cn/v1", "api_key": "sk-disk-leaked"}',
+        encoding="utf-8",
+    )
+    cfg = svc.get_llm_config()
+    assert cfg["api_key"] == "sk-env-llm-key-123"  # env 优先，明文不生效
+    assert cfg["base_url"] == "https://api.agnes-ai.cn/v1"
+    # 读取形状（掩码）反映生效 key
+    body = client.get("/api/v1/llm/config").json()
+    assert body["api_key_set"] is True
+    assert body["api_key_hint"] == "••••-123"
+
+
+def test_env_api_key_beats_profile_in_chain(client, tmp_path, monkeypatch):
+    """factory 生产路径（get_task_llm_chain）同样 env 优先。"""
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(svc.settings, "llm_api_key", "sk-env-llm-key-123")
+    client.put(
+        "/api/v1/llm/config",
+        json={"mode": "openai", "base_url": "https://api.deepseek.com", "api_key": "sk-disk-profile-key"},
+    )
+    chain = svc.get_task_llm_chain()
+    assert chain and chain[0]["api_key"] == "sk-env-llm-key-123"  # env 覆盖 profile 明文
+    assert chain[0]["base_url"] == "https://api.deepseek.com"

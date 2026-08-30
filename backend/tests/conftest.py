@@ -46,6 +46,14 @@ def client(session_factory, tmp_path: Path) -> Generator[TestClient]:
     settings.data_dir = tmp_path / "data"
     settings.data_dir.mkdir(parents=True, exist_ok=True)
 
+    # Isolate env-provided api keys: 服务端已实现 env 优先语义，本机若设置了
+    # STUDIO_LLM_API_KEY / STUDIO_AGNES_API_KEY，测试会读到真实密钥并可能发
+    # 真实请求 —— 强制置 None，杜绝泄漏（与 data_dir 隔离同一原则）。
+    original_llm_key = settings.llm_api_key
+    original_agnes_key = settings.agnes_api_key
+    settings.llm_api_key = None
+    settings.agnes_api_key = None
+
     def override_get_db() -> Generator[Session]:
         session = factory()
         try:
@@ -74,6 +82,8 @@ def client(session_factory, tmp_path: Path) -> Generator[TestClient]:
         director_graph_module.director_graph = original_director_graph
         db_session_module.session_factory_provider = original_provider
         settings.data_dir = original_data_dir
+        settings.llm_api_key = original_llm_key
+        settings.agnes_api_key = original_agnes_key
         llm_factory.reset_gateway()
         from app.providers import registry as provider_registry
 

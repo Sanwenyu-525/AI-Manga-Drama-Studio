@@ -7,6 +7,8 @@ client fixture) so nothing touches the real studio data.
 
 from __future__ import annotations
 
+import json
+
 import app.services.image_settings_service as svc
 from app.providers.registry import get_image_provider, reset_image_providers
 
@@ -126,6 +128,59 @@ def test_checkpoint_falls_back_to_schema_default(client, tmp_path, monkeypatch):
 
     body = client.get("/api/v1/image/config").json()
     assert body["checkpoint"] == DEFAULT_CHECKPOINT
+
+
+# -------------------------------------------------------- api_key 安全策略 -----
+# env（STUDIO_AGNES_API_KEY）优先于 image.json 明文；PUT 绝不把 env key 固化回磁盘。
+
+
+def test_env_api_key_beats_disk_plaintext(client, tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    # 磁盘残留明文（历史遗留）＋ env 同时存在
+    monkeypatch.setattr(svc.settings, "agnes_api_key", "sk-env-real-key-123")
+    (tmp_path / svc.IMAGE_CONFIG_FILE).write_text(
+        '{"provider": "agnes", "api_key": "sk-disk-leaked-key"}', encoding="utf-8"
+    )
+    cfg = svc.get_image_config()
+    assert cfg["api_key"] == "sk-env-real-key-123"  # env 优先，明文不生效
+    # 读取形状同样反映 env key（掩码）
+    body = client.get("/api/v1/image/config").json()
+    assert body["api_key_set"] is True
+    assert body["api_key_hint"] == "****-123"
+
+    # 视频配置同源：env key 一致生效
+    assert svc.get_video_config()["api_key"] == "sk-env-real-key-123"
+
+
+def test_put_does_not_persist_env_key_to_disk(client, tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(svc.settings, "agnes_api_key", "sk-env-real-key-123")
+    # image.json 已有磁盘明文；PUT 只改 provider（未显式传 api_key）
+    (tmp_path / svc.IMAGE_CONFIG_FILE).write_text(
+        '{"provider": "comfyui", "api_key": "sk-disk-leaked-key", "comfyui_url": "http://127.0.0.1:8188"}',
+        encoding="utf-8",
+    )
+    resp = client.put("/api/v1/image/config", json={"provider": "agnes"})
+    assert resp.status_code == 200
+    # 磁盘明文不应被 env key 覆盖写成新明文，且残留明文仍原样保留（回读不生效）
+    on_disk = json.loads((tmp_path / svc.IMAGE_CONFIG_FILE).read_text(encoding="utf-8"))
+    assert on_disk["api_key"] == "sk-disk-leaked-key"  # 未固化 env key
+    assert on_disk["provider"] == "agnes"
+    assert svc.get_image_config()["api_key"] == "sk-env-real-key-123"  # 生效仍为 env
+
+
+def test_put_explicit_api_key_writes_disk_but_env_wins(client, tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(svc.settings, "agnes_api_key", "sk-env-real-key-123")
+    resp = client.put("/api/v1/image/config", json={"provider": "agnes", "api_key": "sk-new-user-key"})
+    assert resp.status_code == 200
+    # 生效 key 仍是 env（掩码来自 env）
+    assert resp.json()["api_key_hint"] == "****-123"
+    # 显式提供的 key 允许落盘（作未设 env 时的历史兜底），但回读仍优先 env
+    assert (tmp_path / svc.IMAGE_CONFIG_FILE).exists()
+    on_disk = json.loads((tmp_path / svc.IMAGE_CONFIG_FILE).read_text(encoding="utf-8"))
+    assert on_disk.get("api_key") == "sk-new-user-key"
+    assert svc.get_image_config()["api_key"] == "sk-env-real-key-123"
 
 
 # --- 视频模型目录（GET /image/video-models）------------------------------------

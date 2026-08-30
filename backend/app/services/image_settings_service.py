@@ -6,8 +6,9 @@ GET  /api/v1/image/config  → effective config (api_key masked)
 PUT  /api/v1/image/config  → partial update, resets cached image providers
 POST /api/v1/image/test    → connectivity probe (never raises, no quota usage)
 
-Storage: data_dir/image.json (overrides only; env stays the fallback layer).
-Key policy matches LLM: stored server-side, never echoed back to the client.
+Storage: data_dir/image.json (overrides only; api_key 安全策略：env 优先)。
+env（STUDIO_AGNES_API_KEY）设置的 key 优先于磁盘明文——配置 env 后即使
+image.json 残留明文也永不生效；PUT 也不会把 env key 固化回磁盘明文。
 """
 
 from __future__ import annotations
@@ -68,7 +69,8 @@ def get_image_config() -> dict[str, Any]:
     return {
         "provider": provider,
         "agnes_base_url": (over.get("agnes_base_url") or None) or settings.agnes_base_url,
-        "api_key": (over.get("api_key") or None) or settings.agnes_api_key,
+        # env 优先：STUDIO_AGNES_API_KEY 设置后磁盘明文（image.json）永不生效。
+        "api_key": settings.agnes_api_key or (over.get("api_key") or None),
         # ComfyUI 本地链路：地址 / 生成用 checkpoint / ComfyUI 模型根目录（导入目标）。
         "comfyui_url": (over.get("comfyui_url") or None) or settings.comfyui_url,
         "checkpoint": (over.get("checkpoint") or None) or DEFAULT_CHECKPOINT,
@@ -100,7 +102,8 @@ def get_video_config() -> dict[str, Any]:
     provider = over.get("video_provider") if over.get("video_provider") in _VIDEO_PROVIDER_CHOICES else settings.video_provider
     model = (over.get("video_model") or None) or settings.video_model
     base = (over.get("agnes_base_url") or None) or settings.agnes_base_url
-    key = (over.get("api_key") or None) or settings.agnes_api_key
+    # env 优先：STUDIO_AGNES_API_KEY 设置后磁盘明文（image.json）永不生效。
+    key = settings.agnes_api_key or (over.get("api_key") or None)
     return {"provider": provider, "model": model, "agnes_base_url": base, "api_key": key}
 
 
@@ -142,7 +145,8 @@ def list_video_models() -> dict[str, Any]:
 
 def update_image_config(update: dict[str, Any]) -> dict[str, Any]:
     """Partial update: omitted keys keep current settings; ComfyUI/video 字段显式传
-    "" 时清除覆盖回落 env/默认值（provider/agnes_base_url/api_key 沿用 merged 语义）。"""
+    "" 时清除覆盖回落 env/默认值（provider/agnes_base_url 沿用 merged 语义；
+    api_key 仅在请求显式提供时写盘，env key 永不固化进明文）。"""
     cur = get_image_config()
     overrides = _read_overrides()
     # video_model 只接受目录内模型（目录即前端下拉事实源；显式空值走清除分支不校验）
@@ -155,8 +159,16 @@ def update_image_config(update: dict[str, Any]) -> dict[str, Any]:
         **{k: v for k, v in cur.items()},
         **{k: v for k, v in update.items() if v not in (None, "")},
     }
-    for key in ("provider", "agnes_base_url", "api_key"):
+    for key in ("provider", "agnes_base_url"):
         overrides[key] = merged[key]  # merged 值：update 未提供时保持当前值不变
+    # api_key 安全策略：只写请求显式提供的 key；显式空值 = 清除覆盖回落 env。
+    # 绝不把 env key（settings.agnes_api_key）回写进 image.json 明文。
+    if "api_key" in update:
+        value = update.get("api_key")
+        if value in (None, ""):
+            overrides.pop("api_key", None)
+        else:
+            overrides["api_key"] = value
     # 以下字段只在请求显式给出时才生效：省略 = 不动；显式空值 = 清除覆盖回落 env/默认。
     for key in ("video_provider", "video_model", "comfyui_url", "checkpoint", "comfyui_models_root"):
         if key not in update:
