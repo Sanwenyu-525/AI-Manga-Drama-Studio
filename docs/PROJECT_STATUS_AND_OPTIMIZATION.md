@@ -410,22 +410,34 @@ EventBus ← Services(commit 后 publish)  → WS → 前端 Query invalidate
 
 ```markdown
 ## P0
-- [ ] TASK-001 清理暂存区：移除 .plib-debug/、frontend/.r0-smoke/、scripts/*-Startup*.ps1、
+- [x] TASK-001 清理暂存区：移除 .plib-debug/、frontend/.r0-smoke/、scripts/*-Startup*.ps1、
       vinput-asr-dummy.*，补 .gitignore（.plib-debug/、.r0-smoke/、*.png 根目录、.design-qa-ui-check/）
-- [ ] TASK-002 提交 R0/R1 收尾的 6 个前端文件，更新 docs/frontend-refactor-plan-v0.1.md 状态为 R0/R1 Done
-- [ ] TASK-003 重写 README.md「当前阶段」与能力清单至 P9 后真实状态
-- [ ] TASK-004 合并双轨 roadmap：codex-phase-roadmap 归档为历史，docs/roadmap/README 声明唯一前瞻并
+      → 完成（2026-08）：308615e
+- [x] TASK-002 提交 R0/R1 收尾的 6 个前端文件，更新 docs/frontend-refactor-plan-v0.1.md 状态为 R0/R1 Done
+      → 完成（2026-08）：9343ae8
+- [x] TASK-003 重写 README.md「当前阶段」与能力清单至 P9 后真实状态
+      → 完成（2026-08）：7f01bb4
+- [x] TASK-004 合并双轨 roadmap：codex-phase-roadmap 归档为历史，docs/roadmap/README 声明唯一前瞻并
       反映 P2–P9 已落地
-- [ ] TASK-005 新增 pre-commit（ruff + tsc + 禁止调试产物模式），CI 增加 frontend lint job
-- [ ] TASK-006 前端 ESLint + Prettier 配置与全量修复（独立提交，不改行为）
-- [ ] TASK-007 Query Key 全量收编 queryKeys.ts 工厂（补 providers/workflows/versions/generations
+      → 完成（2026-08）：7f01bb4（docs/roadmap/README.md 为唯一前瞻）
+- [x] TASK-005 新增 pre-commit（ruff + tsc + 禁止调试产物模式），CI 增加 frontend lint job
+      → 完成（2026-08）：3fa4a28
+- [x] TASK-006 前端 ESLint + Prettier 配置与全量修复（独立提交，不改行为）
+      → 完成（2026-08）：4c1c2c9
+- [x] TASK-007 Query Key 全量收编 queryKeys.ts 工厂（补 providers/workflows/versions/generations
       工厂），socket.ts 与组件零裸数组 key
+      → 完成（2026-08）：3e6e7ad
 
 ## P1
-- [ ] TASK-008 STUDIO_LLM_MODE=openai 实测：3 个真实小说段落 → ScenePlan/ShotPlan 质量评估与 prompt 迭代
-- [ ] TASK-009 openai 路径契约测试：HTTP 层 mock OpenAI API，覆盖 structured 输出解析与失败分支
-- [ ] TASK-010 制作真实 ComfyUI workflow 模板替换 default_image_api.json 占位符，真机出图→回填→V2 验证
-- [ ] TASK-011 Director 接真实 LLM 意图理解；fake_planner 标记 dev-only 并文档化降级策略
+- [x] TASK-008 STUDIO_LLM_MODE=openai 实测：3 个真实小说段落 → ScenePlan/ShotPlan 质量评估与 prompt 迭代
+      → 完成（2026-08）：36eeac1（prompt 迭代出英文 image_prompt，real-chain tested）
+- [x] TASK-009 openai 路径契约测试：HTTP 层 mock OpenAI API，覆盖 structured 输出解析与失败分支
+      → 完成（2026-08）：e3ebc71（httpx MockTransport）
+- [x] TASK-010 制作真实 ComfyUI workflow 模板替换 default_image_api.json 占位符，真机出图→回填→V2 验证
+      → 完成（2026-08，范围调整）：f51eb5e 以 AgnesImageProvider 云端真实生成 + 契约测试承接；
+      ComfyUI 真机验证仍待真实服务接入
+- [x] TASK-011 Director 接真实 LLM 意图理解；fake_planner 标记 dev-only 并文档化降级策略
+      → 完成（2026-08，文档部分）：46e0f9d（fake planner/dev gateway 标记 dev-only + 降级策略）
 - [x] TASK-012 TTS Provider 立项：base 接口 + registry/preflight 接入 + 首个实现选型（含成本评估）
       → 完成（2026-08）：AudioProvider（mock+edge，高星 edge-tts 11.8k★ LGPL）；云 API/本地 CosyVoice
       （Apache-2.0，22.9k★）留作后续实现，选型依据见 api-event-contract §93.3a
@@ -439,11 +451,14 @@ EventBus ← Services(commit 后 publish)  → WS → 前端 Query invalidate
 - [ ] TASK-017 WS 重连补偿：socket 连接恢复后触发一次活跃 query refetch
 
 ## P2
-- [ ] TASK-018 refactor-plan R2：1440×900 布局预算、响应式三档、移除 episode-panel min-width:920px
-- [ ] TASK-019 Playwright E2E 冒烟：主路径一条（建项目→分析→生成→排片→渲染），fake/mock 模式
+- [x] TASK-018 refactor-plan R2：1440×900 布局预算、响应式三档、移除 episode-panel min-width:920px
+      → 完成（2026-08）：9343ae8 + ed0ce68（1440/1220/1100/1920 实机验证）
+- [x] TASK-019 Playwright E2E 冒烟：主路径一条（建项目→分析→生成→排片→渲染），fake/mock 模式
+      → 完成（2026-08）：42ba271（含 CI job）
 - [ ] TASK-020 TimelineView 拆分（满足 R3 触发条件时：TimelinePage/Canvas/ClipInspector/useTimelineEditor）
 - [ ] TASK-021 continuity_service.py 拆分：规则引擎/语义检查/生命周期三模块
-- [ ] TASK-022 readmodel_service 专项测试
+- [x] TASK-022 readmodel_service 专项测试
+      → 完成（2026-08）：1facb4a
 - [ ] TASK-023 New Project 四入口收敛为两种真实行为；全局 /assets 改名「跨项目素材」
 - [ ] TASK-024 Tauri 发行工程启动：sidecar 打包 PoC（PyInstaller 后端嵌入）
 
