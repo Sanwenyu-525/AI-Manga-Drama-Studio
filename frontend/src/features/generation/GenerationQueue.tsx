@@ -22,6 +22,7 @@ import { api } from "../../api/client";
 import type { GenerationRead, JobRead, JobSummaryRead } from "../../api/types";
 import { queryKeys } from "../../api/queryKeys";
 import { useGenerationStore } from "../../stores/generationStore";
+import type { LiveGeneration } from "../../stores/generationStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { generationTypeText } from "./generationTypeText";
 
@@ -42,22 +43,28 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
   const setTab = useWorkspaceStore((state) => state.setBottomDockTab);
   const expanded = useWorkspaceStore((state) => state.bottomDockExpanded);
   const setExpanded = useWorkspaceStore((state) => state.setBottomDockExpanded);
+  const setPanelResizing = useWorkspaceStore((state) => state.setPanelResizing);
   const queryClient = useQueryClient();
 
   // 顶部把手：拖拽 header 空白区上下调整底部高度（上拖=增高）。仅当按下的是
   // header 本身（而非内部 tab/按钮）时启动拖拽，避免与点按 tab 冲突。
+  // panelResizing 让 shell 在手势期间关闭布局过渡，保证跟手。
   const headerStartY = useRef(0);
   const headerStartHeight = useRef(0);
   const [headerDragging, setHeaderDragging] = useState(false);
 
-  const onHeaderPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    headerStartY.current = event.clientY;
-    headerStartHeight.current = useWorkspaceStore.getState().bottomDockHeight;
-    setHeaderDragging(true);
-  }, []);
+  const onHeaderPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.target !== event.currentTarget) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      headerStartY.current = event.clientY;
+      headerStartHeight.current = useWorkspaceStore.getState().bottomDockHeight;
+      setHeaderDragging(true);
+      setPanelResizing(true);
+    },
+    [setPanelResizing],
+  );
 
   const onHeaderPointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -72,13 +79,14 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (!headerDragging) return;
       setHeaderDragging(false);
+      setPanelResizing(false);
       try {
         event.currentTarget.releasePointerCapture(event.pointerId);
       } catch {
         /* pointer may already be released */
       }
     },
-    [headerDragging],
+    [headerDragging, setPanelResizing],
   );
 
   const { data: history } = useQuery({
@@ -233,14 +241,15 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
   );
 }
 
-function GenerationSummary({ live, history }: { live: Record<string, { id: string }>; history?: GenerationRead[] }) {
+function GenerationSummary({ live, history }: { live: Record<string, LiveGeneration>; history?: GenerationRead[] }) {
   const runningIds = new Set(Object.values(live).map((item) => item.id));
   const persisted = (history ?? []).filter((item) => !runningIds.has(item.id));
   const failedCount = persisted.filter((item) => item.status === "failed").length;
   return (
     <div className="queue-summary">
-      <span>排队 {Object.values(live).length}</span>
-      {failedCount > 0 && <span className="failed-summary">失败 {failedCount}</span>}
+      <span>生成队列 {Object.values(live).length}</span>
+      <span>运行中 {Object.values(live).filter((item) => item.status === "running").length}</span>
+      <span className={failedCount > 0 ? "failed-summary" : undefined}>失败 {failedCount}</span>
     </div>
   );
 }

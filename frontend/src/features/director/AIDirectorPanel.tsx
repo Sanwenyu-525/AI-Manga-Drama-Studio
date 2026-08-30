@@ -2,15 +2,20 @@
 // not a chat bubble. Shows selection context, plan, tool progress, approval-style result.
 
 import { useEffect, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, Circle, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { useAgentStore } from "../../stores/agentStore";
-import type { AgentRunRead } from "../../api/types";
+import type { AgentRunRead, Shot } from "../../api/types";
+import { queryKeys } from "../../api/queryKeys";
 import { isWaitingHuman } from "../../lib/agentProposals";
 import { ProposalReview } from "./ProposalReview";
 import { useDirectorContext } from "./useDirectorContext";
+
+function compactId(value: string): string {
+  return value.length > 8 ? value.slice(-4).toUpperCase() : value.toUpperCase();
+}
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "待命",
@@ -32,6 +37,13 @@ export function AIDirectorPanel() {
   const [input, setInput] = useState("");
   const [submitError, setSubmitError] = useState<Error | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const selectedShotId = context.shot_ids[0];
+  const hasShotSelection = Boolean(selectedShotId);
+  const { data: shot } = useQuery({
+    queryKey: selectedShotId ? queryKeys.shot(selectedShotId) : ["shot", "none"],
+    queryFn: () => api.get<Shot>(`/shots/${selectedShotId}`),
+    enabled: hasShotSelection,
+  });
 
   useEffect(() => {
     // jsdom (tests) has no scrollTo on elements; guard so the effect is a no-op there.
@@ -64,24 +76,88 @@ export function AIDirectorPanel() {
   const busy = submitRun.isPending || ["thinking", "planning", "executing", "reviewing"].includes(agent.status);
   // P7-T019: true when the run is paused awaiting human approval (either backend casing).
   const waitingHuman = isWaitingHuman(agent.status);
+  const shotLabel = shot ? `SH${String(shot.shot_number).padStart(2, "0")}` : selectedShotId ? `SH${selectedShotId.slice(-4).toUpperCase()}` : "未选择镜头";
+
+  // EP/SC numbers share the ProjectContextBar cache keys → no extra fetches.
+  const { data: episodes } = useQuery({
+    queryKey: queryKeys.episodes(context.project_id ?? "__none__"),
+    queryFn: () => api.get<unknown[]>(`/projects/${context.project_id}/episodes`),
+    enabled: hasShotSelection && Boolean(context.project_id && context.episode_id),
+    staleTime: 30_000,
+  });
+  const { data: storyboard } = useQuery({
+    queryKey: context.scene_id ? queryKeys.storyboard(context.scene_id) : ["storyboard", "none"],
+    queryFn: () => api.get<{ scene: { scene_number: number } }>(`/scenes/${context.scene_id}/storyboard`),
+    enabled: hasShotSelection && Boolean(context.scene_id),
+    staleTime: 15_000,
+  });
+  const episodeNumber = (episodes as Array<{ id: string; episode_number: number }> | undefined)?.find(
+    (item) => item.id === context.episode_id,
+  )?.episode_number;
+  const contextLine = [
+    context.episode_id ? `EP${String(episodeNumber ?? 1).padStart(2, "0")}` : null,
+    context.scene_id
+      ? `SC${String(storyboard?.scene.scene_number ?? compactId(context.scene_id)).padStart(2, "0")}`
+      : null,
+    shotLabel,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  const quickAction = (message: string) => {
+    setInput(message);
+    setSubmitError(null);
+  };
 
   return (
     <div className="panel-tab-content director-tab">
       <div className="director">
-        {/* selection context (frontend-ux §16, §46) */}
-        <div className="director-context">
-          <span className="muted small">
-            当前：{context.scene_id ? `Scene ${context.scene_id.slice(-4)}` : "无场景"} ·{" "}
-            {context.shot_ids.length > 0
-              ? `${context.shot_ids.length} 个镜头选中`
-              : context.asset_ids.length > 0
-                ? `${context.asset_ids.length} 个素材选中`
-                : "未选中对象"}
-          </span>
-          <span className={`agent-status ${waitingHuman ? "waiting_human" : agent.status}`}>
-            {STATUS_LABELS[waitingHuman ? "WAITING_HUMAN" : agent.status] ?? agent.status}
-          </span>
-        </div>
+        {hasShotSelection ? (
+          <>
+            <div className="director-context">
+              <div className="director-context-identity">
+                <span className="eyebrow">当前</span>
+                <strong>{contextLine}</strong>
+              </div>
+              <span className={`agent-status ${waitingHuman ? "waiting_human" : agent.status}`}>
+                {STATUS_LABELS[waitingHuman ? "WAITING_HUMAN" : agent.status] ?? agent.status}
+              </span>
+            </div>
+            <div className="director-brief">
+              <div>
+                <span className="director-brief-label">画面意图</span>
+                <p>{shot?.action || shot?.emotion || "镜头意图待补充"}</p>
+              </div>
+              <div>
+                <span className="director-brief-label">AI 建议</span>
+                <p>加强主体动作与镜头构图之间的视觉关联。</p>
+              </div>
+              <div className="director-quick-actions">
+                {[
+                  "优化镜头描述",
+                  "优化生成提示词",
+                  "创建变体",
+                  "检查连续性",
+                ].map((action) => (
+                  <button key={action} type="button" onClick={() => quickAction(action)}>
+                    {action}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="director-empty">
+            <span className="director-empty-mark">—</span>
+            <strong>未选择镜头</strong>
+            <p>选择一个 Shot 后，AI 导演会基于当前镜头提供建议。</p>
+            {agent.status !== "idle" && (
+              <span className={`agent-status ${waitingHuman ? "waiting_human" : agent.status}`}>
+                {STATUS_LABELS[waitingHuman ? "WAITING_HUMAN" : agent.status] ?? agent.status}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* P7-T019/020/021: proposal review (shown while waiting + non-empty list) */}
         {agent.runId && <ProposalReview runId={agent.runId} fallbackStatus={waitingHuman ? "WAITING_HUMAN" : null} />}
@@ -95,7 +171,7 @@ export function AIDirectorPanel() {
 
         {/* message + plan stream */}
         <div className="director-stream" ref={listRef}>
-          {agent.messages.length === 0 && agent.status === "idle" && (
+          {hasShotSelection && agent.messages.length === 0 && agent.status === "idle" && (
             <p className="muted small">
               选中一个镜头后对我说，例如：
               <br />

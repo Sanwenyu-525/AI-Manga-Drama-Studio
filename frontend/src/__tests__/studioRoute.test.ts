@@ -57,6 +57,20 @@ describe("studio route model", () => {
     });
   });
 
+  it("parses every project-level activity rail destination", () => {
+    expect(parseStudioRoute("/projects/p1/workspace")?.workspace).toBe("workspace");
+    expect(parseStudioRoute("/projects/p1/source")?.workspace).toBe("source");
+    expect(parseStudioRoute("/projects/p1/director")?.workspace).toBe("director");
+    expect(parseStudioRoute("/projects/p1/characters")?.workspace).toBe("characters");
+    expect(parseStudioRoute("/projects/p1/storyboard")?.workspace).toBe("storyboard-index");
+    expect(parseStudioRoute("/projects/p1/shots")?.workspace).toBe("shots");
+    expect(parseStudioRoute("/projects/p1/assets")?.workspace).toBe("assets");
+    expect(parseStudioRoute("/projects/p1/prompts")?.workspace).toBe("prompts");
+    expect(parseStudioRoute("/projects/p1/knowledge")?.workspace).toBe("knowledge");
+    expect(parseStudioRoute("/projects/p1/continuity")?.workspace).toBe("continuity");
+    expect(parseStudioRoute("/projects/p1/production-log")?.workspace).toBe("production-log");
+  });
+
   it("builds deterministic canonical paths", () => {
     expect(canonicalScriptPath("p1", "e1")).toBe("/projects/p1/episodes/e1/script");
     expect(canonicalStoryboardPath("p1", "e1", "s1")).toBe("/projects/p1/episodes/e1/scenes/s1/storyboard");

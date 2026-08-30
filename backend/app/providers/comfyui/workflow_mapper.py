@@ -151,6 +151,7 @@ class WorkflowMapper:
         width: int | None = None,
         height: int | None = None,
         reference_images: list[str] | None = None,
+        checkpoint: str | None = None,
     ) -> dict:
         """Return a workflow with placeholders substituted from the schema
         (reference upload is the caller's job). Parameters are type/range validated
@@ -165,6 +166,7 @@ class WorkflowMapper:
             width=width,
             height=height,
             reference_images=reference_images,
+            checkpoint=checkpoint,
         )
 
         workflow = json.loads(json.dumps(template))  # deep copy

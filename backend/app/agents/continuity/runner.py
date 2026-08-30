@@ -83,7 +83,7 @@ async def _run_check(run_id: str, scene_id: str) -> None:
     from app.llm import factory as llm_factory
 
     try:
-        llm = llm_factory.create_gateway()
+        llm = llm_factory.create_gateway("continuity")
         with _session() as session:
             service = ContinuityService(session)
             # resolve the real project for run bookkeeping

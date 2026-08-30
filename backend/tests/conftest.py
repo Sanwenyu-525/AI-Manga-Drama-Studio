@@ -28,7 +28,7 @@ def session_factory(db_path: Path):
 
 
 @pytest.fixture()
-def client(session_factory) -> Generator[TestClient]:
+def client(session_factory, tmp_path: Path) -> Generator[TestClient]:
     factory, _ = session_factory
 
     # Route background operation jobs to the same isolated DB (not the real studio.db).
@@ -37,6 +37,14 @@ def client(session_factory) -> Generator[TestClient]:
 
     original_provider = db_session_module.session_factory_provider
     db_session_module.session_factory_provider = lambda: factory
+
+    # Isolate data_dir so developer-machine state (saved llm.json with a real
+    # openai/agnes connection, agnes_output/, ...) never leaks into tests.
+    from app.core.config import settings
+
+    original_data_dir = settings.data_dir
+    settings.data_dir = tmp_path / "data"
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
 
     def override_get_db() -> Generator[Session]:
         session = factory()
@@ -58,15 +66,18 @@ def client(session_factory) -> Generator[TestClient]:
 
     director_graph_module.director_graph = _fresh_isolated_graph()
 
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
-    director_graph_module.director_graph = original_director_graph
-    db_session_module.session_factory_provider = original_provider
-    llm_factory.reset_gateway()
-    from app.providers import registry as provider_registry
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.clear()
+        director_graph_module.director_graph = original_director_graph
+        db_session_module.session_factory_provider = original_provider
+        settings.data_dir = original_data_dir
+        llm_factory.reset_gateway()
+        from app.providers import registry as provider_registry
 
-    provider_registry.reset_providers()
-    from app.services.provider_health_service import reset_provider_health
+        provider_registry.reset_providers()
+        from app.services.provider_health_service import reset_provider_health
 
-    reset_provider_health()
+        reset_provider_health()

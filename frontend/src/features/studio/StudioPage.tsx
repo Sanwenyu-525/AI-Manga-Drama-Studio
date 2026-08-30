@@ -1,16 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CaretLineLeft,
   CaretLineRight,
   FilmStrip,
-  Play,
 } from "@phosphor-icons/react";
-import { Link, Navigate, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Navigate, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { queryKeys } from "../../api/queryKeys";
-import type { Episode, GenerationRead, Project, Scene, Storyboard } from "../../api/types";
+import type { Episode, Scene, Storyboard } from "../../api/types";
 import { EventRouter, setEventRouter, startEventSocket } from "../../events/socket";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -24,7 +23,6 @@ import { GenerationQueue } from "../generation/GenerationQueue";
 import { ShotInspector } from "../storyboard/ShotInspector";
 import { AssetBrowserView } from "../assets/AssetBrowserView";
 import { TimelineView } from "../timeline/TimelineView";
-import { ProjectExplorer } from "./ProjectExplorer";
 import { canonicalScriptPath, canonicalStoryboardPath, canonicalTimelinePath, useStudioRoute } from "./studioRoute";
 
 // Studio context handed to the workspace child routes (URL-driven views).
@@ -34,7 +32,7 @@ interface StudioContext {
 }
 
 // ---------- Layout route: /projects/:projectId ----------
-// Top bar + explorer + right panel + bottom dock stay mounted; the center is the
+// Top bar + right panel + bottom dock stay mounted; the center is the
 // tabbed WorkspaceHost (P6-T004), and panel widths/heights are resizable + persisted.
 export function StudioPage() {
   const { projectId = "" } = useParams();
@@ -46,18 +44,15 @@ export function StudioPage() {
   const rightPanelTab = useWorkspaceStore((state) => state.rightPanelTab);
   const setRightPanelTab = useWorkspaceStore((state) => state.setRightPanelTab);
   const dockExpanded = useWorkspaceStore((state) => state.bottomDockExpanded);
-  const explorerCollapsed = useWorkspaceStore((state) => state.explorerCollapsed);
-  const setExplorerCollapsed = useWorkspaceStore((state) => state.setExplorerCollapsed);
   const rightPanelCollapsed = useWorkspaceStore((state) => state.rightPanelCollapsed);
   const setRightPanelCollapsed = useWorkspaceStore((state) => state.setRightPanelCollapsed);
-  const explorerWidth = useWorkspaceStore((state) => state.explorerWidth);
   const rightWidth = useWorkspaceStore((state) => state.rightWidth);
   const bottomDockHeight = useWorkspaceStore((state) => state.bottomDockHeight);
   const setPanelSize = useWorkspaceStore((state) => state.setPanelSize);
   const [compactLayout, setCompactLayout] = useState(
     () => typeof window !== "undefined" && window.matchMedia?.("(max-width: 1100px)").matches === true,
   );
-  const [compactPanel, setCompactPanel] = useState<"explorer" | "right" | null>(null);
+  const [compactPanel, setCompactPanel] = useState<"right" | null>(null);
 
   // At the desktop window minimum, both fixed sidebars would leave almost no
   // usable workspace. Compact mode keeps them available as rails and opens one
@@ -90,27 +85,32 @@ export function StudioPage() {
     return () => setEventRouter(null);
   }, [queryClient]);
 
-  // Resize handlers (P6-T002): each reports a delta from the drag start; the
-  // clamp + persistence live in the store / persistence layer.
-  const startLeft = explorerWidth;
-  const startRight = rightWidth;
-  const onExplorerDelta = useMemo(
-    () => (delta: number) => setPanelSize("explorer", startLeft + delta),
-    [setPanelSize, startLeft],
+  // Resize handlers (P6-T002): the handle reports a cumulative delta from the
+  // drag start, so the baseline size is snapshotted from the store ONCE at
+  // pointerdown (onDragStart) and frozen in a ref — deriving it from the
+  // per-render width would re-apply the cumulative delta on every move and
+  // slam the panel into its clamp.
+  const dragStartRef = useRef({ right: 0, bottom: 0 });
+  const setPanelResizing = useWorkspaceStore((state) => state.setPanelResizing);
+  const panelResizing = useWorkspaceStore((state) => state.panelResizing);
+  const beginPanelDrag = useCallback(() => {
+    const snapshot = useWorkspaceStore.getState();
+    dragStartRef.current = {
+      right: snapshot.rightWidth,
+      bottom: snapshot.bottomDockHeight,
+    };
+    setPanelResizing(true);
+  }, [setPanelResizing]);
+  const endPanelDrag = useCallback(() => setPanelResizing(false), [setPanelResizing]);
+  const onRightDelta = useCallback(
+    (delta: number) => setPanelSize("right", dragStartRef.current.right - delta),
+    [setPanelSize],
   );
-  const onRightDelta = useMemo(
-    () => (delta: number) => setPanelSize("right", startRight - delta),
-    [setPanelSize, startRight],
-  );
-  const onBottomDelta = useMemo(
-    () => (delta: number) => setPanelSize("bottom", bottomDockHeight + delta),
-    [setPanelSize, bottomDockHeight],
+  const onBottomDelta = useCallback(
+    (delta: number) => setPanelSize("bottom", dragStartRef.current.bottom + delta),
+    [setPanelSize],
   );
 
-  const { data: project } = useQuery({
-    queryKey: queryKeys.project(projectId),
-    queryFn: () => api.get<Project>(`/projects/${projectId}`),
-  });
   const { data: episodes } = useQuery({
     queryKey: queryKeys.episodes(projectId),
     queryFn: () => api.get<Episode[]>(`/projects/${projectId}/episodes`),
@@ -119,111 +119,26 @@ export function StudioPage() {
 
   const activeEpisode =
     episodes?.find((episode) => episode.id === route.episodeId) ?? (route.legacy ? episodes?.[0] : undefined);
-  const selectedShotId = useSelectionStore((state) => state.selection.shotIds[0]);
-
   useEffect(() => {
     clearAssets();
     if (route.workspace === "shot" && route.shotId) selectShot(route.shotId);
     else if (route.workspace !== "storyboard") clearShots();
   }, [clearAssets, clearShots, projectId, route.episodeId, route.sceneId, route.shotId, route.workspace, selectShot]);
 
-  const generateSelectedShot = useMutation({
-    mutationFn: () => {
-      if (!selectedShotId) throw new Error("请先选择镜头");
-      return api.post<GenerationRead>(`/shots/${selectedShotId}/generations`, { type: "image" });
-    },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.generations }),
-  });
-
-  const routeEpisodeId = route.episodeId ?? activeEpisode?.id;
-  void routeEpisodeId;
-  const explorerHidden = explorerCollapsed || (compactLayout && compactPanel !== "explorer");
   const rightPanelHidden = rightPanelCollapsed || (compactLayout && compactPanel !== "right");
 
   // Layout CSS variables: widths/heights come from the (persisted) store. Collapsed
   // states keep the rail widths via CSS modifiers on the shell.
   const style = {
-    "--explorer-w": `${explorerWidth}px`,
     "--right-w": `${rightWidth}px`,
     "--dock-h": `${bottomDockHeight}px`,
   } as React.CSSProperties;
 
   return (
     <div
-      className={`app-shell ${dockExpanded ? "dock-expanded" : ""} ${explorerHidden ? "explorer-collapsed" : ""} ${rightPanelHidden ? "right-collapsed" : ""}`}
+      className={`app-shell ${dockExpanded ? "dock-expanded" : ""} ${rightPanelHidden ? "right-collapsed" : ""} ${panelResizing ? "is-resizing" : ""}`}
       style={style}
     >
-      {/* Canvas toolbar: module navigation moved to the global Activity Rail;
-          this bar carries project identity + primary production action. */}
-      <header className="top-bar">
-        <Link to="/" className="studio-project-name">
-          {project?.name ?? "漫剧工作台"}
-        </Link>
-        <span className="muted small top-bar-hint">{activeEpisode ? "剧集已打开 · 从活动栏切换模块" : "从资源树新建剧集后开始生产"}</span>
-        <div className="grow" />
-        <div className="studio-statuses">
-          <span
-            className="studio-generate-wrap"
-            title={
-              generateSelectedShot.isPending
-                ? "正在提交生成任务…"
-                : selectedShotId
-                  ? "为当前镜头提交图片生成任务"
-                  : "先选择一个镜头（点左侧树里的场景，再点它的镜头）"
-            }
-          >
-            <button
-              className="btn primary compact"
-              disabled={!selectedShotId || generateSelectedShot.isPending}
-              onClick={() => generateSelectedShot.mutate()}
-            >
-              <Play size={14} weight="fill" /> {generateSelectedShot.isPending ? "提交中…" : "生成图片"}
-            </button>
-          </span>
-          {generateSelectedShot.isError && (
-            <span
-              className="error-text studio-generate-error"
-              title={
-                generateSelectedShot.error instanceof Error
-                  ? generateSelectedShot.error.message
-                  : String(generateSelectedShot.error)
-              }
-            >
-              {generateSelectedShot.error instanceof Error
-                ? generateSelectedShot.error.message
-                : String(generateSelectedShot.error)}
-            </span>
-          )}
-        </div>
-      </header>
-
-      <aside className="explorer">
-        {explorerHidden ? (
-          <button
-            type="button"
-            className="panel-rail-btn"
-            title="展开资源树"
-            aria-label="展开资源树"
-            onClick={() => {
-              setExplorerCollapsed(false);
-              if (compactLayout) setCompactPanel("explorer");
-            }}
-          >
-            <CaretLineRight size={16} />
-          </button>
-        ) : (
-          <ProjectExplorer
-            projectId={projectId}
-            onCollapse={() => {
-              setExplorerCollapsed(true);
-              setCompactPanel(null);
-            }}
-          />
-        )}
-      </aside>
-
-      <ResizeHandle axis="vertical" label="调整左侧面板宽度" onDelta={onExplorerDelta} disabled={explorerHidden} />
-
       <main className="workspace">
         <Outlet context={{ projectId, activeEpisode } satisfies StudioContext} />
       </main>
@@ -232,6 +147,8 @@ export function StudioPage() {
         axis="vertical"
         label="调整右侧面板宽度"
         onDelta={onRightDelta}
+        onDragStart={beginPanelDrag}
+        onDragEnd={endPanelDrag}
         disabled={rightPanelHidden}
         variant="right"
       />
@@ -295,7 +212,8 @@ export function StudioPage() {
         axis="horizontal"
         label="调整底部面板高度"
         onDelta={onBottomDelta}
-        onDragEnd={undefined}
+        onDragStart={beginPanelDrag}
+        onDragEnd={endPanelDrag}
         disabled={dockExpanded}
       />
     </div>
@@ -315,7 +233,6 @@ export function ScriptWorkspace() {
   }, [activateTab]);
   return (
     <WorkspaceHost
-      projectId={ctxProjectId}
       activeEpisode={activeEpisode}
       onScenesCreated={(sceneIds) => {
         const target = sceneIds[0];
@@ -356,7 +273,7 @@ export function StoryboardWorkspace() {
     }
   }, [episodeId, openScene, projectId, sceneId, storyboard]);
   if (!sceneId) return <SceneEmptyState />;
-  return <WorkspaceHost projectId={projectId} activeEpisode={activeEpisode} />;
+  return <WorkspaceHost activeEpisode={activeEpisode} />;
 }
 
 export function ShotDetailWorkspace() {
@@ -371,7 +288,7 @@ export function ShotDetailWorkspace() {
       setRightPanelTab("inspector");
     }
   }, [episodeId, openShot, projectId, sceneId, setRightPanelTab, shotId]);
-  return <WorkspaceHost projectId={projectId} activeEpisode={activeEpisode} />;
+  return <WorkspaceHost activeEpisode={activeEpisode} />;
 }
 
 // ---------- Workspace: 资产浏览 (asset browser + inspector, P6-T016/T017) ----------
@@ -390,7 +307,7 @@ export function TimelineWorkspace() {
       <div className="empty-state studio-empty">
         <FilmStrip size={34} />
         <h2>选择一集</h2>
-        <p>从左侧项目树建立剧集后，可为其排时间线并导出。</p>
+        <p>先在故事模块创建剧集，再为其排时间线并导出。</p>
       </div>
     );
   }

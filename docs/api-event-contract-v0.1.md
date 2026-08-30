@@ -1415,16 +1415,21 @@ GET /api/v1/providers
 
 # 47.1 LLM Runtime Config API
 
-让设置页在运行时改 LLM 连接（无需改环境变量/重启）。缺省取自环境变量
-（`STUDIO_LLM_MODE` / `STUDIO_LLM_BASE_URL` / `STUDIO_LLM_API_KEY` / `STUDIO_LLM_MODEL`），
-可选的 `{data_dir}/llm.json` 覆盖层可改写；更新后重置缓存 gateway，下次 AI 调用即用新连接。
+让设置页在运行时改 LLM 连接（无需改环境变量/重启）。P-LLM-Profiles 起连接层分为两半：
+
+- **引导层**：环境变量（`STUDIO_LLM_MODE` / `STUDIO_LLM_BASE_URL` / `STUDIO_LLM_API_KEY` /
+  `STUDIO_LLM_MODEL`）+ 可选 `{data_dir}/llm.json` 覆盖层 —— 仅用于首次播种「默认连接」。
+- **权威层**：`{data_dir}/llm_profiles.json`（§47.4 连接 Profile Registry）——
+  多条命名连接 + 激活切换 + 任务绑定。本节两个端点读写**当前激活连接**。
+
+更新任意连接/绑定后重置缓存 gateway，下次 AI 调用即用新配置。
 
 ```http
-GET /api/v1/llm/config        → 当前生效配置（api_key 只回掩码）
-PUT /api/v1/llm/config        → 局部更新（省略字段保持原值）
+GET /api/v1/llm/config        → 激活连接生效配置（api_key 只回掩码）
+PUT /api/v1/llm/config        → 局部更新激活连接（省略字段保持原值）
 ```
 
-GET Response（api_key 永不明文回传，只给掩码提示）：
+GET Response（api_key 永不明文回传，只给掩码提示；`profile_*`/`capabilities` 为增量字段）：
 
 ```json
 {
@@ -1432,7 +1437,10 @@ GET Response（api_key 永不明文回传，只给掩码提示）：
   "base_url": "https://api.deepseek.com",
   "model": "deepseek-chat",
   "api_key_set": true,
-  "api_key_hint": "••••1234"
+  "api_key_hint": "••••1234",
+  "profile_id": "prof_a1b2c3d4e5",
+  "profile_name": "DeepSeek 云端",
+  "capabilities": { "tools": true, "vision": false, "reasoning": false, "source": "heuristic" }
 }
 ```
 
@@ -1451,14 +1459,15 @@ PUT Request（`mode` 限定 fake | openai；`api_key` 未改动时省略即保�
 `GET {base_url}/models` 拉取模型列表填充下拉。探测走 httpx 直连 OpenAI 兼容端点。
 
 ```http
-POST /api/v1/llm/test    → 连通性测试（body 可选：未保存的 base_url/api_key/model 覆盖）
-GET /api/v1/llm/models   → 已保存端点的模型 id 列表（供下拉建议）
+POST /api/v1/llm/test    → 连通性测试（body 可选：profile_id 指定连接 / 未保存的 base_url/api_key/model 覆盖）
+GET /api/v1/llm/models   → 端点模型 id 列表（?profile_id= 指定连接；缺省用激活连接）
 ```
 
-POST /llm/test Request（全部可选；api_key 仅在用户输入新值时携带，否则用已存 key）：
+POST /llm/test Request（全部可选；`profile_id` 先切换基准连接（测试某条已存连接），
+显式 base_url/api_key/model 覆盖再叠加 —— test-before-save。api_key 仅在用户输入新值时携带）：
 
 ```json
-{ "base_url": "https://api.deepseek.com", "api_key": "sk-...", "model": "deepseek-chat" }
+{ "profile_id": "prof_a1b2c3d4e5", "base_url": "https://api.deepseek.com", "api_key": "sk-...", "model": "deepseek-chat" }
 ```
 
 POST /llm/test Response（**永不抛错**，对齐 `/providers/comfyui/test` 形态）：
@@ -1487,6 +1496,132 @@ GET /llm/models Response：
 
 - fake 模式 → `["fake-chat"]`；openai 拉取失败 → 503（`PROVIDER_UNAVAILABLE`），
   前端回退手动输入模型名。
+
+---
+
+# 47.3 LLM 本地服务检测（P-LocalModels）
+
+探测本机常见 OpenAI 兼容服务（Ollama / LM Studio / vLLM / llama.cpp / Jan / KoboldCpp）
+的默认端口：并发 `GET {base}/models`（每端点 1s 超时、`trust_env=False` 直连不走系统代理），
+仅报告 200 的端点。设置页「AI 服务 → 检测本地服务」消费，一键把 base_url/模型名填入表单。
+
+```http
+POST /api/v1/llm/detect-local
+```
+
+Response（**永不抛错**，200 + servers 形态）：
+
+```json
+{
+  "servers": [
+    {
+      "kind": "ollama",
+      "label": "Ollama",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "models_count": 2,
+      "sample_models": ["qwen2.5:7b", "llama3:8b"]
+    }
+  ],
+  "latency_ms": 45
+}
+```
+
+- `servers=[]` 表示未发现运行中的本地服务（不是错误）。
+- 探测目标是约定俗成的默认端口常量表（`_LOCAL_LLM_CANDIDATES`），非动态扫描进程。
+
+---
+
+# 47.4 LLM 连接 Profile Registry（P-LLM-Profiles）
+
+模型无关的**多连接命名注册表**：Provider（fake/openai 端点）与 Model 分离存储，
+任意多条连接共存、命名切换；三个 AI 任务（AI 导演 / 剧本分析 / 连续性检查）可分别
+绑定到不同连接（例如本地模型跑导演意图解析、云端强模型跑剧本分析），未绑定的任务
+跟随**激活连接**。首次读取时把 env + llm.json 生效配置播种成「默认连接」（不落盘），
+此后 `llm_profiles.json` 是唯一事实源。api_key 只回掩码，永不明文回传。
+
+```http
+GET    /api/v1/llm/profiles                → 列表 + 激活 id + 任务绑定
+POST   /api/v1/llm/profiles                → 新建连接
+PATCH  /api/v1/llm/profiles/{id}           → 局部更新（省略字段保持原值）
+DELETE /api/v1/llm/profiles/{id}           → 删除（激活连接禁删 → 422）
+POST   /api/v1/llm/profiles/{id}/activate  → 切换激活连接
+PUT    /api/v1/llm/task-bindings           → 任务 → 连接绑定
+```
+
+GET /llm/profiles Response：
+
+```json
+{
+  "profiles": [
+    {
+      "id": "prof_a1b2c3d4e5",
+      "name": "本地 Qwen",
+      "mode": "openai",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "model": "qwen3",
+      "api_key_set": false,
+      "api_key_hint": null,
+      "created_at": "2026-08-30T10:00:00+00:00",
+      "updated_at": "2026-08-30T10:00:00+00:00",
+      "is_active": true,
+      "bound_tasks": ["director"],
+      "capabilities": { "tools": true, "vision": false, "reasoning": false, "source": "heuristic" }
+    }
+  ],
+  "active_profile_id": "prof_a1b2c3d4e5",
+  "task_bindings": {
+    "director": { "profile_id": "prof_a1b2c3d4e5", "profile_name": "本地 Qwen" },
+    "script": null,
+    "continuity": null
+  },
+  "tasks": [
+    { "id": "director", "label": "AI 导演" },
+    { "id": "script", "label": "剧本分析 / 分镜" },
+    { "id": "continuity", "label": "连续性检查" }
+  ]
+}
+```
+
+- **capabilities**（advisory，非硬门槛）：按模型名启发式给出 tools / vision /
+  reasoning 标记（`source="heuristic"`）；profile 上显式声明 `capabilities` 时
+  覆盖启发式（`source="override"`）。fake 连接三项全 false。
+- POST / PATCH Request 字段：`name` / `mode`（fake|openai）/ `base_url` / `api_key`
+  （空串=清除）/ `model` / `capabilities`（`{tools?, vision?, reasoning?}` 覆写）。
+  `mode=openai` 无 `base_url` → 422。PATCH/DELETE 未知 id → 404（`ENTITY_NOT_FOUND`）。
+- PUT /llm/task-bindings Request：`{ "bindings": { "director": "prof_…" | null } }`
+  （null = 解绑跟随激活连接；未知任务/连接 → 422）。`default` 任务即激活连接，不可绑定。
+- 任务 → 连接解析在 `llm/factory.create_gateway(task)` 内完成：绑定连接优先，否则激活
+  连接；gateway 按「mode+base_url+api_key+model」四元组缓存共享。任何连接/绑定变更
+  → `reset_gateway()`，下次 AI 调用即用新配置（无需重启）。gateway 不做静默降级
+  （模型失败以 `PROVIDER_UNAVAILABLE` 上报）。
+
+## 47.4.1 任务降级链（P-LLM-Fallback，不静默掩盖模型故障）
+
+在任务绑定之上提供**显式配置**的有序降级链：主连接（绑定连接；未绑定任务用激活连接）
+失败时按序尝试后备连接。四条硬约束（与「静默 fallback」的本质区别）：
+
+1. **链是显式的**：只有 `task_fallbacks` 里配置过的连接才参与降级；已绑定任务的激活
+   连接不隐式入链。默认空链 = 行为与纯 fail-fast 完全一致。
+2. **降级必宣告**：每次真实降级 publish `llm.fallback.used` 事件（§70）+ WARNING 日志；
+   主连接直接成功不发事件。
+3. **结果可归因**：gateway 的 ChatResponse 标注 `served_by_profile(_name)`
+   （主连接直接服务也标注，便于观测）。
+4. **失败不吞**：全链耗尽抛 `PROVIDER_UNAVAILABLE`，details.attempted 携带每条候选的
+   错误明细。流式仅在首个分片产出前降级，出流后中途失败原样上抛。
+
+```http
+PUT /api/v1/llm/task-fallbacks   → 任务 → 有序降级连接列表
+```
+
+PUT /llm/task-fallbacks Request（空列表 = 清除 = 回到 fail-fast；未知任务/连接 → 422；
+列表去重保序；`default` 任务不参与降级配置）：
+
+```json
+{ "fallbacks": { "director": ["prof_local_qwen", "prof_deepseek"] } }
+```
+
+Response 与 `GET /llm/profiles` 同形（`task_fallbacks` 为
+`{task: [{profile_id, profile_name}, …]}`）。删除连接时自动从所有降级链剥离。
 
 ---
 
@@ -1524,6 +1659,43 @@ Response：
 ```
 
 > P4-T003：该端点探测 ComfyUI 并同时刷新健康缓存，GET /providers 的 health 块随之更新。
+> P-LocalModels：Request body 的 `base_url` 为可选覆盖 —— 传入时直接探测该未保存地址
+> （不触碰缓存单例与已存配置），响应附带回显 `base_url`；省略时行为不变。
+
+---
+
+# 48.0 Agnes 连接测试
+
+Agnes Cloud Image（真实云文生图，TASK-010）的连通性探测：用已配置的
+`STUDIO_AGNES_API_KEY` 调 `GET {agnes_base_url}/models` 鉴权探测 —— **不消耗生图额度**。
+Key 只存后端环境变量（不入库、不回传前端明文）。
+
+```http
+POST /api/v1/providers/agnes/test
+```
+
+Request（可选；允许对未保存的 base_url 先行探测，对齐 §47.2）：
+
+```json
+{ "base_url": "https://apihub.agnes-ai.com/v1" }
+```
+
+Response（**永不抛错**，200 + `connected` 形态）：
+
+```json
+{
+  "connected": true,
+  "key_set": true,
+  "latency_ms": 420,
+  "models_count": 6,
+  "sample_models": ["agnes-2.0-flash", "agnes-image-2.1-flash"],
+  "image_model_available": true
+}
+```
+
+- 未配置 Key → `connected=false, key_set=false`，error 提示配置 `backend/.env`。
+- 401/403/网络失败 → `connected=false, key_set=true` + error（含状态码或原因）。
+- `image_model_available=true` 仅当模型列表包含 `agnes-image-2.1-flash`。
 
 ---
 
@@ -1593,6 +1765,252 @@ GET /api/v1/workflows/{workflow_id}/versions
 ```
 
 未知 workflow_id → 422（VALIDATION_ERROR）；已注册但无版本 → 404。
+
+---
+
+# 48.2 ComfyUI 模型列表（P-LocalModels）
+
+从 ComfyUI 服务端拉取可用 checkpoint 文件名（`GET /object_info/CheckpointLoaderSimple`
+宽容解析）。设置页「图像服务 → ComfyUI 本地引擎」的消费端：列表填入生成模型
+（checkpoint）选择建议。**永不抛错**（对齐 §47.2/§48.0 形态）。
+
+```http
+GET /api/v1/providers/comfyui/models?base_url={可选覆盖}
+```
+
+Response：
+
+```json
+{
+  "connected": true,
+  "base_url": "http://127.0.0.1:8188",
+  "models": ["sd_xl_base_1.0.safetensors", "flux1-dev.safetensors"]
+}
+```
+
+- `base_url` 查询参数省略时读运行时 image.json 的 `comfyui_url`（env 兜底）；
+  传入时探测该未保存地址（probe-before-save）。
+- `connected=false`（服务不可达）→ `models=[]`；`connected=true` 但响应形态异常
+  → `models=[]`（旧版 ComfyUI 兼容）。
+
+---
+
+# 48.3 本地模型扫描（P-LocalModels）
+
+两种互斥形态：`path` 给定 → 递归扫描该目录收集模型文件（限深 4 层、上限 500 个、
+按父目录名分类 checkpoint/lora/vae/controlnet/…，体积降序）；`path` 省略 → 自动检索
+本机常见默认位置（Ollama 模型目录含 `OLLAMA_MODELS` env、LM Studio、ComfyUI Desktop、
+HuggingFace 缓存）。只读，不移动文件。
+
+```http
+POST /api/v1/providers/models/scan
+```
+
+Request：
+
+```json
+{ "path": "D:\\Models" }
+```
+
+Response（path 形态）：
+
+```json
+{
+  "mode": "path",
+  "path": "D:/Models",
+  "total": 2,
+  "truncated": false,
+  "files": [
+    { "name": "flux1-dev.safetensors", "path": "D:/Models/checkpoints/flux1-dev.safetensors",
+      "dir": "checkpoints", "kind": "checkpoint", "size_bytes": 23800000000 }
+  ]
+}
+```
+
+Response（autodetect 形态，`locations=[]` 表示什么都没找到，不是错误）：
+
+```json
+{
+  "mode": "autodetect",
+  "locations": [
+    { "kind": "ollama", "label": "Ollama 模型", "path": "C:/Users/me/.ollama/models",
+      "model_count": 2, "sample_models": ["qwen2.5:7b", "llama3:8b"] }
+  ]
+}
+```
+
+- `path` 不存在/不是目录 → 422（VALIDATION_ERROR）——这是客户端错误而非连通性探测。
+- 认得的扩展名：`.safetensors .ckpt .pt .pth .gguf .onnx`。
+
+---
+
+# 48.4 本地模型导入（P-LocalModels）
+
+把一个本地模型文件放入 ComfyUI models 目录（按 kind 映射子目录：
+checkpoint→checkpoints、lora→loras、vae→vae、controlnet→controlnet、
+diffusion→diffusion_models、text_encoder→text_encoders、upscale→upscale_models）。
+同盘优先 `os.link` 硬链接（GB 级文件瞬时完成），失败回落 `shutil.copy2` 复制；
+源文件永不删除。GB 级大文件属长任务 → **202 + Operation**（契约 §81-82，
+`GET /operations/{id}` 轮询 queued/running/completed/failed；Operation 为内存态，
+进程重启丢失进行中的导入）。
+
+```http
+POST /api/v1/providers/models/import
+```
+
+Request：
+
+```json
+{
+  "source": "D:/Models/checkpoints/flux1-dev.safetensors",
+  "kind": "checkpoint",
+  "models_root": "D:/ComfyUI_windows_portable/ComfyUI/models",
+  "overwrite": false
+}
+```
+
+- `models_root` 省略时读运行时 image.json 的 `comfyui_models_root`（未配置 → 422）。
+- 校验（source 存在/kind 合法/根目录存在/目标同名冲突）在返回 202 **之前**同步完成，
+  坏请求直接 422 / 409（CONFLICT），不产生 Operation。
+
+Response（202）：
+
+```json
+{ "operation_id": "op_xxxxxxxx", "status": "queued" }
+```
+
+Operation completed 后 `result`：
+
+```json
+{
+  "source": "D:/Models/checkpoints/flux1-dev.safetensors",
+  "target": "D:/ComfyUI/models/checkpoints/flux1-dev.safetensors",
+  "strategy": "hardlink",
+  "size_bytes": 23800000000
+}
+```
+
+---
+
+# 48.5 图像运行时配置（补录，P-LocalModels 扩展）
+
+`GET/PUT /api/v1/image/config` 与 `POST /api/v1/image/test`（此前实现未入册，随本次
+扩展一并补录）。镜像 §47.1：`{data_dir}/image.json` 覆盖层 + env 兜底，保存后重置
+Provider 缓存即时生效。
+
+```http
+GET  /api/v1/image/config
+PUT  /api/v1/image/config
+POST /api/v1/image/test
+```
+
+GET Response：
+
+```json
+{
+  "provider": "comfyui",
+  "agnes_base_url": "https://api.agnes-ai.cn/v1",
+  "api_key_set": false,
+  "api_key_hint": null,
+  "video_provider": "mock",
+  "video_model": "agnes-video-2.5-flash",
+  "comfyui_url": "http://127.0.0.1:8188",
+  "checkpoint": "sd_xl_base_1.0.safetensors",
+  "comfyui_models_root": null
+}
+```
+
+PUT Request（全字段可选，局部更新）：
+
+```json
+{
+  "provider": "comfyui",
+  "comfyui_url": "http://127.0.0.1:8188",
+  "checkpoint": "flux1-dev.safetensors",
+  "comfyui_models_root": "D:/ComfyUI_windows_portable/ComfyUI/models"
+}
+```
+
+- `checkpoint`：生成时注入默认工作流的 `$CHECKPOINT` 占位符（§48.1 预检声明见
+  workflow_schema；业务层 Service 永不感知具体模型名 —— 红线 #5）。
+- `comfyui_url`：ComfyUI 服务地址（env `STUDIO_COMFYUI_URL` 兜底），修改后
+  ComfyUI Provider 单例随 `reset_image_providers` 重建。
+- `comfyui_models_root`：§48.4 导入的默认目标根目录（可被请求参数覆盖）。
+- 覆盖语义：`video_provider/video_model/comfyui_url/checkpoint/comfyui_models_root`
+  省略 = 不动；显式 `""` = 清除覆盖回落 env/默认值。
+- `POST /image/test`：agnes → GET {base}/models 鉴权探测；mock → 恒 connected；
+  comfyui → 指引改用 §48 端点（`connected=null`）。
+
+### 48.5.1 视频模型目录（GET /api/v1/image/video-models）
+
+「视频服务」模型下拉的唯一事实源（前端不再硬编码模型清单）。返回静态目录
+（`verified` = 后端是否实测出片）+ best-effort 实测可用性：已配置 Agnes Key 时
+探测 `GET {base}/models`（不消耗额度），把每个模型的 `available` 标为
+`true/false`；未配置 key 或探测失败永不报错（`available=null` + `probe_error`）。
+
+```json
+{
+  "models": [
+    { "id": "agnes-video-2.5-flash", "label": "快 · 当前免费", "verified": true, "available": true },
+    { "id": "agnes-video-v2.0", "label": "当前免费 · 返回结构已适配", "verified": false, "available": false },
+    { "id": "agnes-video-2.5", "label": null, "verified": false, "available": null }
+  ],
+  "probed": true,
+  "probe_error": null
+}
+```
+
+- `PUT /image/config` 的 `video_model` 只接受目录内 `id`，目录外值 →
+  `422 VALIDATION_ERROR`（`details.allowed` 列出合法 id）。
+- 目录新增/下线模型只改后端 `VIDEO_MODELS`（image_settings_service），前端零改动。
+
+---
+
+# 48.6 本地目录浏览（文件浏览器，设置页路径选择，P-LocalModels）
+
+设置页「扫描模型目录路径 / ComfyUI 模型目录」输入框旁「浏览」按钮的后端。只读列目录：
+`path` 省略/为空 → 列根（Windows 盘符含挂载点 / POSIX `/`）；给定 → 列该目录下的子目录
+与文件（目录在前，组内按名称排序，文件带 `size_bytes`；单次上限 500 条，超出
+`truncated=true`）。不读文件内容、不写任何路径；`$RECYCLE.BIN` 等无导航意义的系统目录
+跳过，隐藏目录照常列出（HuggingFace 缓存等合法目标以 `.` 开头）。
+
+```http
+GET /api/v1/providers/fs/list?path=D:\Models
+```
+
+Response（根视图，`path` 省略或为空）：
+
+```json
+{
+  "path": "",
+  "parent": null,
+  "entries": [
+    { "name": "C:\\", "path": "C:\\", "type": "dir" },
+    { "name": "D:\\", "path": "D:\\", "type": "dir" }
+  ],
+  "truncated": false
+}
+```
+
+Response（目录视图）：
+
+```json
+{
+  "path": "D:/Models",
+  "parent": "D:/",
+  "entries": [
+    { "name": "checkpoints", "path": "D:/Models/checkpoints", "type": "dir" },
+    { "name": "readme.txt", "path": "D:/Models/readme.txt", "type": "file", "size_bytes": 12 }
+  ],
+  "truncated": false
+}
+```
+
+- `path` 不存在/不是目录 → `422 VALIDATION_ERROR`（同 §48.3 约定：客户端错误）。
+- 目录无权限/读取失败 → `200` + `entries: []` + `error` 注记（浏览永不 500，UI 内联呈现）。
+- `parent: null` 表示已在根（盘符或 `/`），UI 据此禁用「上一级」。
+- Web 页面拿不到原生选目录对话框的绝对路径，故由本地 Studio Service 列目录——浏览器
+  与 Tauri 壳共用同一弹窗。
 
 ---
 
@@ -2127,6 +2545,10 @@ provider.disconnected
 provider.degraded
 
 provider.error
+
+llm.fallback.used   （P-LLM-Fallback：LLM 任务降级宣告 —— payload: task/served_by_profile_id/
+                     served_by_profile_name/failed[{profile_id, profile_name?, error}]；
+                     主连接直接成功不发此事件；entity_type=llm_profile, entity_id=实际服务方）
 ```
 
 ---
@@ -2983,6 +3405,9 @@ GET /api/v1/projects/{id}/bootstrap
 Project
 
 Episodes Summary
+（每集：scene_count · has_timeline · has_final_video —— P2 管线阶段探针，
+  取自真实 Project State：timelines 表 + vg:episode:{id}:FINAL_VIDEO 资产组；
+  工作区首页用此判定「时间线 / 导出」阶段，替代逐集 404 探测）
 
 Characters Summary
 
@@ -4063,10 +4488,23 @@ warnings 来源 = shot_continuity_states.warnings_json（source=RULE）；并行
 /providers
 
 /providers/comfyui/test
+/providers/agnes/test   （POST，Agnes 连通探测，§48.0）
+/providers/comfyui/models （GET，ComfyUI checkpoint 列表，§48.2）
+/providers/models/scan  （POST，本地模型扫描/自动检索，§48.3）
+/providers/models/import （POST 202 + Operation，导入模型到 ComfyUI models，§48.4）
+/providers/fs/list       （GET，本地目录浏览（设置页文件浏览器），§48.6）
 
-/llm/config            （GET / PUT，运行时 LLM 连接配置）
+/llm/config            （GET / PUT，运行时激活 LLM 连接配置）
+/llm/profiles          （GET / POST，连接 Profile Registry；PATCH/DELETE /llm/profiles/{id}、POST /llm/profiles/{id}/activate，§47.4）
+/llm/task-bindings     （PUT，任务 → 连接绑定，§47.4）
+/llm/task-fallbacks    （PUT，任务 → 有序降级链（显式配置 + 事件宣告），§47.4.1）
 /llm/test              （POST，连通性测试，§47.2）
 /llm/models            （GET，模型列表，§47.2）
+/llm/detect-local      （POST，本机 LLM 服务探测，§47.3）
+
+/image/config          （GET / PUT，图像运行时配置（含 ComfyUI 字段），§48.5）
+/image/video-models    （GET，视频模型目录 + 实测可用性，§48.5.1）
+/image/test            （POST，图像连接探测，§48.5）
 
 /workflows
 
@@ -4226,6 +4664,8 @@ costume.deleted
 provider.connected
 
 provider.disconnected
+
+llm.fallback.used   （LLM 任务降级宣告，P-LLM-Fallback；payload: task/served_by_profile_id/served_by_profile_name/failed）
 
 --- P5（Job / JobTask，P5-E2）---
 

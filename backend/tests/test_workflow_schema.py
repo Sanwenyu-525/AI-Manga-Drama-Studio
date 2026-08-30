@@ -197,3 +197,50 @@ def test_build_reference_images_uses_first(tmp_path) -> None:
     built = mapper.build(prompt="x", reference_images=["/a.png", "/b.png"])
     # the reference placeholder resolved to the FIRST image when present
     assert built["5"]["inputs"]["guide"] == "/a.png"
+
+
+# --- $CHECKPOINT (P-LocalModels) ------------------------------------------------
+
+def test_coerce_checkpoint_defaults_when_omitted() -> None:
+    from app.providers.comfyui.workflow_schema import DEFAULT_CHECKPOINT
+
+    schema = WorkflowSchema()
+    values = schema.coerce(prompt="x", seed=1)
+    assert values["$CHECKPOINT"] == DEFAULT_CHECKPOINT
+
+
+def test_coerce_checkpoint_explicit_value() -> None:
+    schema = WorkflowSchema()
+    values = schema.coerce(prompt="x", seed=1, checkpoint="flux1-dev.safetensors")
+    assert values["$CHECKPOINT"] == "flux1-dev.safetensors"
+
+
+def test_build_substitutes_checkpoint_placeholder(tmp_path) -> None:
+    template = json.loads(json.dumps(_VALID_TEMPLATE))
+    template["3"]["inputs"]["ckpt_name"] = "$CHECKPOINT"
+    _write_template(tmp_path, "default_image_api.json", template)
+
+    mapper = WorkflowMapper(DEFAULT_WORKFLOW_ID, workflows_dir=tmp_path)
+    built = mapper.build(prompt="x", checkpoint="my_model.safetensors")
+    assert built["3"]["inputs"]["ckpt_name"] == "my_model.safetensors"
+
+
+def test_build_checkpoint_falls_back_to_default(tmp_path) -> None:
+    from app.providers.comfyui.workflow_schema import DEFAULT_CHECKPOINT
+
+    template = json.loads(json.dumps(_VALID_TEMPLATE))
+    template["3"]["inputs"]["ckpt_name"] = "$CHECKPOINT"
+    _write_template(tmp_path, "default_image_api.json", template)
+
+    mapper = WorkflowMapper(DEFAULT_WORKFLOW_ID, workflows_dir=tmp_path)
+    built = mapper.build(prompt="x")
+    assert built["3"]["inputs"]["ckpt_name"] == DEFAULT_CHECKPOINT
+
+
+def test_template_without_checkpoint_token_still_valid(tmp_path) -> None:
+    # 旧模板（硬编码 ckpt_name）继续可用：$CHECKPOINT 是可选 token
+    _write_template(tmp_path, "default_image_api.json", _VALID_TEMPLATE)
+    mapper = WorkflowMapper(DEFAULT_WORKFLOW_ID, workflows_dir=tmp_path)
+    mapper.preflight()
+    built = mapper.build(prompt="x")
+    assert built["3"]["inputs"]["ckpt_name"] == "x.safetensors"

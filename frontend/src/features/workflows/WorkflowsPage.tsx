@@ -35,7 +35,8 @@ export function WorkflowsPage() {
     queryKey: queryKeys.workflows,
     queryFn: () => api.get<WorkflowRead[]>("/workflows"),
   });
-  const selected = workflows?.find((w) => w.id === selectedId) ?? null;
+  // 未手动选择时默认选中第一个模板，避免右侧详情长期空置。
+  const selected = workflows?.find((w) => w.id === selectedId) ?? workflows?.[0] ?? null;
 
   return (
     <div className="project-console">
@@ -75,13 +76,13 @@ export function WorkflowsPage() {
                 <button
                   key={w.id}
                   type="button"
-                  className={`workflow-card ${selectedId === w.id ? "selected" : ""}`}
+                  className={`workflow-card ${selected?.id === w.id ? "selected" : ""}`}
                   onClick={() => setSelectedId(w.id)}
                 >
                   <span className="workflow-card-head">
                     <GearSix size={17} />
                     <strong>{w.id}</strong>
-                    {w.is_default && <span className="badge warn">默认</span>}
+                    {w.is_default && <span className="badge neutral">默认</span>}
                   </span>
                   <small>
                     {w.file}

@@ -6,19 +6,36 @@ Internal implementations: FakeLLMGateway (deterministic, no key) and LangChainOp
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
+
+from app.llm.messages import ChatMessage, ChatOptions, ChatResponse
 
 T = TypeVar("T", bound=BaseModel)
 
 
 class LLMGateway(Protocol):
-    """Unified LLM access: invoke / structured / stream (backend-architecture §17)."""
+    """Unified LLM access: chat / invoke / structured / stream (backend-architecture §17).
+
+    `chat()` is the message-shaped core (conversation history in, usage out);
+    `invoke()`/`stream()` remain as prompt-shaped conveniences for the current
+    one-shot call sites. Implementations express everything through the Studio
+    message contract in app.llm.messages — never through SDK shapes.
+    """
+
+    async def chat(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        options: ChatOptions | None = None,
+    ) -> ChatResponse:
+        """Message-shaped completion: full conversation in, content + usage out."""
+        ...
 
     async def invoke(self, system: str, prompt: str) -> str:
-        """Plain text completion."""
+        """Plain text completion (prompt-shaped convenience over chat())."""
         ...
 
     async def structured(self, schema: type[T], system: str, prompt: str) -> T:

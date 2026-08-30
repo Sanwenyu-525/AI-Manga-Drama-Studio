@@ -14,6 +14,7 @@ class GenerationCreate(BaseModel):
     seed: int | None = None
     width: int | None = Field(default=None, ge=64, le=4096)
     height: int | None = Field(default=None, ge=64, le=4096)
+    seconds: int | None = Field(default=None, ge=4, le=12)  # 视频时长（agnes 4-12s）
     max_attempts: int = Field(default=1, ge=1, le=5)
 
 

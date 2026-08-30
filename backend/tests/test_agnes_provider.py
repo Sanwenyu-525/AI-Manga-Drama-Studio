@@ -9,6 +9,9 @@
 - generate():  传输异常 → ProviderUnavailableError
 - generate():  响应无 data / items 空 / 无 url → ProviderUnavailableError
 - cancel():    best-effort 永不抛
+- probe():     无 key → connected=False + key_set=False（不抛）
+- probe():     GET /models 成功 → connected=True + 模型列表/延迟
+- probe():     401 / 传输异常 → connected=False + error（不抛）
 """
 
 from __future__ import annotations
@@ -157,3 +160,53 @@ def test_generate_missing_url_raises_provider_unavailable(monkeypatch) -> None:
 def test_cancel_is_best_effort_no_raise() -> None:
     provider = AgnesImageProvider(api_key="sk-test", base_url=BASE)
     asyncio.run(provider.cancel("agnes_123"))  # must not raise
+
+
+# --- probe（POST /providers/agnes/test 的底层） ------------------------
+
+
+def test_probe_without_key_reports_key_set_false() -> None:
+    provider = AgnesImageProvider(api_key="", base_url=BASE)
+    result = asyncio.run(provider.probe())
+    assert result["connected"] is False
+    assert result["key_set"] is False
+    assert "STUDIO_AGNES_API_KEY" in result["error"]
+
+
+def test_probe_success_parses_models(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/models"
+        assert request.headers["Authorization"] == "Bearer sk-test"
+        return httpx.Response(
+            200,
+            json={"data": [{"id": "agnes-2.0-flash"}, {"id": "agnes-image-2.1-flash"}]},
+        )
+
+    provider = _make_provider(handler, monkeypatch)
+    result = asyncio.run(provider.probe())
+    assert result["connected"] is True
+    assert result["key_set"] is True
+    assert result["models_count"] == 2
+    assert result["image_model_available"] is True
+    assert result["latency_ms"] >= 0
+
+
+def test_probe_http_error_never_raises(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"message": "bad key"}})
+
+    provider = _make_provider(handler, monkeypatch)
+    result = asyncio.run(provider.probe())
+    assert result["connected"] is False
+    assert result["key_set"] is True
+    assert "401" in result["error"]
+
+
+def test_probe_transport_error_never_raises(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("unreachable")
+
+    provider = _make_provider(handler, monkeypatch)
+    result = asyncio.run(provider.probe())
+    assert result["connected"] is False
+    assert "unreachable" in result["error"] or "Agnes API unreachable" in result["error"]

@@ -7,10 +7,8 @@ export const WORKSPACE_STORAGE_KEY = "studio-workspace-v1";
 export const WORKSPACE_SCHEMA_VERSION = 2 as const;
 
 export interface LayoutState {
-  explorerWidth: number;
   rightWidth: number;
   bottomDockHeight: number;
-  explorerCollapsed: boolean;
   rightPanelCollapsed: boolean;
   bottomDockExpanded: boolean;
   rightPanelTab: "inspector" | "director";
@@ -41,29 +39,26 @@ export interface LegacyWorkspaceSnapshot {
 export type ParsedWorkspaceSnapshot = WorkspaceSnapshot | LegacyWorkspaceSnapshot;
 
 export const DEFAULT_LAYOUT: LayoutState = {
-  explorerWidth: 260, // 略收窄，把更多横向空间留给中央工作台
   rightWidth: 328, // DESIGN.md §4：Agent Dock 固定宽
-  bottomDockHeight: 100,
-  explorerCollapsed: false,
+  bottomDockHeight: 220,
   rightPanelCollapsed: false,
   bottomDockExpanded: false,
   rightPanelTab: "inspector",
   bottomDockTab: "queue",
 };
 
-/** Clamp any loaded layout into valid panel bounds (guards against stale/bad data). */
+/** Clamp any loaded layout into valid panel bounds (guards against stale/bad data).
+ *  Unknown legacy fields (e.g. the removed explorer panel) are dropped here. */
 export function sanitizeLayout(raw: Partial<LayoutState> | undefined): LayoutState {
   const d = DEFAULT_LAYOUT;
   if (!raw) return { ...d };
   return {
-    explorerWidth: clampPanelSize(raw.explorerWidth ?? d.explorerWidth, PANEL_BOUNDS.explorer, d.explorerWidth),
     rightWidth: clampPanelSize(raw.rightWidth ?? d.rightWidth, PANEL_BOUNDS.right, d.rightWidth),
     bottomDockHeight: clampPanelSize(
       raw.bottomDockHeight ?? d.bottomDockHeight,
       PANEL_BOUNDS.bottom,
       d.bottomDockHeight,
     ),
-    explorerCollapsed: Boolean(raw.explorerCollapsed ?? d.explorerCollapsed),
     rightPanelCollapsed: Boolean(raw.rightPanelCollapsed ?? d.rightPanelCollapsed),
     bottomDockExpanded: Boolean(raw.bottomDockExpanded ?? d.bottomDockExpanded),
     rightPanelTab: raw.rightPanelTab === "director" ? "director" : "inspector",

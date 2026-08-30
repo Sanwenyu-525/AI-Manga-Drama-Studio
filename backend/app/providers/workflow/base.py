@@ -34,6 +34,8 @@ class WorkflowBuildInput:
     width: int | None = None
     height: int | None = None
     reference_images: list[str] = field(default_factory=list)
+    # checkpoint 由 provider 层的运行时配置解析（image.json），业务侧通常留空。
+    checkpoint: str | None = None
 
     @classmethod
     def from_image_request(cls, request: ImageRequest) -> WorkflowBuildInput:

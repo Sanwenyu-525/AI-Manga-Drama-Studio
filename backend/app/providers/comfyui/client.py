@@ -36,6 +36,28 @@ class ComfyUIClient:
         except Exception:  # noqa: BLE001
             return False, None
 
+    async def get_models(self) -> tuple[bool, list[str]]:
+        """List checkpoint filenames via GET /object_info/CheckpointLoaderSimple.
+
+        Returns (reachable, models) — never raises. trust_env=False：base_url 是
+        用户显式配置的本机端点，跟随系统代理会把回环地址劫持成 502（同 llm 探测）。
+        """
+        try:
+            async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
+                resp = await client.get(f"{self.base_url}/object_info/CheckpointLoaderSimple")
+        except Exception:  # noqa: BLE001
+            return False, []
+        if resp.status_code != 200:
+            return True, []
+        try:
+            raw = resp.json()["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"]
+            # 兼容两种形态：[[name, ...], {meta}] 与 [name, ...]
+            names = raw[0] if raw and isinstance(raw[0], list) else raw
+            models = [name for name in (names or []) if isinstance(name, str)]
+        except (ValueError, KeyError, TypeError, IndexError):
+            return True, []
+        return True, models
+
     # --- queue ---
 
     async def queue_prompt(self, workflow: dict) -> str:

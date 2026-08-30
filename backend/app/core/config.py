@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     # surfaces a clear error only when an agnes generation is actually requested.
     agnes_api_key: str | None = None  # prefer env STUDIO_AGNES_API_KEY; never stored in DB
     agnes_base_url: str = "https://api.agnes-ai.cn/v1"
+    video_provider: str = "mock"  # mock | agnes（agnes-video-2.5-flash 免费档）
+    video_model: str = "agnes-video-2.5-flash"
     generation_concurrency: int = 1  # P1-E2-T02: MVP supports exactly ONE worker — see validator
     generation_max_attempts: int = 3
     generation_lease_seconds: int = 120  # P1-E2-T02: claim lease (crash recovery window)

@@ -61,6 +61,7 @@ EVENT_GENERATION_INTERRUPTED = "generation.interrupted"  # P5-T016
 
 EVENT_PROVIDER_CONNECTED = "provider.connected"
 EVENT_PROVIDER_DISCONNECTED = "provider.disconnected"
+EVENT_LLM_FALLBACK_USED = "llm.fallback.used"  # P-LLM-Fallback：降级大声宣告（不静默掩盖）
 
 EVENT_AGENT_RUN_STARTED = "agent.run.started"
 EVENT_AGENT_INTENT_RESOLVED = "agent.intent.resolved"

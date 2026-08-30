@@ -24,9 +24,7 @@ import {
   UsersThree,
 } from "@phosphor-icons/react";
 import { Link, useLocation } from "react-router-dom";
-import { canonicalShotPath, canonicalStoryboardPath } from "../../features/studio/studioRoute";
 import { lastProjectId } from "../../lib/lastProject";
-import { useEditorTabsStore } from "../../stores/editorTabsStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 interface RailItem {
@@ -52,16 +50,6 @@ interface RailContext {
 }
 
 const NO_PROJECT_HINT = "先打开一个项目（活动栏 · 项目）";
-
-function latestSceneTab(projectId: string | null) {
-  const open = useEditorTabsStore.getState().open ?? [];
-  return [...open].reverse().find((tab) => tab.kind === "scene" && (!projectId || tab.projectId === projectId));
-}
-
-function latestShotTab(projectId: string | null) {
-  const open = useEditorTabsStore.getState().open ?? [];
-  return [...open].reverse().find((tab) => tab.kind === "shot" && (!projectId || tab.projectId === projectId));
-}
 
 // 冻结顺序（DESIGN.md §4 Frozen Activity Rail order）——不得换序、增删、改名。
 export const RAIL_GROUPS: RailGroup[] = [
@@ -92,9 +80,9 @@ export const RAIL_GROUPS: RailGroup[] = [
         id: "director",
         label: "AI导演",
         icon: <MagicWand size={17} />,
-        to: ({ projectId }) => (projectId ? `/projects/${projectId}/script` : null),
-        hint: ({ projectId }) =>
-          projectId ? "在工作台右侧 Agent Dock 打开 AI 导演" : NO_PROJECT_HINT,
+        to: ({ projectId }) => (projectId ? `/projects/${projectId}/director` : null),
+        hint: ({ projectId }) => (projectId ? "AI 导演控制台与任务上下文" : NO_PROJECT_HINT),
+        activePattern: /\/director$/,
       },
       {
         id: "story",
@@ -108,24 +96,17 @@ export const RAIL_GROUPS: RailGroup[] = [
         id: "characters",
         label: "角色",
         icon: <UsersThree size={17} />,
-        to: ({ projectId }) => (projectId ? `/projects/${projectId}/script` : null),
-        hint: ({ projectId }) => (projectId ? "角色库位于工作台资源树中" : NO_PROJECT_HINT),
+        to: ({ projectId }) => (projectId ? `/projects/${projectId}/characters` : null),
+        hint: ({ projectId }) => (projectId ? "角色设定、视觉版本与 MASTER 管理" : NO_PROJECT_HINT),
+        activePattern: /\/characters$/,
       },
       {
         id: "storyboard",
         label: "分镜",
         icon: <SquaresFour size={17} />,
-        to: ({ projectId }) => {
-          if (!projectId) return null;
-          const scene = latestSceneTab(projectId);
-          if (scene?.episodeId && scene.sceneId) {
-            return canonicalStoryboardPath(projectId, scene.episodeId, scene.sceneId);
-          }
-          // No scene visited yet → land on the story workspace where scenes are created.
-          return `/projects/${projectId}/script`;
-        },
-        hint: ({ projectId }) => (projectId ? "镜头网格 · 未有记录时进入故事视图选择场景" : NO_PROJECT_HINT),
-        activePattern: /\/storyboard\//,
+        to: ({ projectId }) => (projectId ? `/projects/${projectId}/storyboard` : null),
+        hint: ({ projectId }) => (projectId ? "按剧集与场景进入分镜板" : NO_PROJECT_HINT),
+        activePattern: /\/storyboard(?:\/|$)/,
       },
     ],
   },
@@ -152,20 +133,9 @@ export const RAIL_GROUPS: RailGroup[] = [
         id: "shot",
         label: "镜头",
         icon: <FilmStrip size={17} weight="bold" />,
-        to: ({ projectId }) => {
-          if (!projectId) return null;
-          const shot = latestShotTab(projectId);
-          if (shot?.episodeId && shot.sceneId && shot.shotId) {
-            return canonicalShotPath(projectId, shot.episodeId, shot.sceneId, shot.shotId);
-          }
-          const scene = latestSceneTab(projectId);
-          if (scene?.episodeId && scene.sceneId) {
-            return canonicalStoryboardPath(projectId, scene.episodeId, scene.sceneId);
-          }
-          return `/projects/${projectId}/script`;
-        },
-        hint: ({ projectId }) => (projectId ? "镜头检查器（跟随最近浏览的镜头）" : NO_PROJECT_HINT),
-        activePattern: /\/shots\//,
+        to: ({ projectId }) => (projectId ? `/projects/${projectId}/shots` : null),
+        hint: ({ projectId }) => (projectId ? "项目镜头索引与镜头检查器入口" : NO_PROJECT_HINT),
+        activePattern: /\/shots(?:\/|$)/,
       },
     ],
   },
@@ -184,14 +154,17 @@ export const RAIL_GROUPS: RailGroup[] = [
         id: "knowledge",
         label: "知识库",
         icon: <Brain size={17} />,
-        hint: () => "知识图谱 / 规则引擎 · 模块规划中",
+        to: ({ projectId }) => (projectId ? `/projects/${projectId}/knowledge` : null),
+        hint: ({ projectId }) => (projectId ? "项目知识、规则与设定的统一入口" : NO_PROJECT_HINT),
+        activePattern: /\/knowledge$/,
       },
       {
         id: "continuity",
         label: "连续性检查",
         icon: <ShieldCheck size={17} />,
-        to: ({ projectId }) => (projectId ? `/projects/${projectId}/script` : null),
-        hint: ({ projectId }) => (projectId ? "场景连续性徽标位于故事视图资源树中" : NO_PROJECT_HINT),
+        to: ({ projectId }) => (projectId ? `/projects/${projectId}/continuity` : null),
+        hint: ({ projectId }) => (projectId ? "按场景查看连续性警告与修复入口" : NO_PROJECT_HINT),
+        activePattern: /\/continuity$/,
       },
       {
         id: "timeline",
@@ -229,7 +202,11 @@ export const RAIL_GROUPS: RailGroup[] = [
 export function ActivityRail() {
   const { pathname } = useLocation();
   const setRightPanelTab = useWorkspaceStore((s) => s.setRightPanelTab);
-  const ctx: RailContext = { projectId: pathname.startsWith("/projects/") ? (/^\/projects\/([^/]+)/.exec(pathname)?.[1] ?? null) : lastProjectId() };
+  const ctx: RailContext = {
+    projectId: pathname.startsWith("/projects/")
+      ? (/^\/projects\/([^/]+)/.exec(pathname)?.[1] ?? null)
+      : lastProjectId(),
+  };
 
   return (
     <nav className="activity-rail" aria-label="活动栏">
@@ -245,7 +222,12 @@ export function ActivityRail() {
               if (!target) {
                 return (
                   <li key={item.id}>
-                    <span className={`rail-item locked ${active ? "active" : ""}`} role="link" aria-disabled="true" title={title}>
+                    <span
+                      className={`rail-item locked ${active ? "active" : ""}`}
+                      role="link"
+                      aria-disabled="true"
+                      title={title}
+                    >
                       {item.icon}
                       <span className="rail-label">{item.label}</span>
                       <LockSimple size={11} weight="fill" className="rail-lock" aria-hidden />

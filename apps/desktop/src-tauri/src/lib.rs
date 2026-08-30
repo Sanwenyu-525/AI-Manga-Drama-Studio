@@ -13,6 +13,7 @@ use tauri::Manager; // app_handle()/state() on Window/AppHandle
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init()) // 原生目录对话框（设置页「浏览」）
         .manage(BackendState(Mutex::new(None)))
         .setup(|app| {
             ensure_backend(app.handle());

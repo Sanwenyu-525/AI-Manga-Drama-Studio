@@ -31,6 +31,7 @@ class ComfyUIWorkflowProviderAdapter:
             width=request.width,
             height=request.height,
             reference_images=request.reference_images,
+            checkpoint=request.checkpoint,
         )
 
     def preflight(self, workflow_id: str | None = None) -> WorkflowPreflightResult:

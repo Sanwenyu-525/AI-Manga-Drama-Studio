@@ -8,6 +8,7 @@ from app.api import (
     characters,
     continuity,
     costumes,
+    image_settings,
     episodes,
     generations,
     health,
@@ -43,6 +44,7 @@ api_router.include_router(costumes.router)
 api_router.include_router(operations.router)
 api_router.include_router(generations.router)
 api_router.include_router(llm.router)
+api_router.include_router(image_settings.router)
 api_router.include_router(assets.router)
 api_router.include_router(assets.project_assets)
 api_router.include_router(providers.router)

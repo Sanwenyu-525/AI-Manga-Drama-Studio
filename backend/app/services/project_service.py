@@ -10,7 +10,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError, ValidationError
-from app.db.models import Character, Episode, Generation, Project, ProjectSetting, Scene, Shot
+from app.db.models import Asset, Character, Episode, Generation, Project, ProjectSetting, Scene, Shot, Timeline
 from app.db.models.columns import utcnow_iso
 from app.events.bus import (
     EVENT_PROJECT_CREATED,
@@ -377,6 +377,8 @@ class ProjectService:
         ).scalars().all()
         episode_ids = [ep.id for ep in episodes]
         scene_counts: dict[str, int] = {}
+        timeline_episode_ids: set[str] = set()
+        final_video_episode_ids: set[str] = set()
         if episode_ids:
             rows = self.session.execute(
                 select(Scene.episode_id, func.count(Scene.id))
@@ -384,6 +386,25 @@ class ProjectService:
                 .group_by(Scene.episode_id)
             ).all()
             scene_counts = {episode_id: count for episode_id, count in rows}
+
+            # P2 pipeline flags (contract §103): one grouped query per fact
+            # instead of the frontend probing every episode endpoint.
+            from app.services.render_service import final_video_version_group
+
+            timeline_episode_ids = set(
+                self.session.scalars(
+                    select(Timeline.episode_id).where(Timeline.episode_id.in_(episode_ids))
+                ).all()
+            )
+            group_to_episode = {final_video_version_group(eid): eid for eid in episode_ids}
+            video_groups = self.session.execute(
+                select(Asset.version_group_id)
+                .where(Asset.version_group_id.in_(group_to_episode), Asset.deleted_at.is_(None))
+                .group_by(Asset.version_group_id)
+            ).scalars().all()
+            final_video_episode_ids = {
+                group_to_episode[group] for group in video_groups if group in group_to_episode
+            }
 
         from app.agents.director.runner import active_run_count
 
@@ -405,6 +426,8 @@ class ProjectService:
                     episode_number=ep.episode_number,
                     title=ep.title,
                     scene_count=scene_counts.get(ep.id, 0),
+                    has_timeline=ep.id in timeline_episode_ids,
+                    has_final_video=ep.id in final_video_episode_ids,
                 )
                 for ep in episodes
             ],

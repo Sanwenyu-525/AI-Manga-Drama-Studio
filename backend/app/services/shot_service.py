@@ -193,6 +193,10 @@ class ShotService:
         for shot in shots:
             self.repo.delete(shot)
 
+    def next_shot_number(self, scene_id: str) -> int:
+        """Next live shot_number in the scene (call AFTER flushing pending soft deletes)."""
+        return self.repo.next_shot_number(scene_id)
+
     def soft_delete_ai_shots(self, scene_id: str) -> None:
         """Soft-delete AI-created shots of one scene (analysis_key IS NOT NULL);
         manual shots are preserved. No commit — caller owns the transaction."""

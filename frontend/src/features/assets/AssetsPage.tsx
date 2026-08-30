@@ -88,6 +88,11 @@ export function AssetsPage() {
             <ImageSquare size={32} />
             <h2>还没有生成素材</h2>
             <p>在 Storyboard 里选择镜头并点击「生成图片」，产出会出现在这里。</p>
+            {backProjectId && (
+              <Link to={`/projects/${backProjectId}`} className="btn secondary">
+                <ArrowLeft size={15} /> 返回工作台
+              </Link>
+            )}
           </div>
         )}
 
@@ -101,6 +106,10 @@ export function AssetsPage() {
                   alt={`素材 ${item.assetId.slice(0, 8)}`}
                 />
                 <span className="asset-index">{shotLabel(item.shotId)}</span>
+                <span className="asset-card-meta">
+                  <strong>{projectNames.get(item.projectId) ?? "未知项目"}</strong>
+                  <small>{formatDate(item.createdAt)}</small>
+                </span>
               </button>
             ))}
           </div>

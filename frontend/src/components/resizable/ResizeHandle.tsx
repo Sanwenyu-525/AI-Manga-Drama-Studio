@@ -12,8 +12,12 @@ interface ResizeHandleProps {
   axis: ResizeAxis;
   /** Human-label for aria (e.g. "调整左侧面板宽度"). */
   label: string;
-  /** Called with the incremental pixel delta from the drag start on each move. */
+  /** Called with the cumulative pixel delta from the drag start on each move. */
   onDelta: (delta: number) => void;
+  /** Called once at pointerdown so the consumer can snapshot the baseline size
+   *  BEFORE it starts changing (onDelta is cumulative, so the baseline must stay
+   *  frozen for the whole gesture — a per-render baseline doubles the delta). */
+  onDragStart?: () => void;
   /** Called once when a drag ends (for e.g. a debounced persist flush). */
   onDragEnd?: () => void;
   disabled?: boolean;
@@ -21,7 +25,7 @@ interface ResizeHandleProps {
   variant?: "default" | "right";
 }
 
-export function ResizeHandle({ axis, label, onDelta, onDragEnd, disabled, variant = "default" }: ResizeHandleProps) {
+export function ResizeHandle({ axis, label, onDelta, onDragStart, onDragEnd, disabled, variant = "default" }: ResizeHandleProps) {
   const startRef = useRef(0);
   const [dragging, setDragging] = useState(false);
 
@@ -32,9 +36,10 @@ export function ResizeHandle({ axis, label, onDelta, onDragEnd, disabled, varian
       const target = event.currentTarget;
       target.setPointerCapture(event.pointerId);
       startRef.current = axis === "vertical" ? event.clientX : event.clientY;
+      onDragStart?.();
       setDragging(true);
     },
-    [axis, disabled],
+    [axis, disabled, onDragStart],
   );
 
   const onPointerMove = useCallback(
@@ -67,10 +72,11 @@ export function ResizeHandle({ axis, label, onDelta, onDragEnd, disabled, varian
       const negative = axis === "vertical" ? event.key === "ArrowLeft" : event.key === "ArrowUp";
       if (!positive && !negative) return;
       event.preventDefault();
+      onDragStart?.();
       onDelta(positive ? 16 : -16);
       onDragEnd?.();
     },
-    [axis, disabled, onDelta, onDragEnd],
+    [axis, disabled, onDelta, onDragStart, onDragEnd],
   );
 
   return (

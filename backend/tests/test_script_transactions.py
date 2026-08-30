@@ -140,3 +140,65 @@ def test_generate_shots_idempotent_second_run_skips_llm(session_factory) -> None
     assert calls["n"] == 1  # no LLM call on the idempotent re-submission
     assert second.shot_plans == first.shot_plans
     session.close()
+
+
+# --- regression (sqlite gkpj): manual/legacy rows occupying LLM numbers ----
+
+
+def test_analyze_renumbers_ai_scenes_after_manual_occupants(session_factory) -> None:
+    """A live scene (analysis_key NULL) already holding scene_number 1 must NOT crash
+    re-analysis with UNIQUE(episode_id, scene_number); AI scenes append after it and
+    the manual row is preserved untouched."""
+    session, episode = _setup(session_factory)
+    manual = SceneService(session).create_scene(
+        episode.id, SceneCreate(name="手动场景", scene_number=1)
+    )
+
+    service = ScriptService(session, FakeLLMGateway())
+    result = asyncio.run(service.analyze_episode(episode.id))
+
+    session.expire_all()
+    assert session.get(Scene, manual.id).deleted_at is None
+    assert session.get(Scene, manual.id).analysis_key is None
+    ai_numbers = sorted(
+        session.scalars(
+            select(Scene.scene_number).where(
+                Scene.episode_id == episode.id,
+                Scene.deleted_at.is_(None),
+                Scene.analysis_key.isnot(None),
+            )
+        )
+    )
+    assert ai_numbers == list(range(2, 2 + len(result.created_scene_ids)))
+    session.close()
+
+
+def test_generate_shots_renumbers_after_manual_occupants(session_factory) -> None:
+    """A live manual shot holding shot_number 1 must not crash AI shot planning;
+    AI shots append after it (same gkpj class as scenes)."""
+    from app.domain.shot import ShotCreate
+    from app.services.shot_service import ShotService
+
+    session, episode = _setup(session_factory)
+    scene = SceneService(session).create_scene(episode.id, SceneCreate(name="S1"))
+    manual = ShotService(session).create_shot(
+        scene.id, ShotCreate(shot_number=1, shot_type="wide", image_prompt="manual")
+    )
+
+    service = ScriptService(session, FakeLLMGateway())
+    result = asyncio.run(service.generate_shot_plans(scene.id))
+
+    session.expire_all()
+    assert session.get(Shot, manual.id).deleted_at is None
+    assert session.get(Shot, manual.id).analysis_key is None
+    ai_numbers = sorted(
+        session.scalars(
+            select(Shot.shot_number).where(
+                Shot.scene_id == scene.id,
+                Shot.deleted_at.is_(None),
+                Shot.analysis_key.isnot(None),
+            )
+        )
+    )
+    assert ai_numbers == list(range(2, 2 + len(result.created_shot_ids)))
+    session.close()

@@ -133,8 +133,8 @@ export function SourceWorkspacePage({ projectId }: { projectId?: string }) {
             <div className="sw-lib-stats muted small">
               角色 {bootstrap?.characters.length ?? 0} 个 · 场景 {progressSceneCount(tree)} 个
             </div>
-            <Link className="text-link" to={`/projects/${pid}/script`}>
-              在工作台资源树中管理 →
+            <Link className="text-link" to={`/projects/${pid}/characters`}>
+              在「角色」页管理 →
             </Link>
           </div>
         </aside>

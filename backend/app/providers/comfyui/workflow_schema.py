@@ -39,6 +39,8 @@ DEFAULT_IMAGE_HEIGHT = 912
 SEED_MIN = 0
 SEED_MAX = 2**31 - 1
 SEED_DEFAULT_RANGE = 2**31  # random.seed fallback range
+# 默认 checkpoint 文件名（image.json 的 checkpoint 覆盖层的回落值；单一事实源在此）。
+DEFAULT_CHECKPOINT = "sd_xl_base_1.0.safetensors"
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,10 @@ IMAGE_PARAMETERS: tuple[WorkflowParam, ...] = (
                   description="Image height."),
     WorkflowParam("reference_images", "$REFERENCE_IMAGE", "list[str]", default=[],
                   description="Optional reference image (absolute paths); first used."),
+    # checkpoint 由 image.json 运行时配置解析（providers/image/comfyui.py 注入），
+    # 业务层（Generation/Shot Service）永远不感知具体模型名（红线 #5）。
+    WorkflowParam("checkpoint", "$CHECKPOINT", "str", default=DEFAULT_CHECKPOINT,
+                  description="Checkpoint filename; resolved from the image runtime config."),
 )
 
 # Video parameters are declared now but NOT instantiated in the MVP image path.
@@ -173,6 +179,7 @@ class WorkflowSchema:
         width: int | None = None,
         height: int | None = None,
         reference_images: list[str] | None = None,
+        checkpoint: str | None = None,
     ) -> dict[str, Any]:
         """Validate a request against the schema and return the {placeholder: value}
         injectable map (defaults applied, random seed resolved). Raises ValidationError
@@ -185,6 +192,7 @@ class WorkflowSchema:
             "width": width,
             "height": height,
             "reference_images": reference_images,
+            "checkpoint": checkpoint,
         }
         for param in self._active:
             raw = req[param.name]

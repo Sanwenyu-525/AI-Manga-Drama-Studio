@@ -5,12 +5,10 @@ import { FilmStrip, SquaresFour } from "@phosphor-icons/react";
 import type { Episode } from "../../api/types";
 import { EpisodePanel } from "../../features/script/EpisodePanel";
 import { StoryboardView } from "../../features/storyboard/StoryboardView";
-import { ShotInspector } from "../../features/storyboard/ShotInspector";
 import { EditorTabsBar } from "./EditorTabsBar";
 import { useStudioRoute } from "../../features/studio/studioRoute";
 
 interface WorkspaceHostProps {
-  projectId: string;
   activeEpisode: Episode | undefined;
   /** Called after AI creates scenes so the caller can navigate (kept for parity). */
   onScenesCreated?: (sceneIds: string[]) => void;
@@ -20,8 +18,11 @@ export function WorkspaceHost({ activeEpisode, onScenesCreated }: WorkspaceHostP
   const route = useStudioRoute();
 
   let body: React.ReactNode;
-  if (route.workspace === "storyboard" && route.sceneId) body = <StoryboardView sceneId={route.sceneId} />;
-  else if (route.workspace === "shot") body = <ShotInspector variant="center" />;
+  if ((route.workspace === "storyboard" || route.workspace === "shot") && route.sceneId)
+    // 分镜与镜头 URL 共用中央画布：渲染所在场景的分镜板（镜头 URL 会高亮当前镜头，
+    // 提供上下文）；镜头检查器只出现在右侧 Agent Dock（P6 职责边界），
+    // 不再中央/面板各渲染一份。
+    body = <StoryboardView sceneId={route.sceneId} />;
   else body = scriptBody(activeEpisode, onScenesCreated);
 
   return (

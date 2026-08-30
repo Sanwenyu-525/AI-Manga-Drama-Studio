@@ -68,3 +68,6 @@ vinput-asr-dummy.*
 # --- Personal machine tooling (unrelated to this repo) ---
 scripts/*-Startup*.ps1
 scripts/*Startup-Restore*.ps1
+
+# --- AI agent session artifacts (local tooling, never commit) ---
+.zcode/

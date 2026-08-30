@@ -1,7 +1,22 @@
 import { useLocation } from "react-router-dom";
 import type { EditorTab } from "../../lib/editorTabs";
 
-export type StudioWorkspace = "script" | "storyboard" | "shot" | "assets" | "timeline";
+export type StudioWorkspace =
+  | "workspace"
+  | "source"
+  | "director"
+  | "script"
+  | "characters"
+  | "storyboard-index"
+  | "storyboard"
+  | "shots"
+  | "shot"
+  | "assets"
+  | "prompts"
+  | "knowledge"
+  | "continuity"
+  | "timeline"
+  | "production-log";
 
 export interface StudioRoute {
   projectId: string;
@@ -17,6 +32,23 @@ export function parseStudioRoute(pathname: string): StudioRoute | null {
   if (parts[0] !== "projects" || !parts[1]) return null;
   const projectId = parts[1];
 
+  const projectWorkspace: Record<string, StudioWorkspace> = {
+    workspace: "workspace",
+    source: "source",
+    director: "director",
+    characters: "characters",
+    storyboard: "storyboard-index",
+    shots: "shots",
+    assets: "assets",
+    prompts: "prompts",
+    knowledge: "knowledge",
+    continuity: "continuity",
+    "production-log": "production-log",
+  };
+  if (parts[2] && parts.length === 3 && projectWorkspace[parts[2]]) {
+    return { projectId, workspace: projectWorkspace[parts[2]], legacy: false };
+  }
+
   if (parts[2] === "episodes" && parts[3]) {
     const episodeId = parts[3];
     if (parts[4] === "script") return { projectId, episodeId, workspace: "script", legacy: false };
@@ -30,7 +62,6 @@ export function parseStudioRoute(pathname: string): StudioRoute | null {
     }
   }
 
-  if (parts[2] === "assets") return { projectId, workspace: "assets", legacy: false };
   if (parts[2] === "script") return { projectId, workspace: "script", legacy: true };
   if (parts[2] === "timeline") return { projectId, workspace: "timeline", legacy: true };
   if (parts[2] === "storyboard" && parts[3])

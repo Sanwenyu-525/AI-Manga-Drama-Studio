@@ -285,6 +285,9 @@ export interface BootstrapEpisode {
   episode_number: number;
   title: string | null;
   scene_count: number;
+  /** P2 pipeline probes (contract §103): real Project State flags. */
+  has_timeline: boolean;
+  has_final_video: boolean;
 }
 
 export interface ProjectBootstrap {

@@ -14,7 +14,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { AssetVersionRead, Character, GenerationRead, Shot, ShotUpdatePatch } from "../../api/types";
+import type { AssetVersionRead, Character, ContinuityShotReadCard, GenerationRead, Scene, Shot, ShotUpdatePatch } from "../../api/types";
 import { SHOT_TYPES, SHOT_TYPE_LABELS } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { VersionStrip } from "../versioning/VersionStrip";
@@ -22,7 +22,8 @@ import { ShotContinuityCard } from "../continuity/ShotContinuityCard";
 import { canonicalStoryboardPath, useStudioRoute } from "../studio/studioRoute";
 
 // Shot Inspector (frontend-ux §12-13): edit the selected shot, PATCH with optimistic revision.
-export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "center" }) {
+// Lives only in the right Agent Dock (P6 职责边界) — the center canvas shows the storyboard.
+export function ShotInspector() {
   const route = useStudioRoute();
   const selectedShotId = useSelectionStore((s) => s.selection.shotIds[0]);
   const activeShotId = route.shotId ?? selectedShotId;
@@ -94,6 +95,22 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
     mutationFn: () => {
       if (!activeShotId) throw new Error("no active shot");
       return api.post<GenerationRead>(`/shots/${activeShotId}/generations`, { type: "image" });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shotGenerations(activeShotId) });
+    },
+  });
+
+  // Agnes 接入：镜头视频生成（文生视频，prompt 取镜头动作描述）。
+  const videoPrompt = (form.action ?? "").trim();
+  const generateVideo = useMutation({
+    mutationFn: () => {
+      if (!activeShotId) throw new Error("no active shot");
+      return api.post<GenerationRead>(`/shots/${activeShotId}/generations`, {
+        type: "video",
+        prompt: videoPrompt || undefined,
+        seconds: 5,
+      });
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.shotGenerations(activeShotId) });
@@ -186,7 +203,7 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
   }
 
   return (
-    <div className={variant === "center" ? "inspector-center" : "panel-tab-content"}>
+    <div className="panel-tab-content">
 
       <div className="inspector">
         <div className="inspector-title-row">
@@ -240,6 +257,8 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
             )}
           </div>
         </div>
+
+        <InspectorChecks shot={shot} />
 
         <div className="inspector-fact-grid">
           <div>
@@ -338,7 +357,7 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
                 {c.name}
               </label>
             ))}
-            {!characters?.length && <span className="muted small">项目还没有角色 · 在左侧资源树「角色」区创建</span>}
+            {!characters?.length && <span className="muted small">项目还没有角色 · 在活动栏「角色」页创建</span>}
           </div>
         </Field>
 
@@ -368,17 +387,75 @@ export function ShotInspector({ variant = "panel" }: { variant?: "panel" | "cent
               if (dirty) saveShot.mutate(form, { onSuccess: () => generate.mutate() });
               else generate.mutate();
             }}
-            title="提交图片生成任务"
+            title="提交当前镜头的图片生成任务"
           >
-            <MagicWand size={15} /> {generate.isPending ? "提交中…" : "生成图片"}
+            <MagicWand size={15} /> {generate.isPending ? "提交中…" : "生成当前镜头"}
           </button>
         </div>
+        <button
+          className="btn secondary grow"
+          disabled={generateVideo.isPending || !videoPrompt}
+          onClick={() => {
+            if (dirty) saveShot.mutate(form, { onSuccess: () => generateVideo.mutate() });
+            else generateVideo.mutate();
+          }}
+          title={videoPrompt ? "提交当前镜头的视频生成任务（Agnes 文生视频，约 1–2 分钟）" : "需要动作/画面描述作为视频提示词"}
+        >
+          <VideoCamera size={14} /> {generateVideo.isPending ? "视频提交中…" : "生成视频"}
+        </button>
+        {generateVideo.isError && <p className="error-text">视频生成失败：{String(generateVideo.error)}</p>}
         {saveShot.isError && !conflict && <p className="error-text">保存失败：{String(saveShot.error)}</p>}
         {generate.isError && <p className="error-text">生成失败：{String(generate.error)}</p>}
 
         <ShotVersions shotId={shot.id} projectId={projectId} />
 
         <ShotContinuityCard shotId={shot.id} />
+      </div>
+    </div>
+  );
+}
+
+// Compact pre-flight check strip (frontend-ux §15): continuity/character/scene/
+// framing are derived from real API state; prompt completeness counts the fields
+// that feed the image generation prompt. No fabricated values.
+function InspectorChecks({ shot }: { shot: Shot }) {
+  const { data: continuity } = useQuery({
+    queryKey: queryKeys.shotContinuity(shot.id),
+    queryFn: () => api.get<ContinuityShotReadCard>(`/shots/${shot.id}/continuity-state`),
+  });
+  const { data: scene } = useQuery({
+    queryKey: queryKeys.scene(shot.scene_id),
+    queryFn: () => api.get<Scene>(`/scenes/${shot.scene_id}`),
+  });
+
+  const warningCount = continuity?.warnings?.length ?? 0;
+  const sceneOk = Boolean(
+    scene && (scene.time_of_day || scene.location_id || scene.mood || scene.lighting),
+  );
+  const framingOk = Boolean(shot.camera_angle && shot.camera_movement);
+  const promptFields = [shot.image_prompt, shot.action, shot.camera_angle, shot.camera_movement, shot.duration, shot.emotion];
+  const promptScore = Math.round((promptFields.filter((f) => f !== null && f !== undefined && f !== "").length / promptFields.length) * 100);
+
+  const rows: Array<{ label: string; ok: boolean; note: string }> = [
+    { label: "连续性", ok: warningCount === 0, note: warningCount === 0 ? "无警告" : `${warningCount} 个警告` },
+    { label: "角色一致性", ok: shot.character_ids.length > 0, note: shot.character_ids.length > 0 ? "已关联参考" : "未关联角色" },
+    { label: "场景一致性", ok: sceneOk, note: sceneOk ? "已对齐" : "待补充场景信息" },
+    { label: "构图检查", ok: framingOk, note: framingOk ? "机位与运动完整" : "1 个建议" },
+  ];
+
+  return (
+    <div className="inspector-checks">
+      {rows.map((row) => (
+        <div key={row.label} className={`inspector-check ${row.ok ? "ok" : "warn"}`}>
+          <span className="inspector-check-label">{row.label}</span>
+          <strong>{row.ok ? "✓" : "!"}</strong>
+          <span className="inspector-check-note">{row.note}</span>
+        </div>
+      ))}
+      <div className={`inspector-check ${promptScore >= 80 ? "ok" : "warn"}`}>
+        <span className="inspector-check-label">Prompt 完整度</span>
+        <strong>{promptScore}%</strong>
+        <span className="inspector-check-note">{promptScore >= 80 ? "可生成" : "建议补全"}</span>
       </div>
     </div>
   );
@@ -424,7 +501,7 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
     return (
       <div className="versions-block">
         <h4>版本</h4>
-        <p className="muted small">还没有生成结果。点击「生成图片」创建 V1。</p>
+        <p className="muted small">还没有生成结果。点击「生成当前镜头」创建 V1。</p>
       </div>
     );
   }
@@ -442,13 +519,22 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
           </Link>
         )}
       </div>
-      {active && (
-        <img
-          className="version-preview"
-          src={`/api/v1/assets/${active.asset_id}/content`}
-          alt={`V${active.version_number}`}
-        />
-      )}
+      {active &&
+        (active.media_type === "video" ? (
+          <video
+            className="version-preview"
+            src={`/api/v1/assets/${active.asset_id}/content`}
+            controls
+            muted
+            loop
+          />
+        ) : (
+          <img
+            className="version-preview"
+            src={`/api/v1/assets/${active.asset_id}/content`}
+            alt={`V${active.version_number}`}
+          />
+        ))}
       <VersionStrip versions={versions} selectedId={selectedId} onSelect={setSelectedId} title="版本条" />
       <button
         className="btn tiny"

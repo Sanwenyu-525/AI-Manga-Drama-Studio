@@ -78,7 +78,7 @@ export function SceneWarningBadge({ sceneId }: { sceneId: string }) {
     <div className="scene-warning" role="region" aria-label="场景连续性状态">
       <button
         type="button"
-        className={"scene-warning-badge " + (tier || "info")}
+        className={"scene-warning-badge " + (tier || (total > 0 ? "info" : "clean"))}
         disabled={false}
         aria-expanded={open}
         title={tier ? `${severityTierLabel(tier)} ${total} 条连续性警告` : "暂无连续性警告"}

@@ -243,3 +243,69 @@ def test_cancel_failure_is_suppressed(comfy) -> None:
 
     client, _ = comfy(handler)
     asyncio.run(client.cancel("prompt_abc"))  # must not raise
+
+
+# --- get_models (P-LocalModels: /object_info checkpoint listing) ----------------
+
+def test_get_models_parses_object_info(comfy) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/object_info/CheckpointLoaderSimple"
+        return httpx.Response(
+            200,
+            json={
+                "CheckpointLoaderSimple": {
+                    "input": {
+                        "required": {
+                            "ckpt_name": [["a.safetensors", "b.safetensors"], {"placeholder": "false"}]
+                        }
+                    }
+                }
+            },
+        )
+
+    client, _ = comfy(handler)
+    reachable, models = asyncio.run(client.get_models())
+    assert reachable is True
+    assert models == ["a.safetensors", "b.safetensors"]
+
+
+def test_get_models_flat_list_shape(comfy) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["x.ckpt"], {}]}}}},
+        )
+
+    client, _ = comfy(handler)
+    _, models = asyncio.run(client.get_models())
+    assert models == ["x.ckpt"]
+
+
+def test_get_models_unreachable(comfy) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    client, _ = comfy(handler)
+    reachable, models = asyncio.run(client.get_models())
+    assert reachable is False
+    assert models == []
+
+
+def test_get_models_non_200(comfy) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    client, _ = comfy(handler)
+    reachable, models = asyncio.run(client.get_models())
+    assert reachable is True
+    assert models == []
+
+
+def test_get_models_unexpected_shape(comfy) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"unexpected": "shape"})
+
+    client, _ = comfy(handler)
+    reachable, models = asyncio.run(client.get_models())
+    assert reachable is True
+    assert models == []

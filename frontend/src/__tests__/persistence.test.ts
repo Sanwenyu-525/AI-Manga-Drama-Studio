@@ -39,10 +39,8 @@ describe("persistence — save/load round trip", () => {
       schemaVersion: 2 as const,
       layout: {
         ...DEFAULT_LAYOUT,
-        explorerWidth: 250,
         rightWidth: 420,
         bottomDockHeight: 300,
-        explorerCollapsed: true,
         bottomDockExpanded: true,
       },
       tabs: {
@@ -57,9 +55,8 @@ describe("persistence — save/load round trip", () => {
     const loaded = loadWorkspace(storage);
     expect(loaded).not.toBeNull();
     if (!loaded || loaded.schemaVersion !== 2) throw new Error("expected v2 workspace snapshot");
-    expect(loaded!.layout.explorerWidth).toBe(250);
     expect(loaded!.layout.rightWidth).toBe(420);
-    expect(loaded!.layout.explorerCollapsed).toBe(true);
+    expect(loaded!.layout.bottomDockExpanded).toBe(true);
     expect(loaded!.tabs.open).toHaveLength(2);
   });
   it("loadWorkspace returns null when empty", () => {
@@ -82,11 +79,16 @@ describe("persistence — save/load round trip", () => {
 
 describe("persistence — parse / sanitize", () => {
   it("sanitizes out-of-range sizes into panel bounds", () => {
-    const raw = snapshotOverrides({ layout: { explorerWidth: 5, rightWidth: 999, bottomDockHeight: -10 } });
+    const raw = snapshotOverrides({ layout: { rightWidth: 999, bottomDockHeight: -10 } });
     const parsed = parseWorkspace(raw);
-    expect(parsed!.layout.explorerWidth).toBe(PB.explorer.min);
     expect(parsed!.layout.rightWidth).toBe(PB.right.max);
     expect(parsed!.layout.bottomDockHeight).toBe(PB.bottom.min);
+  });
+  it("drops removed legacy layout fields (explorer panel)", () => {
+    const raw = snapshotOverrides({ layout: { ...DEFAULT_LAYOUT, explorerWidth: 250, explorerCollapsed: true } });
+    const parsed = parseWorkspace(raw);
+    expect(parsed!.layout.rightWidth).toBe(DEFAULT_LAYOUT.rightWidth);
+    expect(parsed && "explorerWidth" in parsed.layout).toBe(false);
   });
   it("rejects unknown schema versions", () => {
     const raw = snapshotOverrides({ schemaVersion: 3 });
@@ -95,13 +97,13 @@ describe("persistence — parse / sanitize", () => {
   it("keeps only layout when reading the v1 workspace snapshot", () => {
     const raw = JSON.stringify({
       version: 1,
-      layout: { ...DEFAULT_LAYOUT, explorerWidth: 260 },
+      layout: { ...DEFAULT_LAYOUT, rightWidth: 336 },
       selection: { shotIds: ["stale"] },
       tabs: { activeTabId: "scene:stale", open: [] },
     });
     const parsed = parseWorkspace(raw);
     expect(parsed?.schemaVersion).toBe(1);
-    expect(parsed?.layout.explorerWidth).toBe(260);
+    expect(parsed?.layout.rightWidth).toBe(336);
     expect(parsed && "tabs" in parsed).toBe(false);
   });
   it("rejects non-object payloads", () => {

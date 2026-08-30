@@ -138,9 +138,52 @@ def test_bootstrap_returns_summaries(client: TestClient) -> None:
     assert len(body["episodes"]) == 1
     assert body["episodes"][0]["id"] == ids["episode_id"]
     assert body["episodes"][0]["scene_count"] == 1
+    assert body["episodes"][0]["has_timeline"] is False
+    assert body["episodes"][0]["has_final_video"] is False
     assert [c["name"] for c in body["characters"]] == ["沈亦"]
     assert isinstance(body["providers"], list) and len(body["providers"]) >= 2
     assert body["active_generations"] == 0
     assert body["active_agent_runs"] == 0
 
     assert client.get("/api/v1/projects/does-not-exist/bootstrap").status_code == 404
+
+
+def test_bootstrap_pipeline_flags(client: TestClient, session_factory) -> None:
+    """P2 pipeline flags (contract §103): bootstrap derives has_timeline /
+    has_final_video from real Project State — soft-deleted exports don't count."""
+    factory, _ = session_factory
+    ids = create_chain(client)
+    project_id, episode_id = ids["project_id"], ids["episode_id"]
+
+    from app.db.models import Asset, Timeline
+    from app.services.render_service import final_video_version_group
+
+    group = final_video_version_group(episode_id)
+    with factory() as session:
+        session.add(
+            Asset(
+                project_id=project_id,
+                type="video",
+                version_group_id=group,
+                version_number=1,
+                deleted_at="2026-01-01T00:00:00Z",  # soft-deleted export must not count
+            )
+        )
+        session.commit()
+
+    body = client.get(f"/api/v1/projects/{project_id}/bootstrap").json()
+    ep = next(e for e in body["episodes"] if e["id"] == episode_id)
+    assert ep["has_timeline"] is False
+    assert ep["has_final_video"] is False
+
+    with factory() as session:
+        session.add(Timeline(project_id=project_id, episode_id=episode_id, status="DRAFT"))
+        session.add(
+            Asset(project_id=project_id, type="video", version_group_id=group, version_number=2)
+        )
+        session.commit()
+
+    body = client.get(f"/api/v1/projects/{project_id}/bootstrap").json()
+    ep = next(e for e in body["episodes"] if e["id"] == episode_id)
+    assert ep["has_timeline"] is True
+    assert ep["has_final_video"] is True

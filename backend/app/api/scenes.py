@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_llm
+from app.api.deps import get_db, get_script_llm
 from app.domain.scene import SceneCreate, SceneRead, SceneUpdateRequest
 from app.domain.shot import StoryboardRead
 from app.llm.gateway import LLMGateway
@@ -59,7 +59,7 @@ def get_storyboard(scene_id: str, db: Session = Depends(get_db)) -> StoryboardRe
 async def generate_shots(
     scene_id: str,
     db: Session = Depends(get_db),
-    llm: LLMGateway = Depends(get_llm),
+    llm: LLMGateway = Depends(get_script_llm),
 ) -> dict:
     """202 + operation_id; the job persists ShotPlan[] when finished (mvp-spec §61)."""
     scene = SceneService(db).get_scene(scene_id)

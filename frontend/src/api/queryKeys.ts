@@ -38,6 +38,13 @@ export const queryKeys = {
   /** TASK-007: domains that previously used raw array keys — now factory-first. */
   providers: ["providers"] as const,
   llmConfig: ["llmConfig"] as const,
+  /** P-LLM-Profiles: 命名连接列表 + 任务绑定（GET /llm/profiles）。 */
+  llmProfiles: ["llmProfiles"] as const,
+  imageConfig: ["imageConfig"] as const,
+  /** 视频模型目录（GET /image/video-models，含实测可用性）。 */
+  videoModels: ["video-models"] as const,
+  /** P-LocalModels: ComfyUI checkpoint 列表（GET /providers/comfyui/models）。 */
+  comfyuiModels: ["comfyui-models"] as const,
   workflows: ["workflows"] as const,
   recentGenerations: ["generations", "recent"] as const,
   shotGenerations: (shotId: string) => ["generations", shotId] as const,

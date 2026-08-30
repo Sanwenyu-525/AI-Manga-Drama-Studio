@@ -375,6 +375,12 @@ async def run_generation(generation_id: str) -> None:
         await _run_audio_generation(factory, gen_id, project_id, provider_id, params)
         return
 
+    # Agnes 接入：type="video" 走 VideoProvider（异步任务轮询），产物注册为
+    # SHOT_VIDEO 资产版本（与图片同构，走 _persist_output 的 media_type 参数）。
+    if generation.type == "video":
+        await _run_video_generation(factory, gen_id, project_id, shot_id, provider_id, params)
+        return
+
     # P1-E2-T01: the stored provider id IS the implementation to run — the
     # registry resolves it (unknown ids are rejected at creation, 422).
     provider = get_image_provider(provider_id)
@@ -424,6 +430,54 @@ async def run_generation(generation_id: str) -> None:
     _persist_output(factory, gen_id, project_id, shot_id, result.output_path, result)
 
 
+async def _run_video_generation(factory: Callable, gen_id: str, project_id: str, shot_id: str | None, provider_id: str, params: dict) -> None:
+    """type="video"：VideoProvider 异步任务（Agnes: 提交 → 轮询 → 下载），产物注册为
+    该镜头的 SHOT_VIDEO 资产版本（与图片同构，走 _persist_output 的 media_type 参数）。"""
+    from app.providers.registry import get_video_provider
+    from app.providers.video.base import VideoRequest
+
+    provider = get_video_provider(provider_id)
+    request = VideoRequest(
+        prompt=params.get("prompt", ""),
+        duration=params.get("seconds"),
+        width=params.get("width"),
+        height=params.get("height"),
+        metadata={"generation_id": gen_id, "shot_id": shot_id},
+    )
+
+    def _on_progress(percent: int, stage: str) -> None:
+        _persist_progress(factory, gen_id, percent, stage)
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_GENERATION_PROGRESS,
+                entity_type="generation",
+                entity_id=gen_id,
+                project_id=project_id,
+                payload={"progress": percent, "stage": stage},
+            )
+        )
+
+    try:
+        result = await provider.generate(request, _on_progress)
+    except StudioError as exc:
+        _handle_failure(factory, gen_id, project_id, shot_id, str(exc), exc=exc)
+        return
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("video generation %s provider error", gen_id)
+        _handle_failure(factory, gen_id, project_id, shot_id, f"Provider error: {exc}", exc=exc)
+        return
+
+    if gen_id in _cancelled or _db_status(factory, gen_id) == "cancelling":
+        _handle_cancelled(factory, gen_id, project_id, shot_id)
+        return
+
+    if not result.success:
+        _handle_failure(factory, gen_id, project_id, shot_id, result.error or "Provider returned failure.")
+        return
+
+    _persist_output(factory, gen_id, project_id, shot_id, result.output_path, result, media_type="video")
+
+
 def _persist_progress(factory: Callable, generation_id: str, percent: int, stage: str) -> None:
     with factory() as session:
         generation = session.get(Generation, generation_id)
@@ -435,7 +489,7 @@ def _persist_progress(factory: Callable, generation_id: str, percent: int, stage
         session.commit()
 
 
-def _persist_output(factory: Callable, generation_id: str, project_id: str, shot_id: str | None, output_path: str | None, result) -> None:
+def _persist_output(factory: Callable, generation_id: str, project_id: str, shot_id: str | None, output_path: str | None, result, media_type: str = "image") -> None:
     """Attach output in ONE transaction (ADR-001 2.4 / P1-E2-T03): Asset registration +
     version assignment + shot active pointer + generation completion commit together.
 
@@ -475,7 +529,7 @@ def _persist_output(factory: Callable, generation_id: str, project_id: str, shot
         assets = AssetService(session)
         asset = assets.register_asset(
             project_id=project_id,
-            asset_type="image",
+            asset_type=media_type,
             source_path=output_path,
             shot_id=shot_id,
             generation_id=generation_id,
@@ -485,7 +539,7 @@ def _persist_output(factory: Callable, generation_id: str, project_id: str, shot
         version = VersionService(session).assign_version(
             shot_id=shot_id,
             asset=asset,
-            media_type="image",
+            media_type=media_type,
             make_active=True,
             commit=False,  # caller-owned transaction
         )

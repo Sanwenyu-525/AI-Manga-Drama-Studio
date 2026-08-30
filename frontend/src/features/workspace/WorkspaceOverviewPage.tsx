@@ -25,6 +25,7 @@ import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type { Episode, GenerationRead, ProjectBootstrap, ProjectTreeRead } from "../../api/types";
 import { percent, derivePipeline, summarizeEpisodes } from "../../lib/workspaceMetrics";
+import { canonicalScriptPath } from "../studio/studioRoute";
 
 interface RecentOutput {
   assetId: string;
@@ -64,35 +65,12 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
 
   const progress = useMemo(() => summarizeEpisodes(tree, episodes), [tree, episodes]);
 
-  // 管线探针：任意一集已建时间线 / 已产出成片（真实端点，404 = 未建）。
-  const episodeIdsKey = (episodes ?? []).map((e) => e.id).join(",");
-  const { data: stageFlags } = useQuery({
-    queryKey: ["stageFlags", pid, episodeIdsKey],
-    queryFn: async () => {
-      const flags = await Promise.all(
-        (episodes ?? []).map(async (ep) => {
-          const probe = async (path: string) => {
-            try {
-              await api.get(path);
-              return true;
-            } catch {
-              return false;
-            }
-          };
-          return {
-            timeline: await probe(`/episodes/${ep.id}/timeline`),
-            finalVideo: await probe(`/episodes/${ep.id}/final-video`),
-          };
-        }),
-      );
-      return {
-        timeline: flags.some((f) => f.timeline),
-        finalVideo: flags.some((f) => f.finalVideo),
-      };
-    },
-    enabled: Boolean(pid) && (episodes?.length ?? 0) > 0,
-    staleTime: 30_000,
-  });
+  // 管线探针（contract §103）：bootstrap 每集携带 has_timeline / has_final_video，
+  // 任一集为真即该阶段已达成 —— 替代逐集 404 探测。
+  const stageFlags = {
+    timeline: (bootstrap?.episodes ?? []).some((ep) => ep.has_timeline),
+    finalVideo: (bootstrap?.episodes ?? []).some((ep) => ep.has_final_video),
+  };
 
   const outputs = useMemo<RecentOutput[]>(() => {
     const seen = new Set<string>();
@@ -109,7 +87,7 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
   const failedRecent = (recent ?? []).filter((g) => g.project_id === pid && g.status === "failed").length;
   const activeGens = bootstrap?.active_generations ?? 0;
   const activeRuns = bootstrap?.active_agent_runs ?? 0;
-  const pipeline = derivePipeline(progress, stageFlags?.timeline ?? false, stageFlags?.finalVideo ?? false);
+  const pipeline = derivePipeline(progress, stageFlags.timeline, stageFlags.finalVideo);
   const imagePct = percent(progress.imageReadyCount, progress.shotCount);
 
   if (!pid) return <div className="workspace-loading">未打开项目</div>;
@@ -155,7 +133,7 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
                 >
                   <i style={{ width: `${percent(ep.imageReadyCount, ep.shotCount)}%` }} />
                 </span>
-                <Link className="icon-button ws-ep-open" to={`/projects/${pid}/script`} title="打开该集剧本">
+                <Link className="icon-button ws-ep-open" to={canonicalScriptPath(pid, ep.episodeId)} title="打开该集剧本">
                   <ArrowRight size={14} />
                 </Link>
               </li>
@@ -242,8 +220,8 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
             <li className="attn">
               <ShieldCheck size={14} />
               <span>连续性检查</span>
-              <Link to={`/projects/${pid}/script`} className="text-link">
-                分镜板徽标
+              <Link to={`/projects/${pid}/continuity`} className="text-link">
+                打开检查页
               </Link>
             </li>
             <li className="attn">

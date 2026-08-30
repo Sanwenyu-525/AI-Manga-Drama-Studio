@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_llm
+from app.api.deps import get_db, get_script_llm
 from app.domain.analysis import ScenePlan
 from app.domain.episode import (
     EpisodeCreate,
@@ -62,7 +62,7 @@ def delete_episode(episode_id: str, db: Session = Depends(get_db)) -> dict:
 async def preview_analysis(
     episode_id: str,
     db: Session = Depends(get_db),
-    llm: LLMGateway = Depends(get_llm),
+    llm: LLMGateway = Depends(get_script_llm),
 ) -> list[ScenePlan]:
     """AI analysis WITHOUT persisting — Review-before-commit UX (mvp-spec §60)."""
     return await ScriptService(db, llm).preview_analysis(episode_id)
@@ -75,7 +75,7 @@ async def preview_analysis(
 async def analyze_episode(
     episode_id: str,
     db: Session = Depends(get_db),
-    llm: LLMGateway = Depends(get_llm),
+    llm: LLMGateway = Depends(get_script_llm),
 ) -> dict:
     """202 + operation_id; the job persists scenes when finished (contract §14-15)."""
     episode = EpisodeService(db).get_episode(episode_id)

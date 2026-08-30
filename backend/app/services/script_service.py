@@ -100,11 +100,18 @@ class ScriptService:
         plans = await self._request_scene_plans(episode)
         try:
             self._replace_ai_scenes(episode_id)
-            scenes = self.scene_service.create_scenes(
-                episode_id,
-                [scene_plan_to_create(p) for p in plans],
-                analysis_key=key,
-            )
+            # LLM 的 scene_number 只是顺序提示：flush 软删后按「live 场景之后」统一
+            # 重编号。否则被保留的场景（手动 analysis_key=NULL，或早期未打标的
+            # legacy 数据）已占用 LLM 输出的编号时，会撞 (episode_id, scene_number)
+            # 唯一索引 → IntegrityError。纯 AI 重分析时软删已释放 1..N，编号不变。
+            self.session.flush()
+            next_number = self.scenes.next_scene_number(episode_id)
+            creates = []
+            for offset, plan in enumerate(plans):
+                data = scene_plan_to_create(plan)
+                data.scene_number = next_number + offset
+                creates.append(data)
+            scenes = self.scene_service.create_scenes(episode_id, creates, analysis_key=key)
             episode.analysis_key = key
             self.session.commit()
         except Exception:
@@ -203,11 +210,16 @@ class ScriptService:
         )
         try:
             self.shot_service.soft_delete_ai_shots(scene_id)
-            shots = self.shot_service.create_shots(
-                scene_id,
-                [shot_plan_to_create(p) for p in plans],
-                analysis_key=key,
-            )
+            # 同 analyze_episode：flush 软删后按「live 镜头之后」统一重编号，
+            # 避免与被保留的手动镜头撞 (scene_id, shot_number) 唯一索引。
+            self.session.flush()
+            next_number = self.shot_service.next_shot_number(scene_id)
+            creates = []
+            for offset, plan in enumerate(plans):
+                data = shot_plan_to_create(plan)
+                data.shot_number = next_number + offset
+                creates.append(data)
+            shots = self.shot_service.create_shots(scene_id, creates, analysis_key=key)
             scene.storyboard_key = key
             self.session.commit()
         except Exception:

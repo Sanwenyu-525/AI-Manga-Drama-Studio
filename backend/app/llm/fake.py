@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import math
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -23,6 +23,7 @@ from app.core.logging import get_logger
 from app.domain.agent import DirectorPlan, ProductionIntent
 from app.domain.analysis import ScenePlan, ShotPlan
 from app.domain.continuity import SemanticWarning
+from app.llm.messages import ChatMessage, ChatOptions, ChatResponse, TokenUsage
 
 logger = get_logger("llm.fake")
 
@@ -49,9 +50,38 @@ _ACTIONS = ["人物入场", "对话", "关键动作", "反应", "环境空镜", 
 class FakeLLMGateway:
     """Deterministic implementation of the LLMGateway protocol."""
 
+    async def chat(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        options: ChatOptions | None = None,
+    ) -> ChatResponse:
+        """Message-shaped core: echoes the last user turn deterministically.
+
+        Token usage is derived from text length — stable for tests, never a
+        quality claim about real models.
+        """
+        last_user = next(
+            (m.content for m in reversed(messages) if m.role == "user"),
+            messages[-1].content if messages else "",
+        )
+        content = f"FAKE: {last_user[:120]}…"
+        logger.info("fake chat (%d messages, len=%d)", len(messages), len(last_user))
+        return ChatResponse(
+            content=content,
+            model="fake-chat",
+            finish_reason="stop",
+            usage=TokenUsage(
+                input_tokens=sum(len(m.content) for m in messages),
+                output_tokens=len(content),
+            ),
+        )
+
     async def invoke(self, system: str, prompt: str) -> str:
-        logger.info("fake invoke (len=%d)", len(prompt))
-        return f"FAKE: {prompt[:120]}…"
+        response = await self.chat(
+            [ChatMessage(role="system", content=system), ChatMessage(role="user", content=prompt)]
+        )
+        return response.content
 
     async def structured(self, schema: type[T], system: str, prompt: str) -> T:
         if schema is ScenePlan:

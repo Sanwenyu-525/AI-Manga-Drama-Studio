@@ -23,8 +23,15 @@ class ComfyUIProvider:
 
     name = "comfyui"
 
-    def __init__(self) -> None:
-        self.client = ComfyUIClient(settings.comfyui_url)
+    def __init__(self, base_url: str | None = None) -> None:
+        # URL 解析优先级：显式参数（连接测试的未保存覆盖）> 运行时 image.json > env。
+        if base_url:
+            url = base_url
+        else:
+            from app.services.image_settings_service import get_image_config
+
+            url = get_image_config()["comfyui_url"]
+        self.client = ComfyUIClient(url)
         self._output_dir = settings.data_dir / "comfyui_output"
         self._output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -35,12 +42,16 @@ class ComfyUIProvider:
         healthy, _ = await self.client.health_check()
         if not healthy:
             raise ProviderUnavailableError(
-                f"ComfyUI is not reachable at {settings.comfyui_url}. Start it or switch to mock provider.",
-                {"comfyui_url": settings.comfyui_url},
+                f"ComfyUI is not reachable at {self.client.base_url}. Start it or switch to mock provider.",
+                {"comfyui_url": self.client.base_url},
             )
         on_progress(2, "queuing")
 
         # P1-E2-T01: the workflow_id on the Generation decides the template.
+        # checkpoint 取自运行时 image.json（设置页选择），业务请求永远不携带模型名。
+        from app.services.image_settings_service import get_image_config
+
+        checkpoint = get_image_config()["checkpoint"]
         mapper = WorkflowMapper(workflow_id=request.workflow_id)
         workflow = mapper.build(
             prompt=request.prompt,
@@ -49,6 +60,7 @@ class ComfyUIProvider:
             width=request.width,
             height=request.height,
             reference_images=request.reference_images,
+            checkpoint=checkpoint,
         )
         prompt_id = await self.client.queue_prompt(workflow)
         on_progress(5, "waiting_provider")

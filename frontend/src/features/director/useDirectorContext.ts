@@ -13,15 +13,28 @@ export interface DirectorContext {
 }
 
 export function buildDirectorContext(route: StudioRoute, selection: StudioSelection): DirectorContext {
-  const workspace: DirectorWorkspace = route.workspace === "shot" ? "storyboard" : route.workspace;
-  const isStoryboard = route.workspace === "storyboard" || route.workspace === "shot";
+  const isStoryboard =
+    route.workspace === "storyboard" ||
+    route.workspace === "storyboard-index" ||
+    route.workspace === "shots" ||
+    route.workspace === "shot" ||
+    route.workspace === "continuity";
+  const usesTransientShotSelection = route.workspace === "storyboard";
+  const workspace: DirectorWorkspace =
+    route.workspace === "assets"
+      ? "assets"
+      : route.workspace === "timeline"
+        ? "timeline"
+        : isStoryboard
+          ? "storyboard"
+          : "script";
   return {
     workspace,
     project_id: route.projectId || undefined,
     episode_id:
       workspace === "script" || workspace === "storyboard" || workspace === "timeline" ? route.episodeId : undefined,
     scene_id: isStoryboard ? route.sceneId : undefined,
-    shot_ids: route.shotId ? [route.shotId] : isStoryboard ? selection.shotIds : [],
+    shot_ids: route.shotId ? [route.shotId] : usesTransientShotSelection ? selection.shotIds : [],
     asset_ids: workspace === "assets" ? selection.assetIds : [],
   };
 }

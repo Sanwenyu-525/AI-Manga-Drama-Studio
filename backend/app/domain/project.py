@@ -54,6 +54,10 @@ class EpisodeSummary(BaseModel):
     episode_number: int
     title: str | None = None
     scene_count: int = 0
+    # P2 pipeline probes (contract §103): real Project State, replaces the
+    # frontend's per-episode GET probes (404-probing) on the workspace overview.
+    has_timeline: bool = False
+    has_final_video: bool = False
 
 
 class ProjectBootstrapRead(BaseModel):

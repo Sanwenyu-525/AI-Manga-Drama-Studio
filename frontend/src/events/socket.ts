@@ -289,6 +289,17 @@ export class EventRouter {
       case "scene.created":
         void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.scenes });
         break;
+      // ---- P-LLM-Fallback: 降级大声宣告（不静默掩盖模型故障）→ 刷新连接面并提示 ----
+      case "llm.fallback.used": {
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.llmConfig });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.llmProfiles });
+        const served = event.payload.served_by_profile_name ?? event.payload.served_by_profile_id;
+        console.warn(
+          `[llm] ${event.payload.task} 主连接失败，已降级到 ${String(served)}；失败明细:`,
+          event.payload.failed,
+        );
+        break;
+      }
       // ---- Phase 9 (api-event-contract §93.4): timeline edits → refresh the opened timeline.
       // Prefix invalidation keeps any episode's timeline/final-video fresh regardless of payload shape.
       case "timeline.created":

@@ -1,7 +1,7 @@
 {
   "3": {
     "class_type": "CheckpointLoaderSimple",
-    "inputs": { "ckpt_name": "sd_xl_base_1.0.safetensors" }
+    "inputs": { "ckpt_name": "$CHECKPOINT" }
   },
   "6": {
     "class_type": "CLIPTextEncode",

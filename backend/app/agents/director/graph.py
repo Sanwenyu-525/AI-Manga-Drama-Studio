@@ -92,7 +92,7 @@ async def understand_node(state: DirectorState) -> DirectorState:
     _stage(state, "understand")
     if _cancelled(state):
         return {**state, "status": "cancelled"}
-    llm: LLMGateway = create_gateway()
+    llm: LLMGateway = create_gateway("director")
     message = state.get("user_message", "")
     selection = state.get("selection") or {}
     shot_ids = selection.get("shot_ids") or []
@@ -166,7 +166,7 @@ async def plan_node(state: DirectorState) -> DirectorState:
         # planner (LLM or rules) already produced the operation list
         plan = DirectorPlan(objective=intent.instruction or intent.intent_type, steps=intent.operations)
     else:
-        llm: LLMGateway = create_gateway()
+        llm: LLMGateway = create_gateway("director")
         plan = await llm.structured(  # type: ignore[return-value]
             DirectorPlan,
             UNDERSTAND_SYSTEM_PROMPT,

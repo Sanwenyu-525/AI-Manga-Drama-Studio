@@ -49,24 +49,34 @@ class GenerationService:
         # P1-E2-T01: fail fast BEFORE queuing — canonical provider id, supported
         # media type, known workflow. generation.provider will equal the
         # implementation the worker actually runs.
-        if data.type != "image":
+        if data.type not in ("image", "video"):
             raise ValidationError(
-                "Only image generation is supported in MVP.",
-                {"type": data.type, "supported": ["image"]},
+                "Unsupported generation type.",
+                {"type": data.type, "supported": ["image", "video"]},
             )
-        from app.providers.registry import get_image_provider
+        resolved_workflow_id: str | None = None
+        if data.type == "video":
+            # 视频直连云端任务 API，不经过 workflow 模板。
+            from app.providers.registry import get_video_provider
+            from app.services.image_settings_service import get_video_config
 
-        provider = data.provider or settings.image_provider
-        get_image_provider(provider)  # unknown provider → ValidationError (422)
-        # P4-T007: explicit workflow_id keeps the strict 422 preflight; an omitted
-        # one is resolved by the priority chain (request → project default → system).
-        from app.services.workflow_resolver import WorkflowResolver
+            provider = data.provider or get_video_config()["provider"]
+            get_video_provider(provider)  # unknown provider → ValidationError (422)
+        else:
+            from app.providers.registry import get_image_provider
+            from app.services.image_settings_service import get_image_config
 
-        resolved_workflow_id = WorkflowResolver(self.session).resolve(
-            data.type,
-            request_workflow_id=data.workflow_id,
-            project_id=project_id,
-        )
+            provider = data.provider or get_image_config()["provider"]
+            get_image_provider(provider)  # unknown provider → ValidationError (422)
+            # P4-T007: explicit workflow_id keeps the strict 422 preflight; an omitted
+            # one is resolved by the priority chain (request → project default → system).
+            from app.services.workflow_resolver import WorkflowResolver
+
+            resolved_workflow_id = WorkflowResolver(self.session).resolve(
+                data.type,
+                request_workflow_id=data.workflow_id,
+                project_id=project_id,
+            )
 
         # ADR-002: resolve the authoritative SHOT_IMAGE prompt version; the
         # deprecated shot columns are the fallback (legacy rows / explicit API prompt).
@@ -88,6 +98,9 @@ class GenerationService:
             or (active_version.negative_prompt if active_version else None)
             or shot.negative_prompt
         )
+        if not resolved_prompt and data.type == "video":
+            # 视频的提示词兜底：镜头动作描述（种子/手排镜头常只有 action）。
+            resolved_prompt = getattr(shot, "action", None)
         if not resolved_prompt:
             raise ValidationError(
                 "Shot has no image_prompt. Set a prompt before generating.",
@@ -109,6 +122,7 @@ class GenerationService:
                     "seed": data.seed,
                     "width": data.width,
                     "height": data.height,
+                    "seconds": getattr(data, "seconds", None),
                 },
                 ensure_ascii=False,
             ),

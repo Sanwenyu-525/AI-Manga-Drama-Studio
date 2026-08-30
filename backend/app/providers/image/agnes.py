@@ -20,6 +20,7 @@ httpx.MockTransport (no network). A live smoke validation requires STUDIO_AGNES_
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 
 import httpx
@@ -41,9 +42,14 @@ class AgnesImageProvider:
     name = "agnes"
 
     def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:
-        # Allow explicit injection for tests; otherwise read from settings.
-        self._api_key = api_key if api_key is not None else (settings.agnes_api_key or "")
-        self._base_url = (base_url or settings.agnes_base_url).rstrip("/")
+        # Allow explicit injection for tests; otherwise read the runtime image
+        # config (settings UI, image.json) with env as the fallback layer.
+        if api_key is None or base_url is None:
+            from app.services.image_settings_service import get_image_config
+
+            cfg = get_image_config()
+        self._api_key = api_key if api_key is not None else (cfg.get("api_key") or "")
+        self._base_url = (base_url or cfg.get("agnes_base_url") or "").rstrip("/")
         self._output_dir = settings.data_dir / "agnes_output"
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._timeout = 60.0
@@ -116,6 +122,61 @@ class AgnesImageProvider:
         # Best-effort no-op (matches the "cancel must never raise" contract).
         logger.info("agnes cancel (no-op, synchronous API): %s", provider_ref)
 
+    # --- probe (POST /providers/agnes/test) --------------------------------
+
+    async def probe(self) -> dict:
+        """Cheap authenticated connectivity probe: GET /models with the configured key.
+
+        Never raises (200-with-result contract, same shape as /llm/test) and never
+        consumes image-generation quota. No key configured reports key_set=False so
+        the UI can point at backend/.env instead of a generic failure.
+        """
+        if not self._api_key:
+            return {
+                "connected": False,
+                "key_set": False,
+                "error": "未配置 STUDIO_AGNES_API_KEY（backend/.env）",
+            }
+        started = time.perf_counter()
+        try:
+            models = await asyncio.to_thread(self._request_models)
+        except ProviderUnavailableError as exc:
+            return {"connected": False, "key_set": True, "error": exc.message}
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        result: dict = {"connected": True, "key_set": True, "latency_ms": latency_ms}
+        if models is not None:
+            result["models_count"] = len(models)
+            result["sample_models"] = models[:5]
+            if DEFAULT_MODEL in models:
+                result["image_model_available"] = True
+        return result
+
+    def _request_models(self) -> list[str]:
+        """GET {base}/models with Bearer auth; return model ids."""
+        url = f"{self._base_url}/models"
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        try:
+            # 用户显式配置的云端端点：不跟随系统代理（理由同 llm 网关）。
+            with httpx.Client(timeout=self._timeout, trust_env=False) as client:
+                resp = client.get(url, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise ProviderUnavailableError(
+                f"Agnes API returned {exc.response.status_code}: {exc.response.text[:200]}",
+                {"provider": self.name, "status": exc.response.status_code},
+            ) from exc
+        except httpx.TransportError as exc:
+            raise ProviderUnavailableError(
+                f"Agnes API unreachable at {self._base_url}: {exc}", {"provider": self.name}
+            ) from exc
+        except ValueError as exc:
+            raise ProviderUnavailableError(
+                f"Agnes /models returned non-JSON: {exc}", {"provider": self.name}
+            ) from exc
+        items = data.get("data") or []
+        return [m.get("id") for m in items if isinstance(m, dict) and m.get("id")]
+
     # --- sync HTTP (run via asyncio.to_thread) ----------------------------
 
     def _request_image(self, request: ImageRequest) -> tuple[dict, str]:
@@ -132,7 +193,8 @@ class AgnesImageProvider:
             "size": self._size(request),
         }
         try:
-            with httpx.Client(timeout=self._timeout) as client:
+            # 用户显式配置的云端端点：不跟随系统代理（理由同 llm 网关）。
+            with httpx.Client(timeout=self._timeout, trust_env=False) as client:
                 resp = client.post(url, json=payload, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
@@ -155,7 +217,8 @@ class AgnesImageProvider:
         return data, image_url
 
     def _download(self, image_url: str, destination) -> None:
-        with httpx.Client(timeout=self._timeout) as client:
+        # 用户显式配置的云端端点：不跟随系统代理（理由同 llm 网关）。
+        with httpx.Client(timeout=self._timeout, trust_env=False) as client:
             resp = client.get(image_url)
             resp.raise_for_status()
             destination.write_bytes(resp.content)

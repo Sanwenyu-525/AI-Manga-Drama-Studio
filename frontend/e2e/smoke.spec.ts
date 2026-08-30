@@ -39,11 +39,10 @@ test.describe("Studio 主路径冒烟", () => {
 
     // Shell 关键区域可见
     await expect(page.locator(".app-shell")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator(".explorer")).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator(".top-bar")).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator(".app-shell")).toHaveClass(/explorer-collapsed/);
+    await expect(page.locator(".app-context-bar")).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".top-bar")).toHaveCount(0);
     await expect(page.locator(".app-shell")).toHaveClass(/right-collapsed/);
-    await expect(page.getByRole("button", { name: "生成图片" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "生成图片" })).toHaveCount(0);
 
     // ---- 4. 无页面级横向滚动（R2 冒烟回归）----
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);

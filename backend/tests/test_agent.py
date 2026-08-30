@@ -472,7 +472,7 @@ def test_cancel_run(client: TestClient, monkeypatch) -> None:
             await asyncio.sleep(0.3)  # keep the run cancellable while in flight
             return await super().structured(schema, system, prompt)
 
-    monkeypatch.setattr(graph_module, "create_gateway", lambda: SlowGateway())
+    monkeypatch.setattr(graph_module, "create_gateway", lambda task="default": SlowGateway())
     _cancel_requested.clear()
 
     ctx = _make_project_shot(client)
@@ -544,7 +544,7 @@ def test_cancel_before_graph_stops_everything(client: TestClient, monkeypatch) -
             await asyncio.sleep(0.3)  # keep the understand node in flight
             return await super().structured(schema, system, prompt)
 
-    monkeypatch.setattr(graph_module, "create_gateway", lambda: SlowGateway())
+    monkeypatch.setattr(graph_module, "create_gateway", lambda task="default": SlowGateway())
     _cancel_requested.clear()
     ctx = _make_project_shot(client)
     shot = ctx["shots"][0]
@@ -630,7 +630,7 @@ def test_current_stage_updates_while_running(client: TestClient, monkeypatch) ->
             await asyncio.sleep(0.3)  # keep the understand stage observable
             return await super().structured(schema, system, prompt)
 
-    monkeypatch.setattr(graph_module, "create_gateway", lambda: SlowGateway())
+    monkeypatch.setattr(graph_module, "create_gateway", lambda task="default": SlowGateway())
     resp = client.post(
         "/api/v1/agent/director/runs",
         json={

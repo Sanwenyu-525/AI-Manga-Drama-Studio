@@ -5,12 +5,16 @@
 // The source-workspace path is not part of MVP Project State, so we render the
 // manga-project side only — never a fabricated path, never a parent-child breadcrumb.
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowsLeftRight } from "@phosphor-icons/react";
+import { GearSix } from "@phosphor-icons/react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { Project } from "../../api/types";
+import type { Episode, Project, Storyboard } from "../../api/types";
+import { ProjectSettingsModal } from "../../features/settings/ProjectSettingsModal";
+import { useSelectionStore } from "../../stores/selectionStore";
+import { useStudioRoute } from "../../features/studio/studioRoute";
 
 const TAURI_RUNTIME = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -31,6 +35,12 @@ function moduleLabel(pathname: string): string {
   if (pathname.startsWith("/projects/new")) return "新建项目";
   if (pathname.endsWith("/source")) return "源内容工作区";
   if (pathname.endsWith("/workspace")) return "生产控制中心";
+  if (pathname.endsWith("/director")) return "AI导演";
+  if (pathname.endsWith("/characters")) return "角色库";
+  if (/^\/projects\/[^/]+\/storyboard$/.test(pathname)) return "分镜索引";
+  if (/^\/projects\/[^/]+\/shots$/.test(pathname)) return "镜头索引";
+  if (pathname.endsWith("/knowledge")) return "知识库";
+  if (pathname.endsWith("/continuity")) return "连续性检查";
   if (/(storyboard|shots)/.test(pathname)) return "分镜 / 镜头";
   if (pathname.includes("/assets")) return "素材库";
   if (pathname.includes("/timeline")) return "时间线";
@@ -45,7 +55,11 @@ function moduleLabel(pathname: string): string {
 export function ProjectContextBar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const route = useStudioRoute();
   const projectId = projectIdFromPath(pathname);
+  const selectedShotId = useSelectionStore((state) => state.selection.shotIds[0]);
+  // 项目设置入口：资源树移除后由上下文栏承载（原资源树标题栏的滑块按钮）。
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Same cache key as StudioPage → free sharing; disabled without a project.
   const { data: project } = useQuery({
@@ -54,6 +68,34 @@ export function ProjectContextBar() {
     enabled: Boolean(projectId),
     staleTime: 30_000,
   });
+  const { data: episodes } = useQuery({
+    queryKey: queryKeys.episodes(projectId ?? "__none__"),
+    queryFn: () => api.get<Episode[]>(`/projects/${projectId}/episodes`),
+    enabled: Boolean(projectId && route.episodeId),
+    staleTime: 30_000,
+  });
+  const { data: storyboard } = useQuery({
+    queryKey: route.sceneId ? queryKeys.storyboard(route.sceneId) : ["storyboard", "none"],
+    queryFn: () => api.get<Storyboard>(`/scenes/${route.sceneId}/storyboard`),
+    enabled: Boolean(route.sceneId),
+    staleTime: 15_000,
+  });
+
+  const episode = episodes?.find((item) => item.id === route.episodeId);
+  const selectedShot = storyboard?.shots.find((shot) => shot.id === (route.shotId ?? selectedShotId));
+  const storyboardContext = [
+    project?.name ?? "漫剧项目",
+    "分镜",
+    route.episodeId ? `EP${String(episode?.episode_number ?? 1).padStart(2, "0")}` : null,
+    route.sceneId
+      ? `SC${String(storyboard?.scene.scene_number ?? compactId(route.sceneId)).padStart(2, "0")}`
+      : null,
+    selectedShot ? `SH${String(selectedShot.shot_number).padStart(2, "0")}` : route.shotId ? compactId(route.shotId) : null,
+  ].filter((value): value is string => Boolean(value));
+  const isStoryboard = ["storyboard", "storyboard-index", "shot", "shots"].includes(route.workspace);
+  const contextSegments = isStoryboard
+    ? storyboardContext
+    : [project?.name ?? "漫剧项目", moduleLabel(pathname)].filter(Boolean);
 
   return (
     <div className="app-context-bar">
@@ -80,23 +122,45 @@ export function ProjectContextBar() {
         </button>
       </div>
 
-      <span className="binding-summary" aria-live="polite">
-        <ArrowsLeftRight size={13} weight="fill" aria-hidden />
+      <nav className="context-breadcrumb" aria-label="项目上下文" aria-live="polite">
         {projectId && project ? (
-          <>
-            <span className="binding-project">漫剧项目《{project.name}》</span>
-            <span className="binding-meta">{moduleLabel(pathname) && `· ${moduleLabel(pathname)}`}</span>
-          </>
+          contextSegments.map((segment, index) => (
+            <span key={`${segment}-${index}`} className={index === contextSegments.length - 1 ? "current" : undefined}>
+              {index > 0 && <span className="context-separator">/</span>}
+              {segment}
+            </span>
+          ))
         ) : pathname === "/projects/new" ? (
-          <span className="binding-meta">正在创建新的漫剧项目</span>
+          <span className="context-muted">正在创建新的漫剧项目</span>
         ) : (
-          <span className="binding-meta">未打开项目 · 从左侧活动栏进入项目</span>
+          <span className="context-muted">未打开项目</span>
         )}
+      </nav>
+
+      <span className="context-save-status" title={TAURI_RUNTIME ? "项目状态保存于本地 SQLite" : "项目状态由本地开发服务保存"}>
+        <span className="context-status-dot" aria-hidden />
+        {projectId ? "已保存 · SQLite" : "等待项目"}
       </span>
 
-      <span className={`context-env ${TAURI_RUNTIME ? "" : "web"}`} title={TAURI_RUNTIME ? "桌面运行环境" : "浏览器预览环境"}>
-        {TAURI_RUNTIME ? "桌面端" : "Web 预览"}
-      </span>
+      {projectId && (
+        <>
+          <button
+            type="button"
+            className="context-gear"
+            title="项目设置"
+            aria-label="项目设置"
+            aria-haspopup="dialog"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <GearSix size={14} />
+          </button>
+          <ProjectSettingsModal projectId={projectId} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        </>
+      )}
     </div>
   );
+}
+
+function compactId(value: string): string {
+  return value.length > 8 ? value.slice(-4).toUpperCase() : value.toUpperCase();
 }

@@ -71,6 +71,46 @@ def test_video_provider_registered_but_unavailable() -> None:
         registry.reset_providers()
 
 
+def test_video_generation_worker_completes_with_fake_agnes(client: TestClient, tmp_path) -> None:
+    """type="video" 的 worker 链路：假 Agnes provider 产出 mp4 → 注册 SHOT_VIDEO 资产版本。"""
+    import tempfile
+    from pathlib import Path
+
+    from app.generations.worker import run_generation
+    import app.providers.registry as registry
+    from app.providers.video.base import VideoResult
+
+    class _FakeAgnesVideo:
+        name = "agnes"
+
+        async def generate(self, request, on_progress):
+            on_progress(50, "generating")
+            fd = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+            fd.write(b"fake mp4 bytes")
+            fd.close()
+            return VideoResult(success=True, output_path=fd.name, provider_ref="task_test", duration=5.0)
+
+        async def cancel(self, provider_ref: str) -> None:
+            return None
+
+    registry.reset_providers()
+    registry._video_providers["agnes"] = _FakeAgnesVideo()  # noqa: SLF001 — 测试注入
+    try:
+        shot = _make_shot(client)
+        created = client.post(
+            f"/api/v1/shots/{shot['id']}/generations",
+            json={"type": "video", "seconds": 5, "provider": "agnes"},
+        ).json()
+        asyncio.run(run_generation(created["id"]))
+        done = client.get(f"/api/v1/generations/{created['id']}").json()
+        assert done["status"] == "completed", done.get("error_message")
+        assert done["output_asset_id"]
+        asset = client.get(f"/api/v1/assets/{done['output_asset_id']}").json()
+        assert asset["type"] == "video"
+    finally:
+        registry.reset_providers()
+
+
 def test_video_provider_cancel_rejects() -> None:
     registry.reset_providers()
     try:
@@ -113,7 +153,7 @@ def test_provider_status_image_fields_backward_compatible() -> None:
 
 def test_canonical_provider_sets() -> None:
     assert "mock" in IMAGE_PROVIDERS and "comfyui" in IMAGE_PROVIDERS
-    assert VIDEO_PROVIDERS == ("mock",)
+    assert VIDEO_PROVIDERS == ("mock", "agnes")
     assert WORKFLOW_PROVIDERS == ("comfyui",)
     assert "fake" in LLM_PROVIDERS and "openai" in LLM_PROVIDERS
 
@@ -156,15 +196,15 @@ def _make_shot(client: TestClient) -> dict:
     ).json()
 
 
-def test_create_generation_video_rejected_422(client: TestClient) -> None:
-    """MVP rejects video at the service boundary with a fail-fast 422 (contract §41)."""
+def test_create_generation_video_accepted(client: TestClient) -> None:
+    """Agnes 接入后 type="video" 走 VideoProvider 链路（默认 mock provider 可入队）。"""
     shot = _make_shot(client)
-    resp = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "video"})
-    assert resp.status_code == 422
-    err = resp.json()["error"]
-    assert err["code"] == "VALIDATION_ERROR"
-    assert err["details"]["type"] == "video"
-    assert err["details"]["supported"] == ["image"]
+    resp = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "video", "seconds": 5})
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    assert body["type"] == "video"
+    assert body["status"] == "queued"
+    assert body["provider"] == "mock"  # 测试环境无覆盖层 → env 默认 mock
 
 
 def test_image_generation_still_works_via_registry(client: TestClient) -> None:
@@ -177,3 +217,19 @@ def test_image_generation_still_works_via_registry(client: TestClient) -> None:
     asyncio.run(run_generation(created["id"]))
     done = client.get(f"/api/v1/generations/{created['id']}").json()
     assert done["status"] == "completed", done.get("error_message")
+
+
+def test_provider_status_llm_reflects_runtime_config(monkeypatch) -> None:
+    """LLM 激活态与业务链路同源（get_llm_config：llm.json 优先、env 兜底），
+    而不是静态 settings.llm_mode —— 否则设置页切换后状态栏仍显示旧 Provider。"""
+    from app.services import llm_settings_service
+
+    monkeypatch.setattr(llm_settings_service, "get_llm_config", lambda: {"mode": "openai"})
+    status = {item["id"]: item["status"] for item in registry.provider_status()}
+    assert status["llm_openai"] == "active"
+    assert status["llm_fake"] == "unknown"
+
+    monkeypatch.setattr(llm_settings_service, "get_llm_config", lambda: {"mode": "fake"})
+    status = {item["id"]: item["status"] for item in registry.provider_status()}
+    assert status["llm_fake"] == "active"
+    assert status["llm_openai"] == "unknown"

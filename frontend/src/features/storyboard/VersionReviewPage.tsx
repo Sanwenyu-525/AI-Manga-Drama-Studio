@@ -17,6 +17,7 @@ import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { deriveVersionBadges, latestPerGroup } from "../versioning/VersionStrip";
 import type { AssetVersionRead, Project, Scene, Shot } from "../../api/types";
+import { SHOT_TYPE_LABELS } from "../../api/types";
 import { canonicalStoryboardPath } from "../studio/studioRoute";
 
 export function VersionReviewPage() {
@@ -215,7 +216,7 @@ export function VersionReviewPage() {
             </div>
             <div>
               <span>景别</span>
-              <strong>{shot?.shot_type ?? "—"}</strong>
+              <strong>{(shot?.shot_type && SHOT_TYPE_LABELS[shot.shot_type]) || shot?.shot_type || "—"}</strong>
             </div>
             <div>
               <span>情绪</span>

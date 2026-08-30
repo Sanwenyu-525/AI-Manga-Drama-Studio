@@ -36,10 +36,8 @@ export function applyWorkspace(snapshot: ParsedWorkspaceSnapshot | null) {
   if (!snapshot) return;
   const layout = sanitizeLayout(snapshot.layout);
   useWorkspaceStore.setState({
-    explorerWidth: layout.explorerWidth,
     rightWidth: layout.rightWidth,
     bottomDockHeight: layout.bottomDockHeight,
-    explorerCollapsed: layout.explorerCollapsed,
     rightPanelCollapsed: layout.rightPanelCollapsed,
     bottomDockExpanded: layout.bottomDockExpanded,
     rightPanelTab: layout.rightPanelTab,
@@ -59,10 +57,8 @@ export function collectSnapshot(): WorkspaceSnapshot {
   return {
     schemaVersion: 2,
     layout: {
-      explorerWidth: ws.explorerWidth,
       rightWidth: ws.rightWidth,
       bottomDockHeight: ws.bottomDockHeight,
-      explorerCollapsed: ws.explorerCollapsed,
       rightPanelCollapsed: ws.rightPanelCollapsed,
       bottomDockExpanded: ws.bottomDockExpanded,
       rightPanelTab: ws.rightPanelTab,
@@ -76,27 +72,28 @@ let attached = false;
 
 function makeSaver(storage: Storage) {
   const write = () => saveWorkspace(collectSnapshot(), storage);
-  const debounced = createDebounced(write, SAVE_DEBOUNCE_MS);
+  const schedule = createDebounced(write, SAVE_DEBOUNCE_MS);
   return {
-    saveNow: () => write(),
-    cancel: () => debounced.cancel(),
+    schedule,
+    flush: () => schedule.flush(),
   };
 }
 
 /** Subscribe the stores to persistence. Safe to call more than once (idempotent).
- *  Returns an unsubscribe that stops saving (does not cancel prior writes). */
+ *  Writes are debounced (SAVE_DEBOUNCE_MS) so resize gestures don't hit storage
+ *  every frame; the returned unsubscribe flushes any pending write. */
 export function attachWorkspacePersistence(storage?: Storage): () => void {
   const target = storage ?? defaultStorage();
   if (!target) return () => {};
   if (attached && !storage) return () => {};
   const saver = makeSaver(target);
-  const unsubWorkspace = useWorkspaceStore.subscribe(() => saver.saveNow());
-  const unsubTabs = useEditorTabsStore.subscribe(() => saver.saveNow());
+  const unsubWorkspace = useWorkspaceStore.subscribe(() => saver.schedule());
+  const unsubTabs = useEditorTabsStore.subscribe(() => saver.schedule());
   attached = true;
   return () => {
     unsubWorkspace();
     unsubTabs();
-    saver.cancel();
+    saver.flush();
     attached = false;
   };
 }

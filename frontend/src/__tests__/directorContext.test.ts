@@ -66,4 +66,16 @@ describe("Director context", () => {
       asset_ids: ["asset-selected"],
     });
   });
+
+  it("keeps project-level rail pages inside the correct Director context", () => {
+    expect(buildDirectorContext(route({ workspace: "director" }), selection)).toMatchObject({
+      workspace: "script",
+      project_id: "p1",
+    });
+    expect(buildDirectorContext(route({ workspace: "shots" }), selection)).toMatchObject({
+      workspace: "storyboard",
+      project_id: "p1",
+      shot_ids: [],
+    });
+  });
 });

@@ -136,14 +136,22 @@ def test_unknown_workflow_rejected_422(client: TestClient) -> None:
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
-def test_video_type_rejected_422(client: TestClient) -> None:
+def test_video_type_accepted_202(client: TestClient) -> None:
+    """Agnes 接入后 type="video" 走 VideoProvider（默认 mock provider 可入队）。"""
     shot = _make_shot(client)
-    resp = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "video"})
+    resp = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "video", "seconds": 5})
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["type"] == "video"
+    assert body["status"] == "queued"
+
+
+def test_unknown_generation_type_rejected_422(client: TestClient) -> None:
+    shot = _make_shot(client)
+    resp = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "hologram"})
     assert resp.status_code == 422
     err = resp.json()["error"]
     assert err["code"] == "VALIDATION_ERROR"
-    assert err["details"]["type"] == "video"
-    assert err["details"]["supported"] == ["image"]
 
 
 def test_generation_provider_matches_implementation(client: TestClient, monkeypatch) -> None:

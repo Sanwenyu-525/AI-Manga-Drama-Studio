@@ -70,12 +70,13 @@ def test_persisted_overrides_survive_across_calls(client, tmp_path, monkeypatch)
         "/api/v1/llm/config",
         json={"mode": "openai", "base_url": "http://127.0.0.1:11434", "model": "qwen2"},
     )
-    # 文件落盘
-    assert svc._path().exists()
-    data = svc._read_overrides()
-    assert data["mode"] == "openai"
-    assert data["base_url"] == "http://127.0.0.1:11434"
-    assert data["model"] == "qwen2"
+    # P-LLM-Profiles：PUT /llm/config 更新激活连接，权威源是 llm_profiles.json
+    assert svc._profiles_path().exists()
+    state = svc._load_state()
+    active = next(p for p in state["profiles"] if p["id"] == state["active_profile_id"])
+    assert active["mode"] == "openai"
+    assert active["base_url"] == "http://127.0.0.1:11434"
+    assert active["model"] == "qwen2"
     # 再读一致
     body = client.get("/api/v1/llm/config").json()
     assert body["model"] == "qwen2"

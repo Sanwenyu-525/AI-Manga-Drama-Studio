@@ -38,19 +38,18 @@ export function NewProjectPage() {
 
   return (
     <div className="new-project-page">
-      <header className="new-project-header">
-        <Link to="/" className="icon-button" aria-label="返回项目">
-          <ArrowLeft size={19} />
-        </Link>
-        <span className="wordmark">
-          <img src="/assets/logo.png" alt="" className="app-logo" /> AI MANGA DRAMA STUDIO
-        </span>
-        <h1>新建项目</h1>
-        <span />
-      </header>
-
       <main className="new-project-layout">
         <section className="project-form-column">
+          <div className="page-heading">
+            <div>
+              <h1>新建项目</h1>
+              <p>设置画幅与帧率，选择起点后进入工作台。</p>
+            </div>
+            <Link to="/" className="btn secondary compact">
+              <ArrowLeft size={15} /> 返回项目
+            </Link>
+          </div>
+
           <div className="stepper" aria-label="创建步骤">
             <span className="active">01 项目设置</span>
             <i />

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpenText,
   Check,
@@ -12,15 +12,66 @@ import {
   MagicWand,
   MapPin,
   Moon,
+  Plus,
   Sparkle,
   UsersThree,
   X,
 } from "@phosphor-icons/react";
-import { api } from "../../api/client";
+import { useNavigate } from "react-router-dom";
+import { ApiError, api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import type { Episode, Operation, ScenePlan } from "../../api/types";
 import { useOperationPolling } from "../ai/useOperationPolling";
+import { canonicalScriptPath } from "../studio/studioRoute";
+
+// AI 分析等待期轮换提示：只描述真实在发生的阶段，不伪造进度百分比。
+const ANALYSIS_HINTS = [
+  "正在连接模型…",
+  "正在读取原文语义与结构…",
+  "正在识别场景、地点与情绪节拍…",
+  "正在生成结构化场景草案…",
+];
+
+function formatElapsed(total: number): string {
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return m > 0 ? `${m} 分 ${String(s).padStart(2, "0")} 秒` : `${s} 秒`;
+}
+
+// 分析进行中的右侧面板：骨架屏 + 真实耗时，替代静默等待（LLM 调用常达 1 分钟+）。
+function AnalysisLoadingPanel({ elapsed }: { elapsed: number }) {
+  const hint = ANALYSIS_HINTS[Math.min(Math.floor(elapsed / 5), ANALYSIS_HINTS.length - 1)];
+  return (
+    <section className="analysis-start-panel analysis-loading-panel" role="status" aria-live="polite">
+      <div className="analysis-orbit analysis-orbit--live">
+        <MagicWand size={30} weight="fill" />
+      </div>
+      <span className="eyebrow">结构化输出</span>
+      <h2>AI 正在分析原文</h2>
+      <p className="analysis-loading-status">
+        {hint}
+        <span className="loading-dots" aria-hidden>
+          <i />
+          <i />
+          <i />
+        </span>
+      </p>
+      <p className="analysis-loading-elapsed">
+        已进行 {formatElapsed(elapsed)} · 长文本通常需要 1–2 分钟
+      </p>
+      <div className="scene-skeleton-list" aria-hidden>
+        {[0, 1, 2].map((i) => (
+          <div className="scene-skeleton" key={i} style={{ animationDelay: `${i * 0.18}s` }}>
+            <span className="sk-line sk-title" />
+            <span className="sk-line" />
+            <span className="sk-line sk-short" />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 export function EpisodePanel({
   episode,
@@ -30,9 +81,27 @@ export function EpisodePanel({
   onScenesCreated?: (sceneIds: string[]) => void;
 }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null);
   const [sourceText, setSourceText] = useState(episode.source_text ?? "");
+
+  // 剧集切换/新建：资源树移除后这里是唯一的剧集级入口（缓存与 StudioPage 共享）。
+  const { data: episodes } = useQuery({
+    queryKey: queryKeys.episodes(episode.project_id),
+    queryFn: () => api.get<Episode[]>(`/projects/${episode.project_id}/episodes`),
+    staleTime: 30_000,
+  });
+  const createEpisode = useMutation({
+    mutationFn: () =>
+      api.post<Episode>(`/projects/${episode.project_id}/episodes`, {
+        title: "第 " + ((episodes?.length ?? 0) + 1) + " 集",
+      }),
+    onSuccess: (created) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(episode.project_id) });
+      navigate(canonicalScriptPath(episode.project_id, created.id));
+    },
+  });
   // 原稿目录工作区：选择一个本地目录，列出其中的 .txt/.md 文件，点选即读入原文。
   // 全部在浏览器/webview 本地完成，不落后端、不存路径（安全且无需 API）。
   const [workspaceFiles, setWorkspaceFiles] = useState<{ path: string; file: File }[]>([]);
@@ -50,15 +119,44 @@ export function EpisodePanel({
     setActivePlanIndex(0);
   }, [episode.id, episode.source_text]);
 
+  // Save the novel text through the §21/§88 optimistic-concurrency envelope
+  // ({revision, patch}); refresh the cached revision from the response so back-
+  // to-back saves don't 409, and translate a lost race into an actionable hint.
+  const saveSourceText = async (): Promise<Episode> => {
+    try {
+      const updated = await api.patch<Episode>(`/episodes/${episode.id}`, {
+        revision: episode.revision,
+        patch: { source_text: sourceText },
+      });
+      queryClient.setQueryData<Episode[]>(queryKeys.episodes(episode.project_id), (prev) =>
+        (prev ?? []).map((item) =>
+          item.id === updated.id
+            ? { ...item, source_text: updated.source_text, revision: updated.revision, updated_at: updated.updated_at }
+            : item,
+        ),
+      );
+      return updated;
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "CONFLICT") {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(episode.project_id) });
+        throw new Error("该剧集刚被其他修改更新过，已刷新为最新内容，请重试保存。", { cause: error });
+      }
+      throw error;
+    }
+  };
+
   const saveSource = useMutation({
-    mutationFn: () => api.patch<Episode>(`/episodes/${episode.id}`, { source_text: sourceText }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(episode.project_id) }),
+    mutationFn: saveSourceText,
+    onSuccess: () => {
+      setPreviewError(null);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(episode.project_id) });
+    },
+    onError: (error) => setPreviewError(error instanceof Error ? error : new Error(String(error))),
   });
 
   const runPreview = useMutation({
     mutationFn: async () => {
-      if (sourceText !== (episode.source_text ?? ""))
-        await api.patch<Episode>(`/episodes/${episode.id}`, { source_text: sourceText });
+      if (sourceText !== (episode.source_text ?? "")) await saveSourceText();
       return api.post<ScenePlan[]>(`/episodes/${episode.id}/analyze/preview`);
     },
     onSuccess: (plans) => {
@@ -69,6 +167,18 @@ export function EpisodePanel({
     },
     onError: (error) => setPreviewError(error instanceof Error ? error : new Error(String(error))),
   });
+
+  // 分析等待计时：驱动右侧加载面板的耗时与轮换提示（真实时间，不伪造进度）。
+  const [previewElapsed, setPreviewElapsed] = useState(0);
+  useEffect(() => {
+    if (!runPreview.isPending) {
+      setPreviewElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = window.setInterval(() => setPreviewElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [runPreview.isPending]);
 
   const createScenes = useMutation({
     mutationFn: () => api.post<{ operation_id: string; status: string }>(`/episodes/${episode.id}/analyze`),
@@ -140,6 +250,31 @@ export function EpisodePanel({
           <h1>
             EP{String(episode.episode_number).padStart(2, "0")} · {episode.title || "未命名剧集"}
           </h1>
+          <div className="episode-heading-actions">
+            {episodes?.length ? (
+              <select
+                className="episode-switch"
+                value={episode.id}
+                onChange={(e) => navigate(canonicalScriptPath(episode.project_id, e.target.value))}
+                aria-label="切换剧集"
+              >
+                {episodes.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    EP{String(item.episode_number).padStart(2, "0")} · {item.title || "未命名剧集"}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            <button
+              type="button"
+              className="btn secondary compact"
+              disabled={createEpisode.isPending}
+              onClick={() => createEpisode.mutate()}
+              title="新建一集空白剧集"
+            >
+              <Plus size={13} /> {createEpisode.isPending ? "创建中…" : "新建剧集"}
+            </button>
+          </div>
           <p>
             {wordCount.toLocaleString("zh-CN")} 字 · {episode.status}
           </p>
@@ -325,6 +460,8 @@ export function EpisodePanel({
               </div>
             </aside>
           </>
+        ) : runPreview.isPending ? (
+          <AnalysisLoadingPanel elapsed={previewElapsed} />
         ) : (
           <section className="analysis-start-panel">
             <div className="analysis-orbit">
@@ -382,7 +519,12 @@ export function EpisodePanel({
             disabled={!sourceText.trim() || runPreview.isPending}
             onClick={() => runPreview.mutate()}
           >
-            <MagicWand size={16} weight="fill" /> {runPreview.isPending ? "AI 分析中…" : "AI 分析并预览"}
+            {runPreview.isPending ? (
+              <span className="btn-spinner" aria-hidden />
+            ) : (
+              <MagicWand size={16} weight="fill" />
+            )}{" "}
+            {runPreview.isPending ? "AI 分析中…" : "AI 分析并预览"}
           </button>
         )}
       </footer>

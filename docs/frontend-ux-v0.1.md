@@ -2084,6 +2084,28 @@ Settings
 
 ---
 
+## 76.1 Activity Rail 顶层职责与路由
+
+Activity Rail 的 15 个 Tab 顺序固定（见 `DESIGN.md` §4）。每个已启用 Tab 必须指向稳定的职责页，禁止依赖“最近打开的编辑 Tab”决定落点，也禁止临时借道无关模块。
+
+| 顺序 | Tab | 职责页 / 路由 |
+|---:|---|---|
+| 1 | 项目 | 项目库 `/` |
+| 2 | 工作区 | 生产控制中心 `/projects/:id/workspace` |
+| 3 | AI导演 | 导演控制台 `/projects/:id/director`，同时打开右侧 AI 导演 Dock |
+| 4 | 故事 | 当前剧集剧本 `/projects/:id/episodes/:episodeId/script`；项目级 `/script` 仅负责解析默认剧集 |
+| 5 | 角色 | 角色库 `/projects/:id/characters` |
+| 6 | 分镜 | 按剧集/场景组织的分镜索引 `/projects/:id/storyboard` |
+| 7 | 工作流 | 工作流目录 `/workflows` |
+| 8 | 资产 | 项目素材库 `/projects/:id/assets`；无项目时进入全局 `/assets` |
+| 9 | 镜头 | 项目镜头索引 `/projects/:id/shots`，选中后进入镜头详情与检查器 |
+| 10 | 提示词历史 | 项目 Prompt 版本库 `/projects/:id/prompts` |
+| 11 | 知识库 | 项目知识入口 `/projects/:id/knowledge`；未接入知识图谱时展示诚实规划态 |
+| 12 | 连续性检查 | 按场景查看警告与触发重算 `/projects/:id/continuity` |
+| 13 | 时间线 | 当前剧集时间线 `/projects/:id/episodes/:episodeId/timeline` |
+| 14 | 生产日志 | 项目生成任务追溯 `/projects/:id/production-log` |
+| 15 | 设置 | 全局 Provider / LLM 设置 `/settings` |
+
 # 77. MVP 暂不做
 
 ```text
@@ -2137,8 +2159,6 @@ React：
 AppShell
 
 ├── TopBar
-
-├── ProjectExplorer
 
 ├── Workspace
 │   ├── ScriptWorkspace

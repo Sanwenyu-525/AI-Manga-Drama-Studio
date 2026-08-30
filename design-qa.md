@@ -324,3 +324,120 @@ final result: passed
 **验证**：tsc -b + vite build ✓；eslint ✓；vitest 165/165（exit 0）✓；Chrome DevTools 走查：P2 管线随数据联动（导入原文后 小说分析✓→图片生成● 0/7 成为行动点）、P1 空态/已导入态（PATCH 写入真实原文后 171 字·只读渲染 + 映射正确）、1920/1600 两档无溢出；console 仅管线探针的预期 404 资源日志（REST 语义，无 JS 错误）。
 
 final result: passed
+## UI 改造 Pass 21 (2026-08-28) — Activity Rail Tab 职责归位
+
+- 按 `DESIGN.md` §4 冻结顺序逐项核对 15 个 Tab；保留项目/工作区/故事/工作流/资产/提示词/时间线/生产日志/设置的正确落点。
+- 修复 AI导演/角色/分镜/镜头/连续性检查借道故事页或依赖最近 Editor Tab 的不稳定导航，新增稳定项目级深链 `/director` `/characters` `/storyboard` `/shots` `/continuity`。
+- 知识库从不可点击改为 `/knowledge` 诚实规划态页；不伪造知识图谱数据，仅导向已有源内容与 Prompt 版本库。
+- 复用现有 Character CRUD / MASTER 版本管理、Project Tree 和 Continuity API；分镜与镜头索引只展示真实项目数据。
+- 修复 Activity Rail 在分镜详情和镜头索引上的选中态；补齐 Project Context Bar 模块名与 Director Context 的项目级路由解析。
+- 验证：Vitest 29 files / 173 tests 通过；ESLint 通过；TypeScript + Vite production build 通过。
+
+## UI 改造 Pass 22 (2026-08-28) — 分镜生产工作台定向重构（Shot Canvas 轮）
+
+按「AI 漫剧分镜生产工作台」改造清单在冻结 Shell 内完成定向 UI/UX 重构；不动 DB/API/Agent 协议/生成核心。
+
+- **中央 Shot Canvas**：Scene Header 改标题+metadata inline（SC 编号 eyebrow、傍晚·室外·社区篮球场·紧张、9 镜·38.4s）；新增「生成待生成镜头 ▾」下拉（当前/待生成/失败/批量，复用既有 generation API 逐镜 POST）；「生成图片」语义模糊按钮移除。九镜场景 3×3（`.shot-grid--few`：track min = 1/3 行宽，窄屏优雅降 2/1 列）。
+- **Shot 卡真实数据**：复用既有 `GET /scenes/{id}/shots`（ShotRead）enrichment——卡片显示真实 action 描述 + 镜头语言标签（景别·运动中文映射，static=固定机位/dolly=缓慢推进/handheld=手持感/tracking=跟拍…）；16:9 preview，无图统一 dark placeholder（SHxx + Preview unavailable）；选中 = accent 边+inset ring+SH 编号 accent。
+- **Selection 统一**：selectionStore（既有）+ URL 双通道；进入场景默认选中 SH03（有 SH03 用 SH03，否则第一个），面包屑/资源树/网格/AI Dock/检查器同源。
+- **Resource Tree**：EP 行改 `EP01 · Episode 1`+「N 场」（与展开场景共享 queryKeys.scenes 缓存）；场景行「9 镜」；角色/地点/提示词默认折叠（展开才显示空态）；行高 30-32px 无逐行边框；**按 workspace 显隐**：仅 script/storyboard/shot/timeline 打开，workspace/source/director/characters/索引/知识库/提示词/生产日志自动收起（路由驱动默认，页内仍可手动开合）。
+- **AI Dock**：无 selection 极简空态；选中显示「当前 EP01 / SC01 / SH03」（复用 episodes/storyboard 缓存查号）+ 画面意图（真实 shot.action）+ AI 建议 + 4 快捷操作（填入输入框）+ 底部输入框；镜头检查器新增 5 行检查摘要（连续性=真实 continuity-state 警告数、角色/场景一致性、构图检查、Prompt 完整度=字段填充率，全部真实推导）。
+- **Production Queue**：默认折叠 36px 把手（生成队列/运行中/失败/历史/任务/⌃），展开钳制 ≤220px（panels.bottom max 500→220 + CSS min() 双保险）。
+- **Demo 数据**：新增 `backend/scripts/seed_demo_project.py`（幂等，走现有模型/Service）：「最后一种打法」EP01/SC01 球场观察（傍晚·室外·社区篮球场，Location 关联）9 镜全量填充（类型/机位/时长/描述/状态，SH01-03 经 MockImageProvider→AssetService→VersionService 注册真实 mock 图，SH05 running@62% 且 max_attempts=3 保证 lease 恢复后可被 mock 补完）、沈亦/高个少年 + shot_characters 关联、SC02 赛前准备 4 镜草稿、EP02 空。
+- **修复拖拽 bug**：`onDelta` 为累计位移而 StudioPage 以每次渲染的宽度为基线 → 累计位移重复叠加、面板雪崩到钳制端点（表现为只有起点/终点两态）。`ResizeHandle` 新增 `onDragStart`（pointerdown 触发），StudioPage 用 ref 冻结基线（左/右/底三处）；同时修复 `--v2` 把手被压成 1px 宽导致右侧面板几乎无法命中。
+- **Status bar / Context bar**：保留 28px 状态栏（已连接/Provider/队列/SQLite）；顶部仅 Global Header + Project Context Bar（最后一种打法 / 分镜 / EP01 / SC01 / SH03 · 已保存·SQLite）。
+
+**验证**：tsc -b ✓；ESLint ✓；Vitest 30 files / 176 tests ✓；vite build ✓；后端 ruff ✓ + seed 幂等重跑 ✓。Chrome 1920×1080 实测：3×3 网格、SC01 高亮、SH03 选中态四端一致（树/面包屑/网格/AI Dock「EP01 / SC01 / SH03」）、资源树拖拽中途释放停于 268px（无端点吸附）、右面板拖拽 328→430、workspace 页树自动收起 30px、返回分镜页自动恢复。已知后续项：编辑标签栏与 Scene Header 的轻量重复（保留 P6-T004 功能）、SH05 生成中为瞬态（lease 到期后按真实恢复语义流转）。
+
+final result: passed
+
+### Pass 22.1 补丁 (2026-08-28) — 面板拖拽跟手性
+
+- 根因：`.app-shell` 为收起/展开动画设置的 `transition: grid-template-columns/rows 0.18s ease` 在拖拽期间同样生效，宽度更新被 180ms 缓动追赶 → 把手视觉滞后于鼠标。
+- 修复：workspaceStore 新增 `panelResizing` 手势态；三个 ResizeHandle（onDragStart/onDragEnd）与 GenerationQueue dock header 拖拽统一置位，shell 挂 `is-resizing` 类 → 手势期间 `transition: none`，收起/展开动画保持不变。
+- 验证：浏览器合成指针逐点采样——拖拽中 computed transition-duration=0s，宽度逐步精确跟随（268→328→378→钳制 400），释放后类移除；tsc/eslint ✓、Vitest 30 files / 176 tests ✓、build ✓。
+
+## UI 改造 Pass 23 (2026-08-29) — 移除资源树（ProjectExplorer）
+
+按产品决策整体移除 Studio Shell 左侧资源树面板，消除导航双入口冲突（活动栏 Rail vs 资源树各自都能改 URL，剧集行「展开即导航」还会把用户从当前工作区拽走）。
+
+- **Shell**：`.app-shell` 网格从 5 列（explorer/v1/workspace/v2/right）改 3 列（workspace/v2/right）；删除 explorer aside、左侧 ResizeHandle、`--explorer-w` 变量、`explorer-collapsed` 修饰符与按 workspace 自动收起 effect（EXPLORER_WORKSPACES）；紧凑模式的 `compactPanel` 只剩 `right`。
+- **组件**：删除 `features/studio/ProjectExplorer.tsx`（制作结构树 + Episode/Scene CRUD + 地点/提示词库 + 项目设置入口）与 `projectExplorerTree.test.tsx`；`CharactersSection`（+CharacterRow）搬至 `features/libraries/CharactersSection.tsx`，角色页（`/characters`）改从新路径导入，行为不变。
+- **状态/持久化**：workspaceStore 与 `lib/persistence` 的 `LayoutState` 移除 `explorerWidth`/`explorerCollapsed`；`PANEL_BOUNDS` 仅剩 right/bottom，`PanelId` 收窄，未再使用的 `applyVerticalResize` 一并删除；`sanitizeLayout` 自动丢弃旧快照中的 explorer 字段（schemaVersion 保持 2，无需迁移）。
+- **入口迁移**：角色库 → 活动栏「角色」页（原树内联区的能力保留在新组件里）；ShotInspector 空态与源内容页「设定库」链接改为指向「角色」页；Timeline 空状态文案改指故事模块。
+- **能力收敛提示**：随树删除的独占入口——手动「添加/重命名/删除剧集」「添加/重命名/删除场景」「地点库」「项目提示词预设」「项目设置弹窗入口」（ProjectSettingsModal 组件与测试保留，待重新挂载入口）。剧集/场景仍可经故事模块（导入/分析）与分镜索引创建；如需恢复请为这些能力另立页面入口，不要复活资源树。
+- **验证**：tsc -b ✓；vite build ✓（bundle 670.7→652.4 kB）；Vitest 29 files / 170 tests ✓（panels/persistence/workspaceStore 测试同步收窄，新增「旧快照 explorer 字段被丢弃」用例）；e2e smoke 断言同步（`.explorer` 可见性与 `explorer-collapsed` 类移除）。
+
+final result: passed
+
+### Pass 23.1 补丁 (2026-08-29) — Shell 网格铺满修复
+
+- 现象：资源树删除后中央工作区没有铺满（Playwright 实测 `.app-shell` 计算列异常为 5 列、`.workspace`/`.right-panel` 重叠）。
+- 根因：Pass 23 改写 `grid-template-areas` 时把第 3/4 行写成 4 个 token（`"workspace h1 v2 right"`），与首行 3 个 token 不一致 → 整条 areas 声明非法被丢弃（computed = `none`），全部子元素按 custom-ident 行名解析失败退化为自动布局，挤进隐式列。
+- 修复：`.app-shell`（含 storyboard refresh 覆盖块）areas 改为 `"workspace v2 right" / "h1 v2 right" / "dock v2 right"`；同时清理两处残留 5 列模板的媒体查询（≤1220px、≤1100px → `minmax(0,1fr) 5px Npx`）。
+- 验证：Playwright 无头实测 2560/1920/1280/1100/1000 五档宽度——3 列解析正确，`.workspace` 右缘 + 5px 手柄 = 右面板左缘，右面板贴合 shell 右缘（328px，≤1100px 收起态 30px）；截图目视确认无空隙/重叠。tsc + vite build ✓。
+
+final result: passed
+
+### Pass 23.2 记录 (2026-08-29) — styles.css 意外回退与恢复
+
+- 排查用户端布局复现时，误执行 `git checkout -- src/styles.css`，把该文件回退到上次提交：丢失本会话全部 CSS 修改 + 会话前已存在的未提交改动（vite HMR 中断导致用户端一直呈现中间态坏 CSS，是布局问题复现的根因；文件 bump 后其 watcher 恢复工作）。
+- 恢复方式：修复完成后的生产构建产物 `dist/assets/index-*.css` 完整包含最终样式；以 timeline.css 压缩后首条规则为切分点拆包（时间线部分 117 条规则与源文件逐一对应验证），前半段即最终版 styles.css，规则级 diff 确认与预期改动集一致（新增 181 条设计改造规则、删除的 92 条全为 explorer 相关）。
+- 代价：注释与原始排版丢失（现为每规则一行的压缩还原格式）；其余工作区文件未受影响。tsc + vite build ✓；Playwright 2000×1080 镜头详情路由实测网格与面板几何正确 ✓。
+
+final result: passed
+
+## UI 改造 Pass 24 (2026-08-29) — Agnes 图片/视频全量接入 + 设置页三卡 + 等待动画
+
+按产品决策完成 LLM 之外的图像/视频云端生成接入，全程前端 UI 可配置，不再依赖环境变量。
+
+- **503 根因修复（前置）**：LLM 网关（openai SDK httpx 默认 trust_env=True）与 AgnesImageProvider 被终端残留的 `HTTPS_PROXY=http://127.0.0.1:7897`（代理已停）劫持 → Connection error → 503。显式 `trust_env=False`（与 llm_settings_service._CLIENT_KWARGS 既有决策一致）；同源问题在图像 Provider 一并修复。另刷新系统 DNS 缓存（api.agnes-ai.cn 曾被陈旧 Cloudflare IP 缓存污染）。
+- **provider_status 真源修复**：LLM/图像/视频激活态改读运行时配置（get_llm_config / get_image_config / get_video_config），与业务链路同源；此前读静态 settings.llm_mode，设置页切换后状态栏仍显示 "Fake LLM Gateway"。
+- **图像服务卡**：仿 LLM 模式新增运行时配置（data_dir/image.json + GET/PUT /image/config + POST /image/test 不耗额度探测）+ 设置页「图像服务」卡（provider/agnes key，key 只存后端只回掩码）。消费点同源化：get_image_provider 默认值、GenerationService 默认 provider、AgnesImageProvider key/URL。
+- **视频服务（从零）**：契约实测锁定（wiki.agnes-ai.com + 真实任务验证：POST /videos {model,prompt,seconds "4"-"12",mode "text",size "720P"} → GET /agnesapi?video_id=&model_name= → queued/in_progress/completed，URL 在顶层 url 字段；2.5-flash 当前 $0/秒）。新增 AgnesVideoProvider（提交→轮询→下载，进度上报）、registry 注册 agnes 视频 provider、worker type="video" 分支（产物注册 SHOT_VIDEO 资产版本，_persist_output 参数化 media_type）、GenerationService 允许 video（prompt 兜底 shot.action，免 workflow）、设置页「视频服务」卡（与图像服务共用 Agnes key）。
+- **镜头检查器**：新增「生成视频」按钮（prompt=镜头动作，保存后提交）；版本预览对 media_type=video 渲染 `<video>` 播放器。
+- **等待动画**：AI 分析预览等待期右侧渲染加载面板——旋转光晕 + 轮换阶段提示（真实阶段描述）+ 已耗时计数（不伪造进度）+ 3 张微光骨架卡；按钮换 spinner；prefers-reduced-motion 全静止。
+- **设置页打磨**：「刷新列表」从裸 button 换为幽灵 chip（ArrowClockwise + hairline 边框 + hover accent）；`.settings-llm-actions` 补 `grid-column:1/-1` 修复图像/视频卡按钮与下拉框不对齐。
+
+**验证**：后端 pytest 382 通过 1 跳过（新增 image_settings 5 项 + 视频 worker 链路 + registry 12）；前端 vitest 161 通过；双端 build ✓。真实端到端：AI 分析预览 200（agnes-2.5-flash 结构化输出）；视频任务 SH07 queued→completed ≈80s，产物注册 SHOT_VIDEO V1 并激活（882KB mp4）。已知边界：视频 prompt 取镜头动作描述（description 字段尚无）；项目设置弹窗的 default_*_provider 字段仍为存而未用（与本轮全局配置正交，待后续接线）。
+
+final result: passed
+
+## UI 改造 Pass 25 (2026-08-30) — 本地模型接入：自动检测 + 路径扫描/导入 + Checkpoint 选择
+
+用户诉求「本地和云端都能用；本地支持指定路径 + 自动检索哪里有本地大模型」。云端链路（LLM openai 兼容 / Agnes 图像视频）此前已通，本轮补齐本地侧的发现与配置能力。
+
+- **LLM 本地服务检测**：POST /llm/detect-local 并发探测常见 OpenAI 兼容服务默认端口（Ollama 11434 / LM Studio 1234 / vLLM 8000 / llama.cpp 8080 / Jan 1337 / KoboldCpp 5001），每端点 1s 超时、trust_env=False 直连（Pass 24 同源代理劫持决策），仅报告 200 端点，永不抛错。LLM 卡新增「检测本地服务」按钮 + 结果行（label · base_url · N 个模型 · 「使用」一键填入 mode/base_url/首个模型名，沿用 test-before-save：填表单 → 用户再点保存）。
+- **ComfyUI 本地引擎（图像卡新区块）**：comfyui_url 此前仅 env 可配、UI 只读——现可编辑并保存（image.json 新增 comfyui_url / checkpoint / comfyui_models_root 三字段；显式空串=清除覆盖回落 env/默认，省略=不动；reset_image_providers 同步清 ComfyUI Provider 单例，修掉旧缓存缺口）。「测试 ComfyUI 连接」携带未保存地址先行探测（POST /providers/comfyui/test 补可选 base_url body，对齐 agnes test 惯例）；「生成模型（checkpoint）」经 GET /providers/comfyui/models（/object_info/CheckpointLoaderSimple 宽容解析，never-raise）填 datalist。
+- **$CHECKPOINT 工作流占位符**：default_image_api.json 的 ckpt_name 由硬编码改为 $CHECKPOINT（workflow_schema 声明可选参数、默认 sd_xl_base_1.0.safetensors）；checkpoint 在 provider 层从运行时 image.json 解析注入——GenerationService/ShotService 零改动（红线 #5：业务层不感知具体模型）。无该 token 的旧模板照常工作。
+- **本地模型扫描**：POST /providers/models/scan 双形态——path 给定：os.scandir 限深 4 层/上限 500 文件（.safetensors/.ckpt/.pt/.pth/.gguf/.onnx），按父目录名分类（checkpoints/loras/vae/controlnet/unet/clip/upscale），体积降序，坏路径 422；path 省略：自动检索常见默认位置（Ollama manifests 解析出 qwen2.5:7b 形态 tag、LM Studio、ComfyUI Desktop、HF 缓存 models--*），locations=[] 表示没找到而非错误。图像卡提供「扫描该目录」+「自动检索常见位置」；位置行可「查看」（回填路径并扫描）或「设为模型目录」（comfyui 命中时预填 models_root）。
+- **一键导入 ComfyUI**：POST /providers/models/import 202 + Operation（复用 §81-82 机制，asyncio.to_thread 跑 GB 级拷贝不阻塞）；同盘 os.link 硬链接优先（瞬时完成）、跨盘回落 shutil.copy2；校验（源存在/kind 合法/models_root 可用/同名 409）在 202 前同步完成。扫描结果行「导入到 ComfyUI」→ 轮询至 completed 显示目标路径与策略；提示 ComfyUI 端列表刷新取决于其版本缓存（必要时重启）。
+- **样式**：新增 .scan-row（badge+路径+计数+操作，flex-wrap 防溢出）；其余沿用 provider-card/mini-refresh/test-result 既有惯例。
+
+**验证**：后端 pytest 415 通过 1 跳过（新增 local_model_scan 17 项 + comfyui client get_models 5 项 + workflow schema checkpoint 5 项 + image_settings ComfyUI 字段 3 项 + API 集成）；前端 vitest 178 通过（settingsPage 5 项：检测回填/空结果提示/checkpoint 保存选择性提交/扫描+导入 202 轮询/未连接回退）；双端 build ✓。已知边界：Operation 为内存态，进程重启丢进行中的导入（与 analyze 一致）；Ollama GGUF 只能经其服务端使用（Studio 不直接加载权重文件）。
+
+final result: passed
+
+## UI 改造 Pass 26 (2026-08-30) — 设置页空间利用率：双列成行 + Provider 网格
+
+用户诉求「设置页两侧空白、空间利用率不够，查看所有内容要下拉很久；要求尽可能利用空间且不出现区域空白」。
+
+- **根因**：`.settings-page` 限宽 860px 居中（单列堆叠 4 个分组 + 10 张 Provider 卡每张独占一行），宽屏下两侧各浪费 ~800px，纵向一长条。
+- **容器**：max-width 860 → 1680px（1200/1600 宽屏即近满宽；超宽屏居中呼吸边）。
+- **双列成行（.settings-duo）**：高度相近的卡片配对——Row1 `AI 服务 ∥ 图像服务`（两张高卡，天然配平）；Row2 `视频服务 ∥ 状态说明`。短卡配洞问题用**图例卡**解决：原压在 Provider 列表底部的纯文字说明升级为「状态说明」卡（5 种状态圆点 + 释义 + 置底小注，height:100% 与视频卡等高），既是有效信息又配平行高，无空洞。`align-items:start` 使 Row1 短卡下方为软背景而非拉伸空腔。
+- **Provider 注册表网格**：`.settings-list` flex 列 → `repeat(auto-fill,minmax(360px,1fr))`（1600 宽 3 列 / 更宽 4 列），10 卡从 10 行压至 3-4 行，同排等高对齐。
+- **响应式**：<1220px duo 回落单列（DOM 顺序 AI→图像→视频→状态说明→生成服务）；<760px 卡内 `.settings-llm-grid` 单列。无横向滚动（scrollWidth === innerWidth 已验）。
+- **顺带修正**：`.provider-dot.error/.disconnected` 此前无规则回落灰色，补 `--red`（与 badge failed 语义一致）。
+- **信息架构微调**：「生成服务」kicker 显示 Provider 计数（`生成服务 · 10 个 Provider`）；settings-note（env 兜底/工作流预检说明）保留在网格之后，语义不变。
+
+- **双列等高（后续补强，同日）**：双列行改同行卡片等高拉伸（去掉 `align-items:start`，`.settings-duo .provider-card{flex:1;flex-column}`），三张配置卡的尾部 `.link-note` 移出 `.settings-llm-grid` 成为卡直接子级并以 `margin-top:auto` 钉底——高度差被吸收在操作区与说明之间而非卡内空腔，对状态变化（测试结果行/扫描行增减）鲁棒。浏览器实测两行卡底边完全对齐（[826,826]/[1180,1180]）。
+
+- **空隙均匀分配 + 注册表行统一（用户反馈跟进）**：①双列拉伸的原「说明钉底」会把高度差聚成单一空隙——改为卡内网格 `flex:1`，由 grid `align-content:stretch` 把高度差**均分到各字段行**（行距均匀增长），说明钉底只兜固定 14px 间距；②Provider 注册表补 `grid-auto-rows:1fr`：行高原先取「该行最高卡」（带测试按钮的行更高、末行纯内置卡偏矮），统一后 10 张卡完全同高（实测均 137px）；③澄清末行「被裁剪」为截图停在滚动中间——状态栏在滚动容器（.app-frame flex 兄弟）之外，scrollIntoView 实验证实 max scroll 下说明区完整可见（1006–1072，紧贴状态栏上缘）。
+
+- **滚动死区真 bug（用户复现纠错）**：此前「末行被裁剪是截图问题」的结论错误——用户在 2000×1085 实际复现滚动到底仍看不到完整卡片。根因：`.project-console` 等 shell 页面容器 `height:100vh`（styles.css 旧规则），但 AppFrame 重构后它们嵌在 `.app-frame-main`（已扣顶栏 52px+上下文条+状态栏 28px，`overflow:hidden`）内部，100vh 比可视区高 ~90px，超出部分被裁 → **滚动到底也有内容永久不可达**（此前测试窗口内容尾部留白恰好 ≥90px 掩盖了它）。修复：`height:100vh → 100%`（跟随 app-frame-main 实际高度）。实测 2000×1085：console 底缘=状态栏上缘（1058），滚动到底说明区完整可见（992–1057）、末行卡底 982；1366×768 同样完整（noteBottom=740=barTop）。
+
+- **吸顶页头（用户线框稿）**：设置页页头（标题 + 返回/刷新按钮）按用户线框改为吸顶——`.settings-topbar` 包裹 `.page-heading` 提出内容列，`position:sticky; top:0` 相对 `.project-console` 滚动容器钉住；负 margin 全宽出血抵消 main 内边距，内部内容 `max-width:1680` 保持与内容列对齐；`rgba(abyss,.86) + backdrop-blur(10px)` 毛玻璃垫底 + 发丝线，滚动内容从栏下穿过不穿透。实测 scrollTop 420 时栏钉在滚动容器顶缘（barTop=92=console 顶），vitest 187 全过。
+
+**验证**：前端 vitest 187 通过（settingsPage 14 项含视频模型目录 3 项，布局重构未破坏 label/text 查询）+ tsc ✓；浏览器实测 2545×1321（整页 docHeight ≈ 1322px，约一屏；duoCols 768+768；providerCols 4）、1600×1000（首屏/滚动截图：双列成行、图例卡等高、网格 3 列无空洞）、1100×900（单列回落）三档截图核对。后端零改动。
+
+final result: passed

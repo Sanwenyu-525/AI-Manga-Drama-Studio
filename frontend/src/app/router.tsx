@@ -27,6 +27,14 @@ import { WorkspaceOverviewPage } from "../features/workspace/WorkspaceOverviewPa
 import { SourceWorkspacePage } from "../features/source/SourceWorkspacePage";
 import { VersionReviewPage } from "../features/storyboard/VersionReviewPage";
 import { NotFoundPage } from "../components/NotFoundPage";
+import {
+  CharactersWorkspacePage,
+  ContinuityWorkspacePage,
+  DirectorWorkspacePage,
+  KnowledgeWorkspacePage,
+  ShotsIndexPage,
+  StoryboardIndexPage,
+} from "../features/navigation/RailWorkspacePages";
 
 // Layout route: frozen shell wraps every routed page.
 function AppFrame() {
@@ -62,6 +70,12 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="workspace" replace /> },
           { path: "workspace", element: <WorkspaceOverviewPage /> },
           { path: "source", element: <SourceWorkspacePage /> },
+          { path: "director", element: <DirectorWorkspacePage /> },
+          { path: "characters", element: <CharactersWorkspacePage /> },
+          { path: "storyboard", element: <StoryboardIndexPage /> },
+          { path: "shots", element: <ShotsIndexPage /> },
+          { path: "knowledge", element: <KnowledgeWorkspacePage /> },
+          { path: "continuity", element: <ContinuityWorkspacePage /> },
           { path: "episodes/:episodeId/script", element: <ScriptWorkspace /> },
           { path: "episodes/:episodeId/scenes/:sceneId/storyboard", element: <StoryboardWorkspace /> },
           { path: "episodes/:episodeId/scenes/:sceneId/shots/:shotId", element: <ShotDetailWorkspace /> },
