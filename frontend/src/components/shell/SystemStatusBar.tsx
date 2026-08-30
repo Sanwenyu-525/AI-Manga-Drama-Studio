@@ -15,7 +15,7 @@ import { useGenerationStore } from "../../stores/generationStore";
 export function SystemStatusBar() {
   const [socketState, setSocketState] = useState<SocketState>(() => {
     // Mounting the status bar also guarantees the socket exists (idempotent).
-    startEventSocket();
+    void startEventSocket();
     return getSocketState();
   });
   useEffect(() => onSocketState(setSocketState), []);

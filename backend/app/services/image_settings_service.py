@@ -149,6 +149,18 @@ def update_image_config(update: dict[str, Any]) -> dict[str, Any]:
     api_key 仅在请求显式提供时写盘，env key 永不固化进明文）。"""
     cur = get_image_config()
     overrides = _read_overrides()
+    # P1-E5-T01: invalid providers must FAIL on save, not silently fall back to the
+    # env default (that would hide a misconfigured real chain behind a mock image).
+    if update.get("provider") not in (None, "") and update["provider"] not in _PROVIDER_CHOICES:
+        raise ValidationError(
+            f"未知图像 provider：{update['provider']}",
+            {"allowed": list(_PROVIDER_CHOICES)},
+        )
+    if update.get("video_provider") not in (None, "") and update["video_provider"] not in _VIDEO_PROVIDER_CHOICES:
+        raise ValidationError(
+            f"未知视频 provider：{update['video_provider']}",
+            {"allowed": list(_VIDEO_PROVIDER_CHOICES)},
+        )
     # video_model 只接受目录内模型（目录即前端下拉事实源；显式空值走清除分支不校验）
     if update.get("video_model") not in (None, "") and update["video_model"] not in {m["id"] for m in VIDEO_MODELS}:
         raise ValidationError(

@@ -1,7 +1,19 @@
 // P1-E6-T01: API client error contract — ApiError carries code/status/request_id;
 // a CONFLICT (character/shot optimistic concurrency) surfaces as ApiError with code.
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { ApiError, api } from "../api/client";
+
+const session = vi.hoisted(() => ({
+  initSessionToken: vi.fn(),
+  getSessionToken: vi.fn(),
+}));
+vi.mock("../lib/session", () => session);
+
+beforeEach(() => {
+  // Default: no shell token → no auth header (browser dev / dev-shell backend).
+  session.initSessionToken.mockResolvedValue(null);
+  session.getSessionToken.mockReturnValue(null);
+});
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -80,5 +92,18 @@ describe("api.upload (multipart)", () => {
     expect(capturedInit?.body).toBeInstanceOf(FormData);
     // request() must NOT set Content-Type for FormData so the browser adds the boundary.
     expect(capturedInit?.headers).toBeUndefined();
+  });
+
+  it("attaches X-Session-Token when the shell provides a session token (P1-E5-T02)", async () => {
+    session.initSessionToken.mockResolvedValue("tok-123");
+    session.getSessionToken.mockReturnValue("tok-123");
+    let capturedInit: RequestInit | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+      capturedInit = init;
+      return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    });
+    await api.get("/projects");
+    const headers = capturedInit?.headers as Record<string, string> | undefined;
+    expect(headers?.["X-Session-Token"]).toBe("tok-123");
   });
 });

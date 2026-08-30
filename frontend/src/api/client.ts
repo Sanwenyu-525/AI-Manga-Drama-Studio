@@ -3,6 +3,8 @@
 // P1-E4-T01: every ApiError carries the backend request_id (traceable errors);
 // requests support timeout + external AbortSignal (cancel).
 
+import { getSessionToken, initSessionToken } from "../lib/session";
+
 export interface ApiErrorBody {
   error: {
     code: string;
@@ -46,9 +48,16 @@ async function request<T>(method: string, path: string, body?: unknown, options:
   options.signal?.addEventListener("abort", onExternalAbort);
   try {
     const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+    // P1-E5-T02: await the (cached) session-token resolution so the shell token is
+    // present on every request; null in browser dev → no header → auth off.
+    await initSessionToken();
+    const sessionToken = getSessionToken();
+    const jsonHeaders = body !== undefined && !isFormData ? { "Content-Type": "application/json" } : null;
+    const authHeaders = sessionToken ? { "X-Session-Token": sessionToken } : null;
+    const headers = jsonHeaders || authHeaders ? { ...(jsonHeaders ?? {}), ...(authHeaders ?? {}) } : undefined;
     const response = await fetch(`${BASE}${path}`, {
       method,
-      headers: body !== undefined && !isFormData ? { "Content-Type": "application/json" } : undefined,
+      headers,
       body: body !== undefined ? (isFormData ? body : JSON.stringify(body)) : undefined,
       signal: controller.signal,
     });

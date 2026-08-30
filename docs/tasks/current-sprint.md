@@ -3,8 +3,8 @@
 > **Sprint 01 完成（2026-08-20）**：8 项 P0 任务全部完成（P1-E1-T01/T02、P1-E2-T01/T02、
 > P1-E3-T01/T02、P1-E4-T01、P1-E6-T01），见 [Completed](completed.md)。
 > **Sprint 02 完成（2026-08-30）**：P1-E2-T03（完成链原子化）+ P1-E4-T02（Event Gateway 加固）完成。
-> 剩余 P0 为 P1-E5-T01（Fail-closed 配置）、P1-E5-T02（本地 Session/WS Origin/CSP）；P1 任务
-> P1-E4-T03（关联日志）与 P1-E6-T02（文档事实源）待办。
+> **Sprint 03 完成（2026-08-30）**：P1-E5-T01（生产配置 Fail-closed）+ P1-E5-T02（本地 Session/WS Origin/CSP）完成。
+> **Phase 1 全部 P0 已关闭**；下一批 P0 在 [Backlog](backlog.md)（P2-E1-T01 等，Phase 2）；P1 任务 P1-E4-T03（关联日志）与 P1-E6-T02（文档事实源）待办。
 
 ## Sprint 01 — Project State Correctness & Runtime Stabilization
 

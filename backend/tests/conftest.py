@@ -54,6 +54,18 @@ def client(session_factory, tmp_path: Path) -> Generator[TestClient]:
     settings.llm_api_key = None
     settings.agnes_api_key = None
 
+    # P1-E5-T01: pin the environment so a developer machine with
+    # STUDIO_APP_ENV=production can't flip on the production fail-closed gate
+    # (and break the whole suite). The production gate is tested explicitly in
+    # test_config.py by constructing Settings directly.
+    original_app_env = settings.app_env
+    settings.app_env = "development"
+
+    # P1-E5-T02: local session auth is OFF by default in tests; individual tests
+    # that exercise it set settings.session_token themselves.
+    original_session_token = settings.session_token
+    settings.session_token = None
+
     def override_get_db() -> Generator[Session]:
         session = factory()
         try:
@@ -82,6 +94,8 @@ def client(session_factory, tmp_path: Path) -> Generator[TestClient]:
         director_graph_module.director_graph = original_director_graph
         db_session_module.session_factory_provider = original_provider
         settings.data_dir = original_data_dir
+        settings.app_env = original_app_env
+        settings.session_token = original_session_token
         settings.llm_api_key = original_llm_key
         settings.agnes_api_key = original_agnes_key
         llm_factory.reset_gateway()

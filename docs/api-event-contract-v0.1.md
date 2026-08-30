@@ -2055,15 +2055,18 @@ ws://localhost:{port}/api/v1/events
 ---
 
 
-# 50. WebSocket Authentication
+# 50. 本地会话与 WS Origin（P1-E5-T02）
 
-桌面 MVP 本地环境可采用 Session Token。
+**本地控制面认证**：Tauri 壳每次启动生成高熵会话 token（`STUDIO_SESSION_TOKEN`）注入后端，并经由 `get_session_token` 命令交给前端。**设置了 token 后**：
 
-例如：
+- REST：请求头 `X-Session-Token: <token>`；缺失/错误 → 401 统一 Envelope。
+- WS：连接 URL `?token=<token>`（浏览器 WebSocket 无法携带自定义 header，故走 query）；缺失/错误 → 连接被拒绝（close 1008）。
+- 豁免：`/api/v1/health`、`/api/v1/system/info`——壳需在持有 token 前握手识别后端（§140 身份 marker）。
+- **未设置 token**（开发浏览器 / 开发壳直连后端）= 本地控制面开放（auth 关闭），保持开发便捷。
 
-```text
-?token=...
-```
+token 绝不写日志、不入 URL 历史（REST 走 header）、不落项目数据库、不入源码配置。
+
+**WS Origin**：`/api/v1/events` 在 accept 前校验 `Origin`——非白名单 Origin（`settings.cors_origins`）直接拒绝（close 1008）；无 Origin（非浏览器客户端）放行。
 
 未来云端改：
 

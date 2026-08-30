@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.router import api_router
-from app.core.config import settings
+from app.core.config import settings, validate_startup_config
 from app.core.errors import StudioError
 from app.core.logging import configure_logging, get_logger
 
@@ -47,6 +47,8 @@ logger = get_logger("app")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # P1-E5-T01: fail closed in production — refuse to boot with fake-content providers.
+    validate_startup_config(settings)
     # Generation worker (Stage C) + WebSocket event gateway (Stage C)
     from app.events.ws import start_gateway, stop_gateway
     from app.generations.worker import worker_loop
@@ -70,6 +72,30 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json",
         lifespan=lifespan,
     )
+
+    @app.middleware("http")
+    async def local_session_auth(request: Request, call_next):
+        """P1-E5-T02: enforce the local session token when one is configured.
+
+        The Tauri shell spawns the backend with STUDIO_SESSION_TOKEN and the
+        frontend sends X-Session-Token. Only the shell-initiated flow knows the
+        token, so a random local process or malicious web page on the fixed port
+        is rejected. /health + /system/info are exempt — the shell needs a
+        token-less handshake to identify the backend before it can present one.
+        Registered before CORS/logging so 401s still carry CORS + X-Request-ID.
+        """
+        token = settings.session_token
+        if token is not None:
+            exempt = (f"{settings.api_prefix}/health", f"{settings.api_prefix}/system/info")
+            if request.url.path not in exempt and request.headers.get("X-Session-Token") != token:
+                logger.warning("local session auth rejected %s %s", request.method, request.url.path)
+                return _error_response(
+                    request,
+                    status_code=401,
+                    code="UNAUTHORIZED",
+                    message="Missing or invalid local session token.",
+                )
+        return await call_next(request)
 
     app.add_middleware(
         CORSMiddleware,

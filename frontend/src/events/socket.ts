@@ -4,6 +4,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../api/queryKeys";
+import { getSessionToken, initSessionToken } from "../lib/session";
 import { useAgentStore } from "../stores/agentStore";
 import { useGenerationStore } from "../stores/generationStore";
 
@@ -75,7 +76,11 @@ function setSocketState(next: SocketState) {
 
 function connect() {
   setSocketState("connecting");
-  socket = new WebSocket(WS_URL);
+  // P1-E5-T02: forward the shell session token via query so the backend can
+  // accept the connection; null in browser dev → plain URL → auth off.
+  const token = getSessionToken();
+  const url = token ? `${WS_URL}?token=${encodeURIComponent(token)}` : WS_URL;
+  socket = new WebSocket(url);
   socket.onopen = () => {
     reconnectDelay = RECONNECT_BASE_MS;
     setSocketState("connected");
@@ -374,7 +379,8 @@ export class EventRouter {
   }
 }
 
-export function startEventSocket(): void {
+export async function startEventSocket(): Promise<void> {
   if (socket) return;
+  await initSessionToken(); // ensure the shell token is resolved before connecting
   connect();
 }

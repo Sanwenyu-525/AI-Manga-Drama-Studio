@@ -35,6 +35,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.events.bus import StudioEvent, bus
 
@@ -239,6 +240,17 @@ async def stop_gateway() -> None:
 
 @router.websocket("/events")
 async def events_endpoint(websocket: WebSocket) -> None:
+    # P1-E5-T02: reject cross-site origins and missing/wrong session tokens BEFORE
+    # accepting — a malicious web page must not be able to subscribe to events.
+    origin = websocket.headers.get("origin")
+    if origin is not None and origin not in set(settings.cors_origins):
+        logger.info("ws: rejecting connection from non-allowed origin %r", origin)
+        await websocket.close(code=1008)
+        return
+    if settings.session_token is not None and websocket.query_params.get("token") != settings.session_token:
+        logger.info("ws: rejecting connection without a valid session token")
+        await websocket.close(code=1008)
+        return
     gateway = start_gateway()
     client = await gateway.connect(websocket)
     try:

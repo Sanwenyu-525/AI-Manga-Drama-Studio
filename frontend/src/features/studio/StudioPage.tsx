@@ -80,7 +80,7 @@ export function StudioPage() {
   }, [projectId]);
 
   useEffect(() => {
-    startEventSocket();
+    void startEventSocket();
     setEventRouter(new EventRouter(queryClient));
     return () => setEventRouter(null);
   }, [queryClient]);

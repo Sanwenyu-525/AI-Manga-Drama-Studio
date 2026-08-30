@@ -371,11 +371,11 @@
 
 **Acceptance Criteria**：
 
-- [ ] production 无法静默启用 FakeLLM/MockImageProvider。
-- [ ] 无效 provider/URL/path/model 在启动或保存配置时明确失败。
-- [ ] 运行依赖为直接依赖，锁文件可复现。
-- [ ] `.env.example`/配置文档不包含真实 secret。
-- [ ] development/test 默认行为保持方便且可见。
+- [x] production 无法静默启用 FakeLLM/MockImageProvider。
+- [x] 无效 provider/URL/path/model 在启动或保存配置时明确失败。
+- [x] 运行依赖为直接依赖，锁文件可复现。
+- [x] `.env.example`/配置文档不包含真实 secret。
+- [x] development/test 默认行为保持方便且可见。
 
 **Priority**：P0  
 **Complexity**：M  
@@ -396,12 +396,12 @@
 
 **Acceptance Criteria**：
 
-- [ ] 无 token/错误 token 的 REST 与 WS 请求被拒绝。
-- [ ] 非允许 Origin 不能建立 WS。
-- [ ] token 不写日志、URL 历史、项目数据库或源码配置。
-- [ ] Tauri CSP 不再为 null，并允许必要的本地连接与媒体显示。
-- [ ] 后端握手能区分“端口被占用”和“已运行的本应用实例”。
-- [ ] 安全回归测试和桌面开发流程通过。
+- [x] 无 token/错误 token 的 REST 与 WS 请求被拒绝。
+- [x] 非允许 Origin 不能建立 WS。
+- [x] token 不写日志、URL 历史、项目数据库或源码配置。
+- [x] Tauri CSP 不再为 null，并允许必要的本地连接与媒体显示。
+- [x] 后端握手能区分“端口被占用”和“已运行的本应用实例”。
+- [x] 安全回归测试和桌面开发流程通过。
 
 **Priority**：P0  
 **Complexity**：L  

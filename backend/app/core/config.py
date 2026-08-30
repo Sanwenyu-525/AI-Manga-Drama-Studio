@@ -19,11 +19,18 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "AI Manga Drama Studio"
-    app_env: str = "development"  # development | test | production
+    app_env: Literal["development", "test", "production"] = "development"
     api_prefix: str = "/api/v1"
 
     host: str = "127.0.0.1"
     port: int = 17820
+
+    # Local session token (P1-E5-T02): set by the Tauri shell when it spawns the
+    # backend. When set, every REST request must carry X-Session-Token and the WS
+    # connection must pass ?token= (except /health + /system/info handshake).
+    # None = development/dev-shell backend → auth is off (local API open), which
+    # keeps the browser dev flow convenient. Never logged, never stored in the DB.
+    session_token: str | None = None
 
     # Data directory: SQLite file + project assets live here (relative paths only in DB).
     data_dir: Path = BACKEND_DIR / "data"
@@ -44,7 +51,7 @@ class Settings(BaseSettings):
     # LLM (Stage B): "fake" = deterministic FakeLLMGateway (dev/test only, no key needed);
     # "openai" = OpenAI-compatible endpoint via LangChain ChatOpenAI (DeepSeek / Ollama / vLLM / OpenAI).
     # fake 仅用于测试与无 key 开发；真实产品链路必须 openai（见 app.llm.factory 降级策略）。
-    llm_mode: str = "fake"  # fake | openai  (fake = dev/test only)
+    llm_mode: Literal["fake", "openai"] = "fake"  # fake = dev/test only (P1-E5-T01)
     llm_base_url: str | None = None
     llm_api_key: str | None = None  # prefer env STUDIO_LLM_API_KEY; never stored in DB
     llm_model: str = "deepseek-chat"
@@ -60,7 +67,7 @@ class Settings(BaseSettings):
     # surfaces a clear error only when an agnes generation is actually requested.
     agnes_api_key: str | None = None  # prefer env STUDIO_AGNES_API_KEY; never stored in DB
     agnes_base_url: str = "https://api.agnes-ai.cn/v1"
-    video_provider: str = "mock"  # mock | agnes（agnes-video-2.5-flash 免费档）
+    video_provider: Literal["mock", "agnes"] = "mock"  # mock = dev/test only (P1-E5-T01)
     video_model: str = "agnes-video-2.5-flash"
     generation_concurrency: int = 1  # P1-E2-T02: MVP supports exactly ONE worker — see validator
     generation_max_attempts: int = 3
@@ -100,3 +107,28 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# P1-E5-T01: production must not silently produce fake results. development/test
+# keep the fake/mock defaults (convenient and visible); in production a fake-content
+# provider is refused at startup instead of generating plausible-looking fake output.
+# Called from the app lifespan (so tests can pin app_env first), not from the Settings
+# constructor (which would make the fail-closed case impossible to construct/test).
+def validate_startup_config(s: "Settings") -> None:
+    """Raise RuntimeError if the production environment would produce fake content."""
+    if s.app_env != "production":
+        return
+    problems: list[str] = []
+    if s.llm_mode == "fake":
+        problems.append("STUDIO_LLM_MODE=fake — set STUDIO_LLM_MODE=openai with a real base_url/key")
+    if s.image_provider == "mock":
+        problems.append("STUDIO_IMAGE_PROVIDER=mock — set comfyui or agnes")
+    if s.video_provider == "mock":
+        problems.append("STUDIO_VIDEO_PROVIDER=mock — set agnes")
+    if s.audio_provider == "mock":
+        problems.append("STUDIO_AUDIO_PROVIDER=mock — set edge or a real TTS")
+    if problems:
+        raise RuntimeError(
+            "Production startup refused: fake/mock providers would silently produce fake results.\n"
+            + "  - " + "\n  - ".join(problems)
+        )
