@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import mimetypes
+import os
+import uuid
 from pathlib import Path
 
 from PIL import Image
@@ -33,6 +36,7 @@ logger = get_logger("assets")
 THUMBNAIL_WIDTH = 240
 IMPORT_MAX_BYTES = 50 * 1024 * 1024  # 50 MB (P3-T003 validation)
 IMPORTED_SUBDIR = "imported"
+_STREAM_CHUNK = 1024 * 1024
 
 _IMAGE_MIME_BY_FORMAT = {
     "png": "image/png",
@@ -41,6 +45,10 @@ _IMAGE_MIME_BY_FORMAT = {
     "webp": "image/webp",
     "gif": "image/gif",
 }
+
+# Fallback when the real file gives no detectable MIME (P1-E2-T03: MIME always
+# comes from the actual file — extension first, content for images).
+_FALLBACK_MIME = {"image": "image/png", "video": "video/mp4", "audio": "audio/mpeg"}
 
 
 def project_dir(project_id: str) -> Path:
@@ -75,11 +83,21 @@ class AssetService:
         meta: dict | None = None,
         make_thumbnail: bool = True,
         commit: bool = True,
+        staged_files: list[Path] | None = None,
     ) -> Asset:
         """Copy a file into the project tree and register it (mvp-spec §71: ComfyUI output → Asset).
 
         commit=False lets the caller own the transaction (ADR-001 2.4: single-commit
         generation completion); events are only published after a commit by the caller.
+
+        P1-E2-T03 (atomic completion chain):
+        - streamed copy through a unique temp file + `os.replace` — large files never
+          load into memory and the final path never exposes a partial write;
+        - checksum streams with the copy (single read of the source);
+        - `meta_json` is valid JSON (the old `str(dict)` was Python repr);
+        - MIME is derived from the real file (image content via PIL, else extension);
+        - every file written is appended to `staged_files` so the caller can
+          compensate (delete) them when its DB transaction rolls back.
         """
         source = Path(source_path)
         if not source.exists():
@@ -93,21 +111,37 @@ class AssetService:
         dest_dir = project_dir(project_id) / rel_dir
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / (name or source.name)
-        content = source.read_bytes()
-        dest.write_bytes(content)
-        checksum = hashlib.sha256(content).hexdigest()
+
+        tmp_dest = dest_dir / f".{dest.name}.{uuid.uuid4().hex}.tmp"
+        checksum = hashlib.sha256()
+        try:
+            with source.open("rb") as src, tmp_dest.open("wb") as out:
+                for chunk in iter(lambda: src.read(_STREAM_CHUNK), b""):
+                    out.write(chunk)
+                    checksum.update(chunk)
+            os.replace(tmp_dest, dest)  # atomic on the same volume
+        finally:
+            tmp_dest.unlink(missing_ok=True)  # no-op after a successful replace
+        if staged_files is not None:
+            staged_files.append(dest)
 
         width = height = None
+        mime_type: str | None = None
         if asset_type == "image":
             try:
                 with Image.open(dest) as img:
                     width, height = img.size
+                    mime_type = _IMAGE_MIME_BY_FORMAT.get((img.format or "").lower())
             except Exception:  # noqa: BLE001 — non-image content is expected
                 logger.debug("asset %s has no image size (non-image content)", dest.name)
+        if mime_type is None:
+            mime_type = mimetypes.guess_type(dest.name)[0] or _FALLBACK_MIME.get(asset_type)
 
         thumbnail_rel = None
         if asset_type == "image" and make_thumbnail:
             thumbnail_rel = self.create_thumbnail(project_id, dest)
+            if thumbnail_rel and staged_files is not None:
+                staged_files.append(project_dir(project_id) / thumbnail_rel)
 
         asset = Asset(
             project_id=project_id,
@@ -115,15 +149,15 @@ class AssetService:
             name=dest.name,
             file_path=str(rel_dir / dest.name).replace("\\", "/"),
             thumbnail_path=thumbnail_rel,
-            mime_type="image/png" if asset_type == "image" else None,
+            mime_type=mime_type,
             width=width,
             height=height,
             file_size=dest.stat().st_size,
-            meta_json=str(meta or {}),
+            meta_json=json.dumps(meta or {}, ensure_ascii=False),
             generation_id=generation_id,
             status="ready",
             source_type="generated",
-            checksum=checksum,
+            checksum=checksum.hexdigest(),
         )
         self.session.add(asset)
         if commit:

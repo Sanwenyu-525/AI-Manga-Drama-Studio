@@ -19,6 +19,7 @@ import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from collections.abc import Callable
 
 from sqlalchemy import func, or_, select, update
@@ -43,7 +44,12 @@ from app.generations.retry_policy import RetryOutcome, classify_failure
 from app.generations.state import validate_transition
 from app.providers.audio.base import AudioRequest
 from app.providers.image.base import ImageRequest
-from app.providers.registry import get_audio_provider, get_image_provider, get_render_provider
+from app.providers.registry import (
+    get_audio_provider,
+    get_image_provider,
+    get_render_provider,
+    get_video_provider,
+)
 from app.providers.render.base import RenderClip, RenderRequest
 from app.services.asset_service import AssetService
 from app.services.version_service import VersionService
@@ -97,7 +103,9 @@ async def cancel_running(generation_id: str) -> None:
     """Best-effort cancel of a RUNNING generation.
 
     - Adds the id to the in-memory hint set (worker checks it before persisting).
-    - Asks the provider to interrupt its ComfyUI job (best-effort; never raises).
+    - Interrupts the provider THIS generation actually ran on (P1-E2-T03): the
+      stored provider id decides the adapter (image/video/audio/render), never
+      the process default.
     Note: the durable 'cancelling' state is set by GenerationService.cancel_generation —
     this function only orchestrates the provider interrupt + memory hint.
     """
@@ -106,10 +114,28 @@ async def cancel_running(generation_id: str) -> None:
         factory = db_session_module.session_factory_provider()
         with factory() as session:
             generation = session.get(Generation, generation_id)
-            provider_ref = generation.provider_ref if generation else None
+            if generation is None:
+                return
+            provider_id = generation.provider
+            gen_type = generation.type
+            provider_ref = generation.provider_ref
+        if gen_type == "render":
+            provider = get_render_provider(provider_id)
+        elif gen_type == "audio":
+            provider = get_audio_provider(provider_id)
+        elif gen_type == "video":
+            provider = get_video_provider(provider_id)
+        else:
+            provider = get_image_provider(provider_id)
         if provider_ref:
-            provider = get_image_provider()
             await provider.cancel(provider_ref)
+        else:
+            # provider_ref is persisted at completion; before that there is no
+            # provider-side handle to interrupt — the in-memory hint + durable
+            # 'cancelling' marker still stop the output from being written.
+            logger.info(
+                "generation %s has no provider_ref yet; skipping provider interrupt", generation_id
+            )
     except Exception:  # noqa: BLE001 — provider cancel is best-effort
         logger.exception("best-effort provider cancel failed for generation %s", generation_id)
 
@@ -246,6 +272,7 @@ def recover_expired_leases(factory=None) -> int:
                 generation.completed_at = _now()
                 generation.error_message = "Cancelled by user (finalized after restart)."
                 generation.stage = "cancelled"
+                _cancelled.discard(generation.id)
                 cancelled_ids.append((generation.id, generation.project_id, generation.shot_id))
                 recovered += 1
                 continue
@@ -384,6 +411,10 @@ async def run_generation(generation_id: str) -> None:
     # P1-E2-T01: the stored provider id IS the implementation to run — the
     # registry resolves it (unknown ids are rejected at creation, 422).
     provider = get_image_provider(provider_id)
+    # P1-E2-T03: providers that obtain a provider-side handle early (ComfyUI
+    # prompt_id) report it through this shared dict on progress callbacks so the
+    # worker can persist it mid-run — providers never touch the DB themselves.
+    shared: dict = {"provider_ref": None}
     request = ImageRequest(
         prompt=params.get("prompt", ""),
         negative_prompt=params.get("negative_prompt"),
@@ -391,11 +422,11 @@ async def run_generation(generation_id: str) -> None:
         width=params.get("width"),
         height=params.get("height"),
         workflow_id=workflow_id,
-        metadata={"generation_id": gen_id, "shot_id": shot_id},
+        metadata={"generation_id": gen_id, "shot_id": shot_id, "shared_state": shared},
     )
 
     def _on_progress(percent: int, stage: str) -> None:
-        _persist_progress(factory, gen_id, percent, stage)
+        _persist_progress(factory, gen_id, percent, stage, provider_ref=shared.get("provider_ref"))
         bus.publish(
             StudioEvent(
                 event_type=EVENT_GENERATION_PROGRESS,
@@ -419,6 +450,7 @@ async def run_generation(generation_id: str) -> None:
     if gen_id in _cancelled or _db_status(factory, gen_id) == "cancelling":
         # P5-T015: cancel is durable — check the persisted 'cancelling' marker (survives
         # restart) in addition to the in-memory hint set.
+        _cleanup_provider_output(result.output_path, project_id)
         _handle_cancelled(factory, gen_id, project_id, shot_id)
         return
 
@@ -437,16 +469,17 @@ async def _run_video_generation(factory: Callable, gen_id: str, project_id: str,
     from app.providers.video.base import VideoRequest
 
     provider = get_video_provider(provider_id)
+    shared: dict = {"provider_ref": None}
     request = VideoRequest(
         prompt=params.get("prompt", ""),
         duration=params.get("seconds"),
         width=params.get("width"),
         height=params.get("height"),
-        metadata={"generation_id": gen_id, "shot_id": shot_id},
+        metadata={"generation_id": gen_id, "shot_id": shot_id, "shared_state": shared},
     )
 
     def _on_progress(percent: int, stage: str) -> None:
-        _persist_progress(factory, gen_id, percent, stage)
+        _persist_progress(factory, gen_id, percent, stage, provider_ref=shared.get("provider_ref"))
         bus.publish(
             StudioEvent(
                 event_type=EVENT_GENERATION_PROGRESS,
@@ -468,6 +501,7 @@ async def _run_video_generation(factory: Callable, gen_id: str, project_id: str,
         return
 
     if gen_id in _cancelled or _db_status(factory, gen_id) == "cancelling":
+        _cleanup_provider_output(result.output_path, project_id)
         _handle_cancelled(factory, gen_id, project_id, shot_id)
         return
 
@@ -478,7 +512,13 @@ async def _run_video_generation(factory: Callable, gen_id: str, project_id: str,
     _persist_output(factory, gen_id, project_id, shot_id, result.output_path, result, media_type="video")
 
 
-def _persist_progress(factory: Callable, generation_id: str, percent: int, stage: str) -> None:
+def _persist_progress(
+    factory: Callable,
+    generation_id: str,
+    percent: int,
+    stage: str,
+    provider_ref: str | None = None,
+) -> None:
     with factory() as session:
         generation = session.get(Generation, generation_id)
         if generation is None:
@@ -486,78 +526,166 @@ def _persist_progress(factory: Callable, generation_id: str, percent: int, stage
         generation.progress = percent
         generation.stage = stage
         generation.lease_expires_at = _lease_expiry()  # heartbeat: extend the lease
+        if provider_ref and not generation.provider_ref:
+            # P1-E2-T03: persist the provider handle as soon as the provider reports
+            # one — a cancel after a worker crash can then still interrupt the
+            # remote job (cancel_running reads this column).
+            generation.provider_ref = provider_ref
         session.commit()
+
+
+def _cas_finalize(session, generation_id: str, *, to_status: str, extra: dict | None = None) -> bool:
+    """Terminal-state compare-and-swap (P1-E2-T03): the completion/failure marker is
+    written ONLY while the row is still 'running'.
+
+    This closes the cancel race: if the user set the durable 'cancelling' marker in
+    another transaction while we were building the completion, the UPDATE matches 0
+    rows — the caller rolls back every pending write (asset/version/pointer) and
+    finalizes the cancel instead. No half-completed chain, no version written after
+    a cancel.
+    """
+    values = {"status": to_status, "stage": to_status, "completed_at": _now()}
+    values.update(extra or {})
+    stmt = (
+        update(Generation)
+        .where(Generation.id == generation_id, Generation.status == "running")
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    )
+    return session.execute(stmt).rowcount == 1
+
+
+def _compensate_staged_files(staged: list[Path]) -> None:
+    """Delete files written for a transaction that rolled back (best-effort).
+
+    Keeps the filesystem consistent with the DB: no orphan asset files from a
+    failed completion chain (P1-E2-T03).
+    """
+    for path in list(staged):
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("staged-file compensation failed for %s: %s", path, exc)
+    staged.clear()
+
+
+def _cleanup_provider_output(path: str | None, project_id: str | None) -> None:
+    """Best-effort removal of a provider temp output (P1-E2-T03: provider outputs
+    must not leak). The canonical copy lives in the project tree after registration;
+    anything outside `projects/{project_id}` is disposable. Never deletes project
+    files and never raises."""
+    if not path:
+        return
+    try:
+        candidate = Path(path).resolve()
+        projects_root = (settings.data_dir / "projects").resolve()
+        if project_id:
+            project_root = (settings.data_dir / "projects" / project_id).resolve()
+            if project_root in candidate.parents or candidate == project_root:
+                return  # inside the project tree — canonical, keep
+        if projects_root in candidate.parents:
+            return  # some other project's tree — do not touch
+        candidate.unlink(missing_ok=True)
+        logger.debug("provider output cleaned: %s", candidate)
+    except OSError as exc:
+        logger.warning("provider output cleanup failed for %s: %s", path, exc)
 
 
 def _persist_output(factory: Callable, generation_id: str, project_id: str, shot_id: str | None, output_path: str | None, result, media_type: str = "image") -> None:
     """Attach output in ONE transaction (ADR-001 2.4 / P1-E2-T03): Asset registration +
     version assignment + shot active pointer + generation completion commit together.
 
-    Events are published after the commit (commit-then-publish red line).
+    - Final status is written by compare-and-swap (`_cas_finalize`): a completion
+      racing a user cancel loses and rolls back — the cancel wins, nothing is written.
+    - Files staged for the asset are compensated (deleted) if the transaction fails,
+      so retries never accumulate orphans and end with exactly one valid version.
+    - provider_ref is persisted in the same transaction (comfyui prompt_id & co).
+    - Events are published after the commit (commit-then-publish red line); the
+      provider's temp output is cleaned up after the project-tree copy is durable.
     """
-    with factory() as session:
-        generation = session.get(Generation, generation_id)
-        # P5-T015: if the user cancelled (durable 'cancelling' or in-memory hint) while
-        # we were finishing, do NOT persist output — finalize as cancelled instead.
-        if generation is None or generation.status == "cancelled":
-            return
-        if generation.status == "cancelling" or generation.id in _cancelled:
-            session.commit()
-            _handle_cancelled(factory, generation_id, project_id, shot_id)
-            return
-        generation.progress = 100
-        generation.stage = "saving"
-        session.flush()
+    staged: list[Path] = []
+    try:
+        with factory() as session:
+            generation = session.get(Generation, generation_id)
+            # P5-T015 / P1-E2-T03: never persist over a cancelled or already-completed
+            # row (idempotent recovery: a completed chain is not re-finalized).
+            if generation is None or generation.status in ("cancelled", "completed"):
+                return
+            if generation.status == "cancelling" or generation.id in _cancelled:
+                _cleanup_provider_output(output_path, project_id)
+                _handle_cancelled(factory, generation_id, project_id, shot_id)
+                return
 
-        if not output_path or not shot_id:
-            validate_transition(generation.status, "failed")
-            generation.status = "failed"
-            generation.error_message = "Provider returned no output file."
-            generation.completed_at = _now()
-            session.commit()
-            bus.publish(
-                StudioEvent(
-                    event_type=EVENT_GENERATION_FAILED,
-                    entity_type="generation",
-                    entity_id=generation_id,
-                    project_id=project_id,
-                    payload={"shot_id": shot_id, "error": {"code": "GENERATION_FAILED", "message": "No output file."}},
+            if not output_path or not shot_id:
+                validate_transition(generation.status, "failed")
+                ok = _cas_finalize(
+                    session,
+                    generation_id,
+                    to_status="failed",
+                    extra={"error_message": "Provider returned no output file.", "progress": 100},
+                )
+                if not ok:
+                    session.rollback()
+                    _handle_cancelled(factory, generation_id, project_id, shot_id)
+                    return
+                session.commit()
+                bus.publish(
+                    StudioEvent(
+                        event_type=EVENT_GENERATION_FAILED,
+                        entity_type="generation",
+                        entity_id=generation_id,
+                        project_id=project_id,
+                        payload={"shot_id": shot_id, "error": {"code": "GENERATION_FAILED", "message": "No output file."}},
+                    )
+                )
+                return
+
+            assets = AssetService(session)
+            asset = assets.register_asset(
+                project_id=project_id,
+                asset_type=media_type,
+                source_path=output_path,
+                shot_id=shot_id,
+                generation_id=generation_id,
+                meta={"provider": generation.provider, "params": json.loads(generation.parameters or "{}")},
+                commit=False,  # caller-owned transaction
+                staged_files=staged,
+            )
+            version = VersionService(session).assign_version(
+                shot_id=shot_id,
+                asset=asset,
+                media_type=media_type,
+                make_active=True,
+                commit=False,  # caller-owned transaction
+            )
+            # P3-T012: record the produced asset in generation_outputs (same TX).
+            session.add(
+                GenerationOutput(
+                    generation_id=generation_id,
+                    asset_id=asset.id,
+                    role="primary",
+                    order_index=1000,
                 )
             )
-            return
-
-        assets = AssetService(session)
-        asset = assets.register_asset(
-            project_id=project_id,
-            asset_type=media_type,
-            source_path=output_path,
-            shot_id=shot_id,
-            generation_id=generation_id,
-            meta={"provider": generation.provider, "params": json.loads(generation.parameters or "{}")},
-            commit=False,  # caller-owned transaction
-        )
-        version = VersionService(session).assign_version(
-            shot_id=shot_id,
-            asset=asset,
-            media_type=media_type,
-            make_active=True,
-            commit=False,  # caller-owned transaction
-        )
-        # P3-T012: record the produced asset in generation_outputs (same TX).
-        session.add(
-            GenerationOutput(
-                generation_id=generation_id,
-                asset_id=asset.id,
-                role="primary",
-                order_index=1000,
+            validate_transition(generation.status, "completed")
+            ok = _cas_finalize(
+                session,
+                generation_id,
+                to_status="completed",
+                extra={
+                    "output_asset_id": asset.id,
+                    "provider_ref": result.provider_ref,
+                    "progress": 100,
+                },
             )
-        )
-        validate_transition(generation.status, "completed")
-        generation.status = "completed"
-        generation.output_asset_id = asset.id
-        generation.completed_at = _now()
-        generation.stage = "completed"
-        session.commit()
+            if not ok:
+                # A user cancel won the race — roll back asset/version/pointer/output
+                # and finalize the cancel; no version is written after a cancel.
+                session.rollback()
+                _compensate_staged_files(staged)
+                _handle_cancelled(factory, generation_id, project_id, shot_id)
+                return
+            session.commit()
 
         bus.publish(
             StudioEvent(
@@ -581,7 +709,18 @@ def _persist_output(factory: Callable, generation_id: str, project_id: str, shot
                 },
             )
         )
+        _cleanup_provider_output(output_path, project_id)
         logger.info("generation %s completed -> asset %s (V%d)", generation_id, asset.id, version.version_number)
+    except Exception as exc:  # noqa: BLE001 — completion chain failure is recoverable
+        # Any failure inside the unit of work rolls the whole chain back; the staged
+        # files are compensated and the provider's temp output removed so a retry
+        # starts from a clean slate (P1-E2-T03).
+        logger.exception("completion chain failed for generation %s; compensating", generation_id)
+        _compensate_staged_files(staged)
+        _cleanup_provider_output(output_path, project_id)
+        _handle_failure(
+            factory, generation_id, project_id, shot_id, f"Completion chain failed: {exc}", exc=exc
+        )
 
 
 def _db_status(factory: Callable, generation_id: str) -> str | None:
@@ -829,6 +968,7 @@ async def _run_render_generation(
         return
 
     if generation_id in _cancelled or _db_status(factory, generation_id) == "cancelling":
+        _cleanup_provider_output(result.output_path, project_id)
         _handle_cancelled(factory, generation_id, project_id, None)
         return
     if not result.success:
@@ -851,6 +991,9 @@ def _persist_render_output(
     - Version group vg:episode:{episode_id}:FINAL_VIDEO (immutable V1/V2...).
     - Thumbnail: the renderer's frame-strip doubles as the poster.
     - timeline.status → RENDERED; timeline.rendered event.
+    - P1-E2-T03: terminal status via compare-and-swap (a cancel that lands mid-
+      completion rolls the whole chain back), staged files compensated on failure,
+      provider temp output (render_output/, frame strip) cleaned after commit.
     """
     from pathlib import Path as _Path
 
@@ -859,107 +1002,127 @@ def _persist_render_output(
     episode_id = params.get("episode_id") or ""
     timeline_id = params.get("timeline_id")
 
-    with factory() as session:
-        generation = session.get(Generation, generation_id)
-        if generation is None or generation.status in ("cancelled", "cancelling") or generation_id in _cancelled:
-            return
-        if not result.output_path or not _Path(result.output_path).is_file():
-            generation.error_message = "Render returned no output file."
-            validate_transition(generation.status, "failed")
-            generation.status = "failed"
-            generation.completed_at = _now()
-            session.commit()
-            bus.publish(
-                StudioEvent(
-                    event_type=EVENT_GENERATION_FAILED,
-                    entity_type="generation",
-                    entity_id=generation_id,
-                    project_id=project_id,
-                    payload={"type": "render", "error": {"code": "GENERATION_FAILED", "message": "No output file."}},
+    staged: list[_Path] = []
+    try:
+        with factory() as session:
+            generation = session.get(Generation, generation_id)
+            if generation is None or generation.status in ("cancelled", "completed"):
+                return
+            if generation.status == "cancelling" or generation_id in _cancelled:
+                _cleanup_provider_output(result.output_path, project_id)
+                _handle_cancelled(factory, generation_id, project_id, None)
+                return
+            if not result.output_path or not _Path(result.output_path).is_file():
+                validate_transition(generation.status, "failed")
+                ok = _cas_finalize(
+                    session,
+                    generation_id,
+                    to_status="failed",
+                    extra={"error_message": "Render returned no output file.", "progress": 100},
+                )
+                if not ok:
+                    session.rollback()
+                    _handle_cancelled(factory, generation_id, project_id, None)
+                    return
+                session.commit()
+                bus.publish(
+                    StudioEvent(
+                        event_type=EVENT_GENERATION_FAILED,
+                        entity_type="generation",
+                        entity_id=generation_id,
+                        project_id=project_id,
+                        payload={"type": "render", "error": {"code": "GENERATION_FAILED", "message": "No output file."}},
+                    )
+                )
+                return
+
+            asset_svc = AssetService(session)
+            asset = asset_svc.register_asset(
+                project_id=project_id,
+                asset_type="video",
+                source_path=result.output_path,
+                name=None,
+                shot_id=None,
+                generation_id=generation_id,
+                meta={
+                    "provider": generation.provider,
+                    "render": result.extra or {},
+                    "timeline_id": timeline_id,
+                },
+                make_thumbnail=False,
+                commit=False,
+                staged_files=staged,
+            )
+            session.flush()  # materialize asset.id before generation_outputs references it
+
+            # FINAL_VIDEO immutable version group
+            from app.services.render_service import final_video_version_group
+
+            group = final_video_version_group(episode_id)
+            current = session.scalar(
+                select(func.max(Asset.version_number)).where(
+                    Asset.version_group_id == group, Asset.deleted_at.is_(None)
                 )
             )
-            return
+            asset.version_group_id = group
+            asset.version_number = (current or 0) + 1
+            asset.duration = result.duration
+            extra = result.extra or {}
+            asset.width = extra.get("width")
+            asset.height = extra.get("height")
+            name = asset.name or ""
+            if name.lower().endswith(".avi"):
+                asset.mime_type = "video/x-msvideo"
+            else:
+                asset.mime_type = "video/mp4"
 
-        asset_svc = AssetService(session)
-        asset = asset_svc.register_asset(
-            project_id=project_id,
-            asset_type="video",
-            source_path=result.output_path,
-            name=None,
-            shot_id=None,
-            generation_id=generation_id,
-            meta={
-                "provider": generation.provider,
-                "render": result.extra or {},
-                "timeline_id": timeline_id,
-            },
-            make_thumbnail=False,
-            commit=False,
-        )
-        session.flush()  # materialize asset.id before generation_outputs references it
+            # poster = renderer frame-strip (preview image) stored next to the file
+            strip = extra.get("frame_strip_path")
+            if strip and _Path(strip).is_file():
+                try:
+                    thumb_name = (asset.name or "video").rsplit(".", 1)[0] + "_thumb.jpg"
+                    from app.services.asset_service import project_dir as _proj_dir
 
-        # FINAL_VIDEO immutable version group
-        from app.services.render_service import final_video_version_group
+                    dest_dir = _proj_dir(project_id) / "video"
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    thumb_dest = dest_dir / thumb_name
+                    thumb_dest.write_bytes(_Path(strip).read_bytes())
+                    asset.thumbnail_path = "video/" + thumb_name
+                    staged.append(thumb_dest)
+                except Exception as exc:  # noqa: BLE001 — poster is best-effort
+                    logger.warning("render poster copy failed: %s", exc)
 
-        group = final_video_version_group(episode_id)
-        current = session.scalar(
-            select(func.max(Asset.version_number)).where(
-                Asset.version_group_id == group, Asset.deleted_at.is_(None)
+            session.add(
+                GenerationOutput(
+                    generation_id=generation_id,
+                    asset_id=asset.id,
+                    role="primary",
+                    order_index=1000,
+                )
             )
-        )
-        asset.version_group_id = group
-        asset.version_number = (current or 0) + 1
-        asset.duration = result.duration
-        extra = result.extra or {}
-        asset.width = extra.get("width")
-        asset.height = extra.get("height")
-        name = asset.name or ""
-        if name.lower().endswith(".mp4"):
-            asset.mime_type = "video/mp4"
-        elif name.lower().endswith(".avi"):
-            asset.mime_type = "video/x-msvideo"
-        else:
-            asset.mime_type = "video/mp4"
 
-        # poster = renderer frame-strip (preview image) stored next to the file
-        strip = extra.get("frame_strip_path")
-        if strip and _Path(strip).is_file():
-            try:
-                thumb_name = (asset.name or "video").rsplit(".", 1)[0] + "_thumb.jpg"
-                from app.services.asset_service import project_dir as _proj_dir
+            timeline: Timeline | None = None
+            if timeline_id:
+                timeline = session.get(Timeline, timeline_id)
+                if timeline is not None and timeline.project_id == project_id:
+                    timeline.status = "RENDERED"
+                    from app.db.models.columns import utcnow_iso
 
-                dest_dir = _proj_dir(project_id) / "video"
-                dest_dir.mkdir(parents=True, exist_ok=True)
-                thumb_dest = dest_dir / thumb_name
-                thumb_dest.write_bytes(_Path(strip).read_bytes())
-                asset.thumbnail_path = "video/" + thumb_name
-            except Exception as exc:  # noqa: BLE001 — poster is best-effort
-                logger.warning("render poster copy failed: %s", exc)
+                    timeline.updated_at = utcnow_iso()
 
-        session.add(
-            GenerationOutput(
-                generation_id=generation_id,
-                asset_id=asset.id,
-                role="primary",
-                order_index=1000,
+            validate_transition(generation.status, "completed")
+            ok = _cas_finalize(
+                session,
+                generation_id,
+                to_status="completed",
+                extra={"output_asset_id": asset.id, "progress": 100},
             )
-        )
-
-        timeline: Timeline | None = None
-        if timeline_id:
-            timeline = session.get(Timeline, timeline_id)
-            if timeline is not None and timeline.project_id == project_id:
-                timeline.status = "RENDERED"
-                from app.db.models.columns import utcnow_iso
-
-                timeline.updated_at = utcnow_iso()
-
-        validate_transition(generation.status, "completed")
-        generation.status = "completed"
-        generation.output_asset_id = asset.id
-        generation.completed_at = _now()
-        generation.stage = "completed"
-        session.commit()
+            if not ok:
+                session.rollback()
+                _compensate_staged_files(staged)
+                _handle_cancelled(factory, generation_id, project_id, None)
+                return
+            session.commit()
 
         bus.publish(
             StudioEvent(
@@ -1000,9 +1163,19 @@ def _persist_render_output(
                     },
                 )
             )
+        _cleanup_provider_output(result.output_path, project_id)
+        if extra.get("frame_strip_path"):
+            _cleanup_provider_output(extra.get("frame_strip_path"), project_id)
         logger.info(
             "render generation %s completed -> FINAL_VIDEO V%d (episode %s)",
             generation_id, asset.version_number, episode_id,
+        )
+    except Exception as exc:  # noqa: BLE001 — completion chain failure is recoverable
+        logger.exception("render completion chain failed for generation %s; compensating", generation_id)
+        _compensate_staged_files(staged)
+        _cleanup_provider_output(result.output_path, project_id)
+        _handle_failure(
+            factory, generation_id, project_id, None, f"Completion chain failed: {exc}", exc=exc
         )
 
 
@@ -1052,6 +1225,7 @@ async def _run_audio_generation(
         return
 
     if generation_id in _cancelled or _db_status(factory, generation_id) == "cancelling":
+        _cleanup_provider_output(result.output_path, project_id)
         _handle_cancelled(factory, generation_id, project_id, None)
         return
     if not result.success:
@@ -1072,6 +1246,9 @@ def _persist_voiceover_output(
 
     - Asset: type audio under vg:clip:{clip_id}:AUDIO (V1/V2... never overwrite).
     - The VOICE clip is re-bound to the newest asset (replace-asset semantics).
+    - P1-E2-T03: CAS terminal status (a cancel that lands mid-completion rolls the
+      chain back), staged files compensated on failure, provider temp output cleaned
+      after the project-tree copy is durable.
     """
     from pathlib import Path as _Path
 
@@ -1081,83 +1258,104 @@ def _persist_voiceover_output(
 
     clip_id = params.get("timeline_clip_id")
 
-    with factory() as session:
-        generation = session.get(Generation, generation_id)
-        if generation is None or generation.status in ("cancelled", "cancelling") or generation_id in _cancelled:
-            return
-        if not result.output_path or not _Path(result.output_path).is_file():
-            validate_transition(generation.status, "failed")
-            generation.status = "failed"
-            generation.error_message = "Voiceover returned no output file."
-            generation.completed_at = _now()
-            session.commit()
-            bus.publish(
-                StudioEvent(
-                    event_type=EVENT_GENERATION_FAILED,
-                    entity_type="generation",
-                    entity_id=generation_id,
-                    project_id=project_id,
-                    payload={"type": "audio", "error": {"code": "GENERATION_FAILED", "message": "No output file."}},
+    staged: list[_Path] = []
+    try:
+        with factory() as session:
+            generation = session.get(Generation, generation_id)
+            if generation is None or generation.status in ("cancelled", "completed"):
+                return
+            if generation.status == "cancelling" or generation_id in _cancelled:
+                _cleanup_provider_output(result.output_path, project_id)
+                _handle_cancelled(factory, generation_id, project_id, None)
+                return
+            if not result.output_path or not _Path(result.output_path).is_file():
+                validate_transition(generation.status, "failed")
+                ok = _cas_finalize(
+                    session,
+                    generation_id,
+                    to_status="failed",
+                    extra={"error_message": "Voiceover returned no output file.", "progress": 100},
+                )
+                if not ok:
+                    session.rollback()
+                    _handle_cancelled(factory, generation_id, project_id, None)
+                    return
+                session.commit()
+                bus.publish(
+                    StudioEvent(
+                        event_type=EVENT_GENERATION_FAILED,
+                        entity_type="generation",
+                        entity_id=generation_id,
+                        project_id=project_id,
+                        payload={"type": "audio", "error": {"code": "GENERATION_FAILED", "message": "No output file."}},
+                    )
+                )
+                return
+
+            asset_svc = AssetService(session)
+            asset = asset_svc.register_asset(
+                project_id=project_id,
+                asset_type="audio",
+                source_path=result.output_path,
+                shot_id=None,
+                generation_id=generation_id,
+                meta={
+                    "provider": generation.provider,
+                    "voice": (result.extra or {}).get("voice") or params.get("voice"),
+                    "role": "VOICEOVER",
+                    "timeline_clip_id": clip_id,
+                    "text_head": (params.get("text") or "")[:120],
+                },
+                make_thumbnail=False,
+                commit=False,  # caller-owned transaction
+                staged_files=staged,
+            )
+            session.flush()  # materialize asset.id before version group / outputs reference it
+
+            name = asset.name.lower()
+            asset.mime_type = "audio/wav" if name.endswith(".wav") else "audio/mpeg"
+            asset.duration = result.duration
+
+            # Immutable VOICEOVER version group (mirrors FINAL_VIDEO numbering).
+            from app.db.models import Asset
+
+            group = clip_audio_version_group(clip_id or "")
+            current = session.scalar(
+                select(func.max(Asset.version_number)).where(
+                    Asset.version_group_id == group, Asset.deleted_at.is_(None)
                 )
             )
-            return
+            asset.version_group_id = group
+            asset.version_number = (current or 0) + 1
 
-        asset_svc = AssetService(session)
-        asset = asset_svc.register_asset(
-            project_id=project_id,
-            asset_type="audio",
-            source_path=result.output_path,
-            shot_id=None,
-            generation_id=generation_id,
-            meta={
-                "provider": generation.provider,
-                "voice": (result.extra or {}).get("voice") or params.get("voice"),
-                "role": "VOICEOVER",
-                "timeline_clip_id": clip_id,
-                "text_head": (params.get("text") or "")[:120],
-            },
-            make_thumbnail=False,
-            commit=False,  # caller-owned transaction
-        )
-        session.flush()  # materialize asset.id before version group / outputs reference it
-
-        name = asset.name.lower()
-        asset.mime_type = "audio/wav" if name.endswith(".wav") else "audio/mpeg"
-        asset.duration = result.duration
-
-        # Immutable VOICEOVER version group (mirrors FINAL_VIDEO numbering).
-        from app.db.models import Asset
-
-        group = clip_audio_version_group(clip_id or "")
-        current = session.scalar(
-            select(func.max(Asset.version_number)).where(
-                Asset.version_group_id == group, Asset.deleted_at.is_(None)
+            session.add(
+                GenerationOutput(
+                    generation_id=generation_id,
+                    asset_id=asset.id,
+                    role="primary",
+                    order_index=1000,
+                )
             )
-        )
-        asset.version_group_id = group
-        asset.version_number = (current or 0) + 1
 
-        session.add(
-            GenerationOutput(
-                generation_id=generation_id,
-                asset_id=asset.id,
-                role="primary",
-                order_index=1000,
+            # Re-bind the VOICE clip to the newest synthesis (replace-asset semantics).
+            timeline_id = params.get("timeline_id")
+            clip: TimelineClip | None = session.get(TimelineClip, clip_id) if clip_id else None
+            if clip is not None and clip.asset_id != asset.id:
+                clip.asset_id = asset.id
+
+            validate_transition(generation.status, "completed")
+            ok = _cas_finalize(
+                session,
+                generation_id,
+                to_status="completed",
+                extra={"output_asset_id": asset.id, "progress": 100},
             )
-        )
-
-        # Re-bind the VOICE clip to the newest synthesis (replace-asset semantics).
-        timeline_id = params.get("timeline_id")
-        clip: TimelineClip | None = session.get(TimelineClip, clip_id) if clip_id else None
-        if clip is not None and clip.asset_id != asset.id:
-            clip.asset_id = asset.id
-
-        validate_transition(generation.status, "completed")
-        generation.status = "completed"
-        generation.output_asset_id = asset.id
-        generation.completed_at = _now()
-        generation.stage = "completed"
-        session.commit()
+            if not ok:
+                session.rollback()
+                _compensate_staged_files(staged)
+                _handle_cancelled(factory, generation_id, project_id, None)
+                return
+            session.commit()
 
         bus.publish(
             StudioEvent(
@@ -1193,7 +1391,15 @@ def _persist_voiceover_output(
                     payload={"timeline_id": timeline_id, "track_id": clip.track_id, "event": "updated"},
                 )
             )
+        _cleanup_provider_output(result.output_path, project_id)
         logger.info(
             "voiceover generation %s completed -> AUDIO V%d (clip %s)",
             generation_id, asset.version_number, clip_id,
+        )
+    except Exception as exc:  # noqa: BLE001 — completion chain failure is recoverable
+        logger.exception("voiceover completion chain failed for generation %s; compensating", generation_id)
+        _compensate_staged_files(staged)
+        _cleanup_provider_output(result.output_path, project_id)
+        _handle_failure(
+            factory, generation_id, project_id, None, f"Completion chain failed: {exc}", exc=exc
         )

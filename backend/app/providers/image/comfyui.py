@@ -63,6 +63,11 @@ class ComfyUIProvider:
             checkpoint=checkpoint,
         )
         prompt_id = await self.client.queue_prompt(workflow)
+        # P1-E2-T03: report the provider handle through the worker's shared dict so
+        # it is persisted mid-run (crash-safe cancel); providers never touch the DB.
+        shared = (request.metadata or {}).get("shared_state")
+        if isinstance(shared, dict):
+            shared["provider_ref"] = prompt_id
         on_progress(5, "waiting_provider")
         logger.info("comfyui queued: prompt_id=%s", prompt_id)
 

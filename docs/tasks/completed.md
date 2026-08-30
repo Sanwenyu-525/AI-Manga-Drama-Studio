@@ -4,10 +4,9 @@
 
 ## Post-MVP
 
-当前没有已完成的 Post-MVP Task。
-
 | Task ID | Task Name | 完成日期 | Commit / PR | 简要修改说明 |
 |---|---|---|---|---|
+| P1-E2-T03 | 原子化生成完成链、真实取消与资产补偿 | 2026-08-30 | （见 git log） | CAS 终态（取消赢得竞争）、流式原子复制 + staged 文件补偿、provider 临时输出清理、provider_ref 运行期落库、cancel 按 provider id/type 正确路由、meta_json/MIME 来自真实文件；test_generation_atomicity.py 新增 8 项 |
 | P1-E1-T01 | 修复 AI 计划映射与批量写入事务 | 2026-08-20 | 07eff18 |
 | P1-E4-T01 | 修复路由冲突并统一错误/请求契约 | 2026-08-20 | 3ab41c8 |
 | P1-E3-T01 | 强制 Agent Project Ownership 与 Run-local Context | 2026-08-20 | a1f7155 |

@@ -172,12 +172,22 @@
 
 **Acceptance Criteria**：
 
-- [ ] 在 save/asset/version/activate/complete 每个断点注入失败，重试后只有一个有效版本。
-- [ ] queued cancel 不会被 claim；running cancel 调用正确 Provider 且之后不写版本。
-- [ ] Generation、Asset、Version、Shot active 指针最终一致。
-- [ ] `meta_json` 为有效 JSON，MIME/size/checksum 来自真实文件。
-- [ ] 大文件使用流式/临时文件路径，不整文件载入内存。
-- [ ] 临时文件、provider output 和取消状态不会无限泄漏。
+- [x] 在 save/asset/version/activate/complete 每个断点注入失败，重试后只有一个有效版本。
+- [x] queued cancel 不会被 claim；running cancel 调用正确 Provider 且之后不写版本。
+- [x] Generation、Asset、Version、Shot active 指针最终一致。
+- [x] `meta_json` 为有效 JSON，MIME/size/checksum 来自真实文件。
+- [x] 大文件使用流式/临时文件路径，不整文件载入内存。
+- [x] 临时文件、provider output 和取消状态不会无限泄漏。
+
+**Design Decision（P1-E2-T03，2026-08）**：
+
+- 完成链保持单事务（ADR-001 2.4），终态改为 **compare-and-swap**（`_cas_finalize`）：`UPDATE generations SET status='completed'|'failed' … WHERE id=? AND status='running'` 作为事务最后一条语句。若用户取消（另一事务写入 durable `cancelling`）在完成过程中落地，CAS 匹配 0 行 → 全部回滚（asset/version/active 指针/GenerationOutput）并 finalize 取消——**取消永远赢得竞争**，取消后不写任何版本。ORM 不再直接改 generation 行（避免 autoflush=False 下脏属性在 commit 时覆盖 CAS 值）。
+- 幂等恢复：`_persist_*_output` 入口对 `completed` 状态直接返回（崩溃后重复 finalization 无副作用）。
+- 文件补偿：`register_asset` 以 **流式复制 + 唯一临时文件 + `os.replace` 原子替换** 落盘（大文件不进内存、final 路径无半写），checksum 随流计算；所有写入路径记入 `staged_files`，事务任何断点失败（save/asset/version/activate/complete）由 worker 统一 `_compensate_staged_files` 删除 + 路由 `_handle_failure`，重试后恰有一个有效版本。
+- 泄漏治理：完成/失败/取消三条路径都 best-effort 清理 provider 临时输出（`_cleanup_provider_output`，只删 projects 树外文件）；取消 hint 集合在 lease 恢复 finalize 路径同样 `discard`。
+- `provider_ref` 落库：结果中的 ref 在完成事务写入；运行期 provider（ComfyUI prompt_id）经 `request.metadata['shared_state']` 通道随 progress 持久化（Provider 不碰 DB）——**进程崩溃恢复后的取消也能中断远端任务**；`cancel_running` 按 generation 存储的 provider id + type 路由到正确 Provider 适配器（此前误用进程默认 Provider）。
+- 资产元数据：`meta_json` 用 `json.dumps`（原 `str(dict)` 是 Python repr）；MIME 由真实文件推导（图片按 PIL 内容格式，其余按扩展名 + 兜底）。
+- 测试：`test_generation_atomicity.py` 8 项——5 断点失败注入 ×（回滚干净 + retry 单版本 + 指针一致 + provider_ref/meta_json/MIME 断言）、queued cancel 不可 claim、running cancel 正确 Provider + 中断 + 不写版本 + hint/output 不泄漏、register_asset 真实文件元数据（webp→image/webp）。
 
 **Priority**：P0  
 **Complexity**：XL  
