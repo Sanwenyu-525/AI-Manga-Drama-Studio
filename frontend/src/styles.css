@@ -1104,10 +1104,29 @@ input:disabled,select:disabled,textarea:disabled{opacity:.55;cursor:default}
 .app-shell:not(.dock-expanded) .queue-header{flex-basis:36px;min-height:36px;padding-inline:12px}
 .app-shell:not(.dock-expanded) .queue-body{visibility:hidden;padding:0}
 .app-context-bar{gap:10px;padding-inline:14px}
-.context-breadcrumb{display:flex;align-items:center;min-width:0;overflow:hidden;color:var(--muted);font-size:11px;white-space:nowrap;text-overflow:ellipsis}
-.context-breadcrumb>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.context-breadcrumb>span:first-child{color:var(--ink);font-weight:620}
-.context-breadcrumb>span.current{color:var(--accent-hover);font-weight:650}
+.context-breadcrumb{display:flex;align-items:center;min-width:0;overflow:hidden;color:var(--muted);font-size:11px;white-space:nowrap}
+/* 内容面包屑（2026-08）：祖先段可点击、悬停展开同级菜单；末段只读高亮。
+   菜单经 portal 渲染到 body（fixed 定位），不受本栏 overflow:hidden 裁剪。 */
+.crumb-item{display:inline-flex;align-items:center;min-width:0}
+.crumb-anchor{display:inline-flex;align-items:center;min-width:0}
+.crumb{display:inline-flex;align-items:center;gap:3px;min-width:0;max-width:190px;padding:3px 6px;border:0;border-radius:5px;background:transparent;color:var(--muted);font-size:11px;font-weight:600;line-height:1.3;text-decoration:none;cursor:pointer}
+.crumb .crumb-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+a.crumb:hover,.crumb-root:hover{color:var(--ink);background:var(--elevated)}
+.crumb:focus-visible{outline:1px solid var(--accent)}
+.crumb-root{color:var(--ink);font-weight:620}
+.crumb-current{color:var(--accent-hover);font-weight:650;cursor:default}
+.crumb-more{color:var(--faint);letter-spacing:1px}
+.crumb-caret{flex:none;color:var(--faint);transition:transform .14s ease}
+.crumb[aria-expanded="true"] .crumb-caret{transform:rotate(180deg);color:var(--muted)}
+.crumb-menu{position:fixed;z-index:150;min-width:210px;max-width:300px;max-height:60vh;overflow-y:auto;padding:4px;border:1px solid var(--hairline);border-radius:8px;background:var(--elevated);box-shadow:0 16px 44px #00000066}
+.crumb-menu-item{display:flex;width:100%;align-items:center;gap:8px;padding:6px 8px;border:0;border-radius:5px;background:transparent;color:var(--ink);font-size:12px;line-height:1.4;text-align:left;cursor:pointer}
+.crumb-menu-item:hover{background:var(--accent-dim)}
+.crumb-menu-item.active{color:var(--accent-hover)}
+.crumb-menu-code{flex:none;color:var(--faint);font-size:10px}
+.crumb-menu-item.active .crumb-menu-code{color:var(--accent-hover)}
+.crumb-menu-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crumb-check{flex:none;margin-left:auto;color:var(--accent)}
+.crumb-menu-empty{padding:7px 8px;color:var(--faint);font-size:11px}
 .context-separator{margin:0 8px;color:var(--faint)}
 .context-muted{color:var(--faint)}
 .context-save-status{display:inline-flex;align-items:center;gap:6px;flex:none;margin-left:auto;color:var(--muted);font-size:10px;white-space:nowrap}
