@@ -1419,6 +1419,9 @@ GET /api/v1/providers
 
 - **引导层**：环境变量（`STUDIO_LLM_MODE` / `STUDIO_LLM_BASE_URL` / `STUDIO_LLM_API_KEY` /
   `STUDIO_LLM_MODEL`）+ 可选 `{data_dir}/llm.json` 覆盖层 —— 仅用于首次播种「默认连接」。
+  **api_key 安全策略：env（`STUDIO_LLM_API_KEY`）优先于任何磁盘明文**（llm.json /
+  llm_profiles.json）。配置 env 后，磁盘残留明文永不生效；读取掩码（api_key_hint）
+  反映的也是生效 key。
 - **权威层**：`{data_dir}/llm_profiles.json`（§47.4 连接 Profile Registry）——
   多条命名连接 + 激活切换 + 任务绑定。本节两个端点读写**当前激活连接**。
 
@@ -1538,6 +1541,7 @@ Response（**永不抛错**，200 + servers 形态）：
 绑定到不同连接（例如本地模型跑导演意图解析、云端强模型跑剧本分析），未绑定的任务
 跟随**激活连接**。首次读取时把 env + llm.json 生效配置播种成「默认连接」（不落盘），
 此后 `llm_profiles.json` 是唯一事实源。api_key 只回掩码，永不明文回传。
+**api_key 生效顺序：`STUDIO_LLM_API_KEY` env → profile 磁盘值**（env 优先，见 §47.1）。
 
 ```http
 GET    /api/v1/llm/profiles                → 列表 + 激活 id + 任务绑定
@@ -1895,7 +1899,9 @@ Operation completed 后 `result`：
 # 48.5 图像运行时配置（补录，P-LocalModels 扩展）
 
 `GET/PUT /api/v1/image/config` 与 `POST /api/v1/image/test`（此前实现未入册，随本次
-扩展一并补录）。镜像 §47.1：`{data_dir}/image.json` 覆盖层 + env 兜底，保存后重置
+扩展一并补录）。镜像 §47.1：`{data_dir}/image.json` 覆盖层，**api_key 生效顺序：
+`STUDIO_AGNES_API_KEY` env → image.json 明文**（env 优先；PUT 不会把 env key
+固化回磁盘，显式传空 api_key 可清除覆盖回落 env），保存后重置
 Provider 缓存即时生效。
 
 ```http
@@ -2022,7 +2028,32 @@ Response（目录视图）：
 ws://localhost:{port}/api/v1/events
 ```
 
+## 49.1 握手与控制帧（P1-E4-T02，2026-08）
+
+连接成功后服务端立即下发握手帧（**sequence=0**）：
+
+```json
+{ "event_type": "system.connected", "sequence": 0, "payload": {} }
+```
+
+连接后可发送**控制帧**（JSON 文本）：
+
+```json
+{ "type": "subscribe", "project_id": "proj_001" }
+{ "type": "unsubscribe" }
+```
+
+- `subscribe`：此后该连接只接收 `project_id` 匹配的事件（按项目过滤）。
+- `unsubscribe`：清空过滤，恢复接收全部事件。
+- 畸形 / 非 JSON / 非对象 / 未知 `type` / 缺 `project_id` 的控制帧一律记录后安全忽略（§137），不中断连接。
+
+## 49.2 每连接有界队列与每连接 sequence（P1-E4-T02）
+
+- **有界队列 + drop-oldest**：每个连接有独立发送缓冲（上限 256 条）。客户端消费不及（慢 / 半死连接）时丢弃**最旧**未发送事件并继续接纳最新——该客户端只影响自己，**不阻塞其他客户端、内存有上限**；每次丢弃以 `ws client queue overflow` 日志告警，客户端观察到 sequence 空洞后必须 reconcile。
+- **每连接独立 sequence**：sequence 从 1 起逐事件递增，只统计该连接**实际收到**的投递。因此**出现空洞（incoming > last + 1）必然意味着真实丢事件**（溢出 / 服务重启 / 断线），客户端必须走 reconcile（§52 / §77）；绝不使用全局序号——那会给被过滤投递制造假空洞。
+
 ---
+
 
 # 50. WebSocket Authentication
 
@@ -2095,6 +2126,8 @@ sequence <= last_sequence
 ```
 
 可以忽略重复事件。
+
+**P1-E4-T02 判定（2026-08）**：前端按每连接 sequence 三分类——`dupe`（`incoming <= last`，丢弃）、`route`（`incoming == last + 1`，正常路由）、`gap`（`incoming > last + 1`，**真实丢失**）。`gap` 出现在断线 / 队列溢出（drop-oldest）/ 服务重启后，前端**必须**触发 reconcile：invalidated 全部活跃查询并从 REST/bootstrap 重建事实状态，而非静默继续（WS 只是提示通道，不是事实来源）。
 
 ---
 

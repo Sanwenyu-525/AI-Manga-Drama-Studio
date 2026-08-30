@@ -2,8 +2,9 @@
 
 > **Sprint 01 完成（2026-08-20）**：8 项 P0 任务全部完成（P1-E1-T01/T02、P1-E2-T01/T02、
 > P1-E3-T01/T02、P1-E4-T01、P1-E6-T01），见 [Completed](completed.md)。
-> 遗留 P0（P1-E2-T03 完成链原子化、P1-E4-T02 Event Gateway）与 P1 任务（P1-E4-T03 关联日志）
-> 排入下一个 Stabilization Sprint。
+> **Sprint 02 完成（2026-08-30）**：P1-E2-T03（完成链原子化）+ P1-E4-T02（Event Gateway 加固）完成。
+> 剩余 P0 为 P1-E5-T01（Fail-closed 配置）、P1-E5-T02（本地 Session/WS Origin/CSP）；P1 任务
+> P1-E4-T03（关联日志）与 P1-E6-T02（文档事实源）待办。
 
 ## Sprint 01 — Project State Correctness & Runtime Stabilization
 
@@ -44,7 +45,7 @@ Wave C
 - `P1-E1-T02` 已完成（2026-08）：部分唯一索引不变量、原子条件更新 revision（Shot/Character）、安全重排（完整集合校验+两阶段编号）、父删子隐规则、迁移重复检测；见 [P1-E1-T02 Design Decision](../roadmap/phase-1-foundation.md)。
 - `P1-E2-T02` 已完成（2026-08）：集中状态机（非法迁移 409）、原子认领（条件 UPDATE）、lease 心跳与崩溃恢复、重试退避、单 Worker 校验、/health worker 字段；见 [P1-E2-T02 Design Decision](../roadmap/phase-1-foundation.md)。
 - `P1-E6-T01` 不是最后才做；每个 P0 修复必须同 PR/commit 带回归测试，CI 骨架可并行推进。
-- `P1-E2-T03`（完成链原子化）和 `P1-E4-T02`（Event Gateway）仍是 P0，但因复杂度和依赖未塞入本 Sprint，排在下一个 Stabilization Sprint 首位。
+- `P1-E2-T03`（完成链原子化）与 `P1-E4-T02`（Event Gateway）已完成（2026-08-30，见 [Completed](completed.md)）；下一个 Sprint 首位 P0 为 `P1-E5-T01`（生产配置 Fail-closed）与 `P1-E5-T02`（本地 Session/WS Origin/CSP）。
 - 本 Sprint 不开发 Timeline、Continuity、多 Agent、云端、插件或 UI 大改。
 
 ## Definition of Done

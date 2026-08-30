@@ -316,12 +316,12 @@
 
 **Acceptance Criteria**：
 
-- [ ] threadpool publish 能可靠唤醒 WS loop。
-- [ ] 慢/断开的一个客户端不阻塞其他客户端且内存有上限。
-- [ ] 多次 app lifespan 不产生重复事件或悬挂 task。
-- [ ] 事件按 project 过滤；前端重连/gap 后执行可观察的 reconcile。
-- [ ] malformed/unknown-version event 被记录并安全忽略。
-- [ ] WS 与恢复路径有自动化测试。
+- [x] threadpool publish 能可靠唤醒 WS loop。
+- [x] 慢/断开的一个客户端不阻塞其他客户端且内存有上限。
+- [x] 多次 app lifespan 不产生重复事件或悬挂 task。
+- [x] 事件按 project 过滤；前端重连/gap 后执行可观察的 reconcile。
+- [x] malformed/unknown-version event 被记录并安全忽略。
+- [x] WS 与恢复路径有自动化测试。
 
 **Priority**：P0  
 **Complexity**：L  

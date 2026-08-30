@@ -2106,6 +2106,40 @@ Activity Rail 的 15 个 Tab 顺序固定（见 `DESIGN.md` §4）。每个已�
 | 14 | 生产日志 | 项目生成任务追溯 `/projects/:id/production-log` |
 | 15 | 设置 | 全局 Provider / LLM 设置 `/settings` |
 
+## 76.2 顶部内容面包屑（Content Breadcrumb，2026-08）
+
+上下文栏（40px 冻结壳）中，工作区切换右侧承载**内容层级导航**：左侧活动栏回答「我在做什么」，顶部面包屑回答「我正在什么内容里」。段落一律从真实 Project State（URL 路由 + 查询缓存）推导，**不伪造路径、不做文件管理器隐喻（无文件夹图标）**。
+
+```text
+智能体工作区 | 漫剧工作区   最后一村村法 / 分镜 / EP01 / SC03 / SH03
+  （工作区切换）              （内容面包屑：项目 → 模块 → EP → SC → 当前）
+```
+
+交互模型（定稿）：
+
+| 级别 | 规则 |
+|---|---|
+| 一级 · 点击 | 点击祖先段 → SPA 内跳转，只换工作区内容，壳 / 右侧面板 / 底部队列不重载 |
+| 二级 · 悬停 | 有同级内容的段悬停 → 同级菜单横向切换（项目↔项目 / 模块↔模块 / EP↔EP / SC↔SC），不必逐级返回 |
+| 三级 · 当前 | 末段（当前节点，如 SH03）只读高亮（`aria-current="location"`），不可点击、无菜单 |
+| 四级 · 溢出 | 各段缩到极限仍放不下时，首现 `…` 段，悬停展开完整层级菜单 |
+
+段落 → 跳转落点：
+
+| 段落 | 点击落点 | 同级菜单 |
+|---|---|---|
+| 项目 | `/projects/:id/workspace`（项目首页） | 项目库全部项目 → 各自项目首页 |
+| 模块 | 该模块职责页（同 §76.1 路由；剧本/时间线在剧集上下文内直达该集） | 全部内容模块（生产控制中心 → 生产日志） |
+| EP | `/projects/:id/episodes/:epId/script`（该集主页 = 剧本工作区，场景与分镜入口在此） | 该项目全部剧集 |
+| SC | `/projects/:id/episodes/:epId/scenes/:sceneId/storyboard` | 当前集全部场景 |
+| SH（当前） | 不可点击 | 无 |
+
+附加契约：
+
+- **跨场景清场**：从 SC 同级菜单横向切换时清空 Selection 的镜头选择，右侧检查器不残留上一场景的脏上下文。
+- **菜单渲染**：portal 到 `body`（fixed 定位，z-index 150），不受上下文栏 `overflow:hidden` 裁剪；Escape / 外部按下 / 滚动 / 路由变化即关闭；同级数据（项目列表 / 场景列表）懒加载——菜单首次悬停才请求，其余段落标签复用页面既有查询缓存。
+- **组件**：`frontend/src/components/shell/ContentBreadcrumb.tsx`；模块映射唯一事实源为该文件内 `MODULE_MENU`（与 §76.1 语义一致）。
+
 # 77. MVP 暂不做
 
 ```text
@@ -2287,6 +2321,18 @@ Invalidate Query
  ↓
 Update UI
 ```
+
+## 83.1 WebSocket 客户端与 reconcile（P1-E4-T02，2026-08）
+
+`socket.ts` 单例 + 指数退避重连（1s→2s→4s→…→30s）。服务端每连接独立 sequence（契约 §49.2），前端纯函数 `classifySequence(incoming, last)` 三分类：
+
+```text
+incoming <= last        → dupe   丢弃（§52 去重）
+incoming == last + 1    → route  正常路由到 EventRouter
+incoming >  last + 1    → gap    真实丢失 → reconcile（不可静默）
+```
+
+`gap` 与**重连成功**两条路径都调用 `reconcile(reason)`：`EventRouter.reconcile()` invalidates **全部活跃查询**，让缓存从 REST/bootstrap 重建事实状态——WS 只是提示通道，断线期间漏掉的事件绝不靠猜。reconcile 钩子经 `setReconcileHandler` 可被应用层注入扩展。
 
 ---
 
