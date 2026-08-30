@@ -1,13 +1,38 @@
 // P1-E6-T01: event reconcile gate — sequence dedupe + malformed-envelope handling
 // (api-event-contract §52, §137).
-import { describe, expect, it } from "vitest";
-import { isWellFormedEvent, shouldRouteEvent } from "../events/socket";
+// P1-E4-T02: classifySequence adds the "gap" verdict — a jumped sequence means
+// events were lost and the client must reconcile from REST (observable recovery).
+import { describe, expect, it, vi } from "vitest";
+import { classifySequence, isWellFormedEvent, setReconcileHandler } from "../events/socket";
 
-describe("shouldRouteEvent", () => {
-  it("routes newer sequences and drops stale/duplicate ones", () => {
-    expect(shouldRouteEvent(5, 4)).toBe(true);
-    expect(shouldRouteEvent(4, 4)).toBe(false); // duplicate
-    expect(shouldRouteEvent(3, 4)).toBe(false); // stale (out of order)
+describe("classifySequence", () => {
+  it("routes contiguous newer sequences", () => {
+    expect(classifySequence(5, 4)).toBe("route");
+    expect(classifySequence(1, 0)).toBe("route"); // first event after system.connected
+  });
+
+  it("flags duplicates and stale/out-of-order sequences", () => {
+    expect(classifySequence(4, 4)).toBe("dupe");
+    expect(classifySequence(3, 4)).toBe("dupe"); // stale (out of order)
+  });
+
+  it("flags gaps (lost events) for reconcile instead of silently routing", () => {
+    expect(classifySequence(6, 4)).toBe("gap");
+    expect(classifySequence(100, 4)).toBe("gap");
+  });
+});
+
+describe("setReconcileHandler", () => {
+  it("invokes the handler (observable recovery hook)", async () => {
+    const { reconcile } = await import("../events/socket");
+    const handler = vi.fn();
+    setReconcileHandler(handler);
+    try {
+      reconcile("unit-test");
+      expect(handler).toHaveBeenCalledWith("unit-test");
+    } finally {
+      setReconcileHandler(null);
+    }
   });
 });
 

@@ -48,7 +48,7 @@ logger = get_logger("app")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Generation worker (Stage C) + WebSocket event gateway (Stage C)
-    from app.events.ws import start_gateway
+    from app.events.ws import start_gateway, stop_gateway
     from app.generations.worker import worker_loop
     from app.jobs.scheduler import scheduler_loop
 
@@ -59,6 +59,7 @@ async def lifespan(app: FastAPI):
     yield
     worker_task.cancel()
     scheduler_task.cancel()
+    await stop_gateway()  # P1-E4-T02: unsubscribe + no dangling gateway tasks
 
 
 def create_app() -> FastAPI:

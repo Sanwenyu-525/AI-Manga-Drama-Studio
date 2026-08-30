@@ -134,6 +134,28 @@ class EventBus:
         else:
             self._subscribers.setdefault(event_type, []).append(callback)
 
+    def unsubscribe(self, event_type: str, callback: Subscriber) -> None:
+        """Remove a previous subscription (P1-E4-T02: explicit subscription handle —
+        repeated app lifespans must not accumulate duplicate gateway subscribers)."""
+        if event_type == "*":
+            try:
+                self._wildcards.remove(callback)
+            except ValueError:
+                pass
+            return
+        subscribers = self._subscribers.get(event_type)
+        if subscribers is not None:
+            try:
+                subscribers.remove(callback)
+            except ValueError:
+                pass
+
+    def subscriber_count(self, event_type: str = "*") -> int:
+        """Diagnostic helper (tests/health): number of subscribers for a type."""
+        if event_type == "*":
+            return len(self._wildcards)
+        return len(self._subscribers.get(event_type, []))
+
     def publish(self, event: StudioEvent) -> None:
         self._sequence += 1
         logger.info(

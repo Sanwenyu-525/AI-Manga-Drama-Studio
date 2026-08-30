@@ -21,9 +21,14 @@ export interface StudioEvent {
 
 // Event gate (P1-E6-T01 / api-event-contract §52): pure sequence/dedupe/reconcile
 // logic, extracted from the socket so it is unit-testable.
-// Returns true when the event should be routed (newer sequence than seen).
-export function shouldRouteEvent(sequence: number, lastSequence: number): boolean {
-  return sequence > lastSequence;
+// P1-E4-T02: classifySequence replaces the boolean gate — a JUMPED sequence
+// (incoming > last + 1) means events were lost (drop-oldest overflow or a server
+// restart) and the client must reconcile from REST instead of silently routing.
+export type SequenceVerdict = "route" | "dupe" | "gap";
+export function classifySequence(incoming: number, lastSequence: number): SequenceVerdict {
+  if (incoming <= lastSequence) return "dupe";
+  if (incoming > lastSequence + 1) return "gap";
+  return "route";
 }
 
 // Returns true when the payload is a well-formed Studio event envelope.
@@ -74,6 +79,9 @@ function connect() {
   socket.onopen = () => {
     reconnectDelay = RECONNECT_BASE_MS;
     setSocketState("connected");
+    // P1-E4-T02: after any reconnect the client rebuilds state from REST —
+    // the WS is a hint channel; queries re-fetch to close anything missed offline.
+    reconcile("reconnect");
   };
   socket.onmessage = (message) => {
     try {
@@ -83,7 +91,12 @@ function connect() {
         lastSequence = event.sequence;
         return;
       }
-      if (!shouldRouteEvent(event.sequence, lastSequence)) return; // dedupe (contract §52)
+      const verdict = classifySequence(event.sequence, lastSequence);
+      if (verdict === "dupe") return; // dedupe (contract §52)
+      if (verdict === "gap") {
+        // Observable reconcile: log + invalidate all active queries, then keep routing.
+        reconcile(`sequence gap (${lastSequence} -> ${event.sequence})`);
+      }
       lastSequence = event.sequence;
       routeEvent(event);
     } catch {
@@ -96,6 +109,20 @@ function connect() {
     reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS); // backoff §76
   };
   socket.onerror = () => setSocketState("disconnected");
+}
+
+// Reconcile hook (P1-E4-T02): invoked on reconnect and on sequence gaps so the
+// client rebuilds server state via REST/bootstrap instead of trusting stale caches.
+let reconcileHandler: ((reason: string) => void) | null = null;
+
+export function setReconcileHandler(handler: ((reason: string) => void) | null): void {
+  reconcileHandler = handler;
+}
+
+export function reconcile(reason: string): void {
+  console.warn(`[ws] reconcile: ${reason} — refetching server state`);
+  reconcileHandler?.(reason);
+  routerRef?.reconcile();
 }
 
 // Router: never write hundreds of ifs in onmessage (contract §74).
@@ -116,6 +143,12 @@ function getRouter(): EventRouter | null {
 
 export class EventRouter {
   constructor(private queryClient: ReturnType<typeof useQueryClient>) {}
+
+  // P1-E4-T02: rebuild-all hook for reconnect/gap recovery — invalidates every
+  // active query so scoped caches re-hydrate from REST (bootstrap semantics).
+  reconcile(): void {
+    void this.queryClient.invalidateQueries();
+  }
 
   handle(event: StudioEvent): void {
     const generation = useGenerationStore.getState();
