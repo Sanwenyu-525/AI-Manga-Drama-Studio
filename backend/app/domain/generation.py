@@ -16,6 +16,9 @@ class GenerationCreate(BaseModel):
     height: int | None = Field(default=None, ge=64, le=4096)
     seconds: int | None = Field(default=None, ge=4, le=12)  # 视频时长（agnes 4-12s）
     max_attempts: int = Field(default=1, ge=1, le=5)
+    # M1 参考图显式覆盖：传入时替代 ShotCharacter→MASTER 自动解析，作为本条
+    # generation 的参考图来源（P3 一致性预研 §5.1；缺省 = 自动解析，行为不变）。
+    reference_asset_ids: list[str] | None = None
 
 
 class VoiceoverGenerateRequest(BaseModel):

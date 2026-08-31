@@ -7,15 +7,47 @@ ImageProvider implementation: workflow template → parameter injection → queu
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 from app.core.config import settings
-from app.core.errors import ComfyUIError, ProviderUnavailableError
+from app.core.errors import ComfyUIError, ProviderUnavailableError, StudioError
 from app.core.logging import get_logger
 from app.providers.comfyui.client import ComfyUIClient
 from app.providers.comfyui.workflow_mapper import WorkflowMapper
 from app.providers.image.base import ImageRequest, ImageResult
 
 logger = get_logger("providers.comfyui")
+
+# M1: LoadImage 节点类名（参考图槽位裁剪用；Output 节点判定仍归 mapper）。
+_LOAD_IMAGE_CLASS = "LoadImage"
+
+
+def _prune_unfilled_reference_nodes(workflow: dict) -> dict:
+    """Drop LoadImage nodes whose reference slot stayed empty plus dangling links.
+
+    A fixed 3-slot template (zimage_turbo_ref) must stay usable with 0..3 references:
+    ComfyUI rejects LoadImage with an empty filename, so unfilled slots are pruned
+    mechanically (pure workflow-structure surgery — no business semantics).
+    """
+    removed = {
+        node_id
+        for node_id, node in workflow.items()
+        if isinstance(node, dict)
+        and node.get("class_type") == _LOAD_IMAGE_CLASS
+        and (node.get("inputs") or {}).get("image") in ("", None)
+    }
+    if not removed:
+        return workflow
+    pruned = {node_id: node for node_id, node in workflow.items() if node_id not in removed}
+    for node in pruned.values():
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        for key, value in list(inputs.items()):
+            if isinstance(value, list) and value and str(value[0]) in removed:
+                del inputs[key]
+    logger.info("pruned %d unfilled reference LoadImage node(s)", len(removed))
+    return pruned
 
 
 class ComfyUIProvider:
@@ -53,14 +85,20 @@ class ComfyUIProvider:
 
         checkpoint = get_image_config()["checkpoint"]
         mapper = WorkflowMapper(workflow_id=request.workflow_id)
-        workflow = mapper.build(
-            prompt=request.prompt,
-            negative_prompt=request.negative_prompt,
-            seed=request.seed,
-            width=request.width,
-            height=request.height,
-            reference_images=request.reference_images,
-            checkpoint=checkpoint,
+        # M1：参考图先逐张上传（本地绝对路径 → ComfyUI 侧文件名），再以文件名列表
+        # 注入 $REFERENCE_IMAGE_1..3 槽位。任一上传失败 → Provider 错误 → generation
+        # fail（诚实失败，不静默丢弃）；未填充槽位的 LoadImage 节点被机械裁剪。
+        reference_names = await self._upload_references(request)
+        workflow = _prune_unfilled_reference_nodes(
+            mapper.build(
+                prompt=request.prompt,
+                negative_prompt=request.negative_prompt,
+                seed=request.seed,
+                width=request.width,
+                height=request.height,
+                reference_images=reference_names,
+                checkpoint=checkpoint,
+            )
         )
         prompt_id = await self.client.queue_prompt(workflow)
         # P1-E2-T03: report the provider handle through the worker's shared dict so
@@ -109,6 +147,26 @@ class ComfyUIProvider:
             height=request.height,
             extra={"prompt_id": prompt_id},
         )
+
+    async def _upload_references(self, request: ImageRequest) -> list[str]:
+        """Upload local reference images in order; returns ComfyUI-side filenames.
+
+        uuid 前缀文件名保证 ComfyUI 侧无冲突；任一上传失败抛 Provider 错误使该
+        generation fail（诚实失败，不静默丢弃）。
+        """
+        names: list[str] = []
+        for path in request.reference_images:
+            unique = f"studio_ref_{uuid.uuid4().hex[:12]}{Path(path).suffix}"
+            try:
+                uploaded = await self.client.upload_image(path, filename=unique)
+            except StudioError:
+                raise  # 已是诚实的 Provider/ComfyUI 错误，原样上抛
+            except Exception as exc:  # noqa: BLE001 — any upload failure fails the generation
+                raise ComfyUIError(f"Reference image upload failed: {exc}", {"path": path}) from exc
+            name = (uploaded or {}).get("name") or unique
+            names.append(name)
+            logger.info("reference uploaded: %s -> %s", Path(path).name, name)
+        return names
 
     async def cancel(self, provider_ref: str) -> None:
         await self.client.cancel(provider_ref)

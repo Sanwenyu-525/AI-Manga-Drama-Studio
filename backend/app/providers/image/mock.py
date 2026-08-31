@@ -54,6 +54,8 @@ class MockImageProvider:
             provider_ref=f"mock_{out_path.stem}",
             width=width,
             height=height,
+            # M1: 接受并忽略参考图内容；数量记入 extra 便于测试/溯源断言。
+            extra={"reference_count": len(request.reference_images)},
         )
 
     async def cancel(self, provider_ref: str) -> None:

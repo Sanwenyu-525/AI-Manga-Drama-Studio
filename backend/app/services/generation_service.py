@@ -156,21 +156,31 @@ class GenerationService:
                 order_index=2000.0,
             )
         )
-        # P3-T012 (P2-T007 link): CHARACTER_REFERENCE -> each shot character whose
-        # CharacterVersion MASTER has a representative asset (the visual to reference).
-        for ref in self._character_references(shot_id):
+        # P3-T012 (P2-T007 link) + M1: CHARACTER_REFERENCE rows are the worker's only
+        # reference source (worker reads this table back — no duplicate storage).
+        # Explicit reference_asset_ids REPLACE the auto ShotCharacter→MASTER resolution
+        # (consistency preresearch §5.1); None keeps the existing auto behavior.
+        explicit_refs = data.reference_asset_ids is not None
+        refs = (
+            self._explicit_references(project_id, data.reference_asset_ids)
+            if explicit_refs
+            else self._character_references(shot_id)
+        )
+        for idx, ref in enumerate(refs):
+            metadata: dict = {"asset_id": ref["asset_id"]}
+            if ref.get("character_id"):
+                metadata["character_id"] = ref["character_id"]
+            if explicit_refs:
+                metadata["source"] = "explicit"
             self.session.add(
                 GenerationInput(
                     generation_id=generation.id,
                     input_type="reference",
                     reference_type="CHARACTER_REFERENCE",
-                    reference_id=ref["version_id"],
+                    reference_id=ref["version_id"] or ref["asset_id"],
                     role="character_reference",
-                    metadata_json=json.dumps(
-                        {"character_id": ref["character_id"], "asset_id": ref["asset_id"]},
-                        ensure_ascii=False,
-                    ),
-                    order_index=3000.0,
+                    metadata_json=json.dumps(metadata, ensure_ascii=False),
+                    order_index=3000.0 + float(idx),  # preserve resolution order for the worker
                 )
             )
         self.session.commit()
@@ -347,6 +357,33 @@ class GenerationService:
                         "asset_id": version.asset_id,
                     }
                 )
+        return refs
+
+    def _explicit_references(self, project_id: str, asset_ids: list[str]) -> list[dict]:
+        """M1: validate caller-provided reference assets (consistency preresearch §5.1).
+
+        Every asset must exist (404), belong to the same project (422) and be an
+        image ("reference" kept for the legacy dead enum). Order follows the request;
+        an empty list means "explicitly no references" (auto resolution skipped).
+        """
+        from app.db.models import Asset
+
+        refs: list[dict] = []
+        for asset_id in asset_ids:
+            asset = self.session.get(Asset, asset_id)
+            if asset is None or asset.deleted_at:
+                raise NotFoundError("Asset does not exist.", {"asset_id": asset_id})
+            if asset.project_id != project_id:
+                raise ValidationError(
+                    "Asset belongs to another project.",
+                    {"asset_id": asset_id, "project_id": project_id, "asset_project_id": asset.project_id},
+                )
+            if asset.type not in ("image", "reference"):
+                raise ValidationError(
+                    "Reference asset must be an image.",
+                    {"asset_id": asset_id, "type": asset.type},
+                )
+            refs.append({"character_id": None, "version_id": None, "asset_id": asset.id})
         return refs
 
     def _project_id_of(self, shot: Shot) -> str | None:

@@ -17,7 +17,9 @@ from app.db.models.columns import uuid_pk
 
 # Role taxonomy (P3-T012): consumed inputs / produced outputs.
 # Input roles: PROMPT_VERSION, SHOT, CHARACTER_REFERENCE, LOCATION_REFERENCE, ...
-INPUT_ROLES = ("PROMPT_VERSION", "SHOT")
+# M1: CHARACTER_REFERENCE is actually written by GenerationService.create_generation
+# (role="character_reference"; auto ShotCharacter→MASTER resolution + explicit override).
+INPUT_ROLES = ("PROMPT_VERSION", "SHOT", "CHARACTER_REFERENCE")
 # Output roles: primary (the generation's named output), plus future secondary outputs.
 OUTPUT_ROLES = ("primary", "secondary", "mask", "upscale")
 

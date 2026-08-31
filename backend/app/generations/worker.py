@@ -28,7 +28,7 @@ from app.core.config import settings
 from app.core.errors import StudioError
 from app.core.logging import get_logger
 from app.db import session as db_session_module
-from app.db.models import Generation, GenerationOutput
+from app.db.models import Asset, Generation, GenerationInput, GenerationOutput
 from app.events.bus import (
     EVENT_GENERATION_COMPLETED,
     EVENT_GENERATION_FAILED,
@@ -49,6 +49,7 @@ from app.providers.registry import (
     get_image_provider,
     get_render_provider,
     get_video_provider,
+    image_provider_supports_reference,
 )
 from app.providers.render.base import RenderClip, RenderRequest
 from app.services.asset_service import AssetService
@@ -61,6 +62,9 @@ logger = get_logger("generations.worker")
 # cross-thread asyncio.Queue handoffs (sync routes run in a threadpool;
 # asyncio.Queue is not thread-safe).
 POLL_INTERVAL_SECONDS = 0.5
+
+# M1（一致性预研 §4.1/§5.1）：Z-Image Omni 最多接受 3 张参考图。
+MAX_REFERENCE_IMAGES = 3
 
 _cancelled: set[str] = set()
 
@@ -415,12 +419,16 @@ async def run_generation(generation_id: str) -> None:
     # prompt_id) report it through this shared dict on progress callbacks so the
     # worker can persist it mid-run — providers never touch the DB themselves.
     shared: dict = {"provider_ref": None}
+    # M1: CHARACTER_REFERENCE 溯源行 → 绝对路径 → ImageRequest（纯机械转换，
+    # capability 不支持时诚实传空——见 _resolve_reference_paths）。
+    reference_images = _resolve_reference_paths(factory, gen_id, provider_id)
     request = ImageRequest(
         prompt=params.get("prompt", ""),
         negative_prompt=params.get("negative_prompt"),
         seed=params.get("seed"),
         width=params.get("width"),
         height=params.get("height"),
+        reference_images=reference_images,
         workflow_id=workflow_id,
         metadata={"generation_id": gen_id, "shot_id": shot_id, "shared_state": shared},
     )
@@ -460,6 +468,73 @@ async def run_generation(generation_id: str) -> None:
         return
 
     _persist_output(factory, gen_id, project_id, shot_id, result.output_path, result)
+
+
+def _load_reference_asset_ids(factory: Callable, generation_id: str) -> list[str]:
+    """Read the generation's CHARACTER_REFERENCE provenance rows → ordered asset ids
+    (metadata_json.asset_id, falling back to reference_id), ordered by order_index
+    (GenerationService writes rows in resolution order). Deduplicated."""
+    with factory() as session:
+        rows = list(
+            session.scalars(
+                select(GenerationInput)
+                .where(
+                    GenerationInput.generation_id == generation_id,
+                    GenerationInput.role == "character_reference",
+                )
+                .order_by(GenerationInput.order_index)
+            )
+        )
+        ids: list[str] = []
+        for row in rows:
+            meta: dict = {}
+            if row.metadata_json:
+                try:
+                    meta = json.loads(row.metadata_json)
+                except ValueError:
+                    meta = {}
+            asset_id = meta.get("asset_id") or row.reference_id
+            if asset_id and asset_id not in ids:
+                ids.append(asset_id)
+    return ids
+
+
+def _resolve_reference_paths(factory: Callable, generation_id: str, provider_id: str) -> list[str]:
+    """M1 参考图注入：CHARACTER_REFERENCE 溯源行 → 资产绝对路径 → ImageRequest 参数。
+
+    纯机械转换（行→路径→参数），不含任何业务语义（红线：worker 不感知角色/镜头逻辑）：
+    - provider 无 reference_image 能力 → 空列表（诚实降级，debug 记录原因）；
+    - 保持溯源行顺序，上限 MAX_REFERENCE_IMAGES（Z-Image Omni 3 图上限）；
+    - 文件缺失/不可用的参考图跳过（warn），不阻断生成。
+    """
+    asset_ids = _load_reference_asset_ids(factory, generation_id)
+    if not asset_ids:
+        return []
+    if not image_provider_supports_reference(provider_id):
+        logger.debug(
+            "generation %s: image provider %s has no reference_image capability; "
+            "%d reference row(s) ignored",
+            generation_id, provider_id, len(asset_ids),
+        )
+        return []
+    paths: list[str] = []
+    with factory() as session:
+        assets = AssetService(session)
+        for asset_id in asset_ids[:MAX_REFERENCE_IMAGES]:
+            asset = session.get(Asset, asset_id)
+            if asset is None or asset.deleted_at:
+                logger.warning(
+                    "generation %s: reference asset %s not found; skipped", generation_id, asset_id
+                )
+                continue
+            try:
+                paths.append(str(assets.absolute_path(asset)))
+            except StudioError as exc:
+                logger.warning(
+                    "generation %s: reference asset %s unusable (%s); skipped",
+                    generation_id, asset_id, exc,
+                )
+    return paths
 
 
 async def _run_video_generation(factory: Callable, gen_id: str, project_id: str, shot_id: str | None, provider_id: str, params: dict) -> None:

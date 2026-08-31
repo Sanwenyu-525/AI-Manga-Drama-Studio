@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from pathlib import Path
 
 import httpx
 
@@ -164,18 +165,27 @@ class ComfyUIClient:
         except httpx.TransportError as exc:
             raise ProviderUnavailableError(f"ComfyUI output download failed: {exc}") from exc
 
-    async def upload_image(self, file_path: str, subfolder: str = "") -> dict:
-        """Upload a reference image for ControlNet/IPAdapter-style workflows."""
+    async def upload_image(self, file_path: str, subfolder: str = "", filename: str | None = None) -> dict:
+        """Upload a reference image for ControlNet/IPAdapter-style workflows.
+
+        filename: optional multipart filename override (M1: the provider passes a
+        uuid-prefixed name so the ComfyUI-side reference file is collision-free).
+        HTTP errors raise ComfyUIError (same wrapping as queue_prompt) and transport
+        errors ProviderUnavailableError, so callers fail the generation honestly.
+        """
+        upload_name = filename or Path(file_path).name
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 with open(file_path, "rb") as f:  # noqa: ASYNC230 — local desktop file IO is acceptable for MVP
                     resp = await client.post(
                         f"{self.base_url}/upload/image",
-                        files={"image": f},
+                        files={"image": (upload_name, f)},
                         data={"overwrite": "true", "subfolder": subfolder},
                     )
                 resp.raise_for_status()
                 return resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise ComfyUIError(f"ComfyUI image upload failed: {exc.response.text[:300]}") from exc
         except httpx.TransportError as exc:
             raise ProviderUnavailableError(f"ComfyUI image upload failed: {exc}") from exc
 
