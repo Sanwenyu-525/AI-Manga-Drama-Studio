@@ -464,26 +464,11 @@ export function EpisodePanel({
           <AnalysisLoadingPanel elapsed={previewElapsed} />
         ) : (
           <section className="analysis-start-panel">
-            <div className="analysis-orbit">
-              <MagicWand size={30} weight="fill" />
-            </div>
             <span className="eyebrow">结构化输出</span>
             <h2>把原文拆成可制作的场景</h2>
-            <p>AI 将识别场景、地点、时间、情绪与剧情节点。预览不会写入 Project State。</p>
-            <ul>
-              <li>
-                <CheckCircle size={16} /> 先预览，再确认创建
-              </li>
-              <li>
-                <CheckCircle size={16} /> 1000–3000 字效果最佳
-              </li>
-              <li>
-                <CheckCircle size={16} /> 重复确认不重复创建场景
-              </li>
-              <li>
-                <CheckCircle size={16} /> 原文变化时替换旧 AI 场景，手动场景保留
-              </li>
-            </ul>
+            <p>
+              AI 将识别场景、地点、时间与情绪节拍；预览不会写入 Project State。先预览，再确认创建。
+            </p>
           </section>
         )}
       </div>
