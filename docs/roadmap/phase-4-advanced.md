@@ -85,6 +85,8 @@
 
 **实现建议**：首版只支持 generate→review→activate 的有向无环步骤；definition/version 不可变，run 保存 snapshot；ComfyUI workflow 作为某一 step 的 Adapter 配置，不能泄漏 node_id 到业务/API。
 
+**LLM 工作流生成（2026-08-31 拷问会决策并入）**：LLM 可作为版本化 Workflow Definition 的「生成器」入口——LLM 产出 ComfyUI 图 JSON 后，必须经过**生成后校验**（对照 `/object_info` 全节点 schema 校验节点存在性与输入类型）+ **节点白名单**（ComfyUI 存在可读写文件/执行脚本类节点，未校验的 LLM 生成图不得直接入队），通过后注册为版本化模板入库，之后正常走 catalog 执行。禁止每次生成任务临场让 LLM 现产工作流（与 P1-E2-T01 的 fail-closed catalog 决策保持一致：执行路径上只允许已验证模板）。
+
 **Acceptance Criteria**：
 
 - [ ] Workflow Definition 有 version、capability、typed input/output 与校验。
@@ -92,6 +94,7 @@
 - [ ] 业务 Service 不导入 LangGraph/ComfyUI 类型。
 - [ ] 循环、缺输入和不支持 capability 在运行前失败。
 - [ ] 至少一个图片生产 workflow 可重复执行。
+- [ ] LLM 生成的工作流经校验+白名单后注册入库，未通过校验的图不进入执行路径。
 
 **Priority**：P1  
 **Complexity**：XL  
@@ -200,6 +203,8 @@
 **Complexity**：XL  
 **Dependencies**：P4-E3-T01、P4-E2-T02、Phase 5 storage/recovery  
 **Risk**：范围扩张为 NLE；首版明确单主轨、基础转场、无复杂音频编辑。
+
+**状态（2026-08-31 核对）**：P4-E3-T01 **已完成**（VideoProviderProtocol + 真实 AgnesVideoProvider + mock 占位 fail-fast、排队前 type/capability 校验、Shot 多不可变视频版本 + `active_video_asset_id` + video-versions API，cancel/retry/recovery 复用既有 Generation 状态机）。P4-E3-T02 **主体完成**（Timeline 三表 + 四轨 + clip 编辑 + sequence-from-shots + 非渲染预览 + type=render 渲染 mock/ffmpeg → FINAL_VIDEO 不可变版本 + 音频混流/字幕烧录）；**AC-2 缺口已关闭（2026-08-31）**：TimelineClip 新增 `transition`（cut/fade/dissolve，ffmpeg xfade / mock PIL 交叉淡化落地）+ `revision` 乐观并发（原子条件更新 409）+ Timeline 编辑纳入 ChangeSet/Undo 体系（source="timeline"）。
 
 ---
 

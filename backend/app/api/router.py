@@ -8,6 +8,7 @@ from app.api import (
     characters,
     continuity,
     costumes,
+    documents,
     image_settings,
     episodes,
     generations,
@@ -16,6 +17,7 @@ from app.api import (
     llm,
     locations,
     operations,
+    pipelines,
     projects,
     prompts,
     provenance,
@@ -41,7 +43,9 @@ api_router.include_router(characters.router)
 api_router.include_router(continuity.router)
 api_router.include_router(locations.router)
 api_router.include_router(costumes.router)
+api_router.include_router(documents.router)
 api_router.include_router(operations.router)
+api_router.include_router(pipelines.router)
 api_router.include_router(generations.router)
 api_router.include_router(llm.router)
 api_router.include_router(image_settings.router)

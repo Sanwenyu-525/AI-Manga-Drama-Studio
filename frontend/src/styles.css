@@ -1,4 +1,4 @@
-/* Studio global styles — regenerated verbatim from the production bundle. */
+﻿/* Studio global styles — regenerated verbatim from the production bundle. */
 @font-face {
   font-family: Geist Variable;
   font-style: normal;
@@ -3512,6 +3512,23 @@ textarea:disabled {
 .compare-side.is-active {
   border-color: var(--accent);
 }
+/* P2-4 (Sprint 05): 单镜头图片生成的显式引擎选择（provider + 模板）。 */
+.engine-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.engine-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.engine-picker-row span {
+  width: 40px;
+  flex: none;
+}
+
 .compare-side-select {
   display: flex;
   align-items: center;
@@ -6286,6 +6303,158 @@ textarea:disabled {
   color: var(--muted);
   font-size: 11px;
 }
+/* ---- 知识库：设定文档库（database-v0.1 §32.6）---- */
+.knowledge-library-panel {
+  width: 100%;
+}
+.knowledge-library-panel > .tree-section {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.knowledge-library-panel .tree-row.child {
+  min-height: 44px;
+}
+.document-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.document-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.doc-filter-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.doc-filter-chip:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.doc-filter-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 650;
+}
+.document-add {
+  margin: 0;
+  white-space: nowrap;
+}
+.doc-type-badge {
+  margin-right: 6px;
+  font-size: 10px;
+  vertical-align: 1px;
+}
+.document-editor .document-links {
+  gap: 10px;
+}
+.character-documents-block {
+  margin: 10px 0 2px;
+  padding: 8px 10px;
+  border: 1px dashed var(--hairline);
+  border-radius: var(--radius);
+}
+.character-documents-block .library-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.character-document-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.character-document-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  color: var(--ink);
+  font-size: 12px;
+}
+.character-document-list li svg {
+  color: var(--accent);
+  flex: none;
+}
+.knowledge-footer-actions {
+  margin-top: 12px;
+  justify-content: flex-start;
+}
+/* ---- C2 一键成片 PipelineBar（api-event-contract §15.1）---- */
+.pipeline-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.pipeline-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.pipeline-title svg {
+  color: var(--accent);
+}
+.pipeline-status-text {
+  color: var(--muted);
+  font-size: 11px;
+}
+.pipeline-stages {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.pipeline-stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  color: var(--muted);
+  font-size: 11px;
+}
+.pipeline-stage.done {
+  border-color: rgba(95, 176, 130, 0.4);
+  color: var(--ok, #5fb082);
+}
+.pipeline-stage.active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.pipeline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.pipeline-notice {
+  color: var(--ink);
+  font-size: 11px;
+}
+.pipeline-error {
+  margin-left: auto;
+}
 .continuity-layout {
   display: grid;
   grid-template-columns: minmax(190px, 240px) minmax(0, 1fr);
@@ -7249,3 +7418,208 @@ a.crumb:hover,
     animation: none;
   }
 }
+/* ---- P2-E3-T02/T03: proposal risk metadata + ChangeSet panel (undo history) ---- */
+.proposal-card-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.risk-badge {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--elevated);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.risk-badge.r1 {
+  background: var(--elevated);
+  color: var(--muted);
+}
+.risk-badge.r2 {
+  background: var(--orange-dim);
+  color: var(--orange);
+}
+.risk-badge.r3 {
+  background: var(--red-dim);
+  color: var(--red);
+}
+.proposal-status.expired {
+  background: var(--orange-dim);
+  color: var(--orange);
+}
+.proposal-reason {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.proposal-generate-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-dim);
+  color: var(--muted);
+  font-size: 11px;
+}
+.change-set-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  max-height: 42%;
+  overflow-y: auto;
+}
+.change-set-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.change-set-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.change-set-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline-soft);
+  border-radius: var(--radius-sm);
+  background: var(--elevated);
+}
+.change-set-row.undone {
+  border-left: 3px solid var(--green);
+  opacity: 0.7;
+}
+.change-set-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.change-set-row-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.change-set-undone {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--green-dim);
+  color: var(--green);
+  white-space: nowrap;
+}
+.change-set-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 10px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.change-set-link:hover {
+  color: var(--accent-hover);
+}
+.change-set-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.change-set-meta span {
+  white-space: nowrap;
+}
+.change-set-note {
+  align-self: flex-start;
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  white-space: nowrap;
+}
+.change-set-diff {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.change-set-diff th,
+.change-set-diff td {
+  padding: 4px 6px;
+  border: 1px solid var(--hairline-soft);
+  text-align: left;
+  vertical-align: top;
+}
+.change-set-diff th {
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--panel);
+}
+.change-set-diff .diff-from {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.change-set-diff .diff-to {
+  color: var(--green);
+}
+.change-set-undo-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+}
+.change-set-undo-results li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--elevated);
+}
+.undo-result.undone {
+  color: var(--green);
+}
+.undo-result.conflict {
+  color: var(--red);
+}
+.undo-result.skipped {
+  color: var(--muted);
+}
+.undo-force-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--red-dim);
+  border: 1px solid rgba(196, 95, 104, 0.35);
+  color: var(--red);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.undo-force-row span {
+  flex: 1;
+}
+

@@ -13,6 +13,7 @@ from app.db.models import (
     Scene,
     Shot,
     ShotCharacter,
+    SourceDocument,
     TimelineClip as TimelineClip,
     TimelineTrack as TimelineTrack,
     WorkflowTemplate,
@@ -123,6 +124,21 @@ class CostumeRepository(SQLAlchemyRepository[Costume]):
 
     def list_for_project(self, project_id: str) -> list[Costume]:
         return self.list_ordered(order_by="created_at", project_id=project_id)
+
+
+class SourceDocumentRepository(SQLAlchemyRepository[SourceDocument]):
+    """Setting-document archive (database-v0.1 §32.6, mvp-spec DOC-002)."""
+
+    model = SourceDocument
+
+    def list_for_project(self, project_id: str, doc_type: str | None = None) -> list[SourceDocument]:
+        stmt = select(SourceDocument).where(
+            SourceDocument.project_id == project_id,
+            SourceDocument.deleted_at.is_(None),
+        )
+        if doc_type:
+            stmt = stmt.where(SourceDocument.doc_type == doc_type)
+        return list(self.session.scalars(stmt.order_by(SourceDocument.created_at)))
 
 
 class ShotCharacterRepository(SQLAlchemyRepository[ShotCharacter]):

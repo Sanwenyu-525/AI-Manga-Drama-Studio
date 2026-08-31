@@ -81,6 +81,11 @@ class TimelineClip(Base):
     source_in: Mapped[float] = mapped_column(nullable=False, default=0)
     source_out: Mapped[float | None] = mapped_column()
     text: Mapped[str | None] = mapped_column(Text)  # subtitle content (VOICE/SUBTITLE clips)
+    # P4-E3-T02 (AC-2): basic transition at the clip's head. "cut" = hard cut;
+    # "fade" / "dissolve" = cross-fade into this clip (rendered via xfade / PIL).
+    transition: Mapped[str] = mapped_column(Text, nullable=False, default="cut")
+    # P4-E3-T02 (AC-2): optimistic-concurrency guard (atomic conditional update).
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     order_index: Mapped[float] = mapped_column(nullable=False, default=0)
     enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 

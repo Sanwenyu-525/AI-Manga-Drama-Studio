@@ -7,10 +7,12 @@ import { Check, Circle, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { useAgentStore } from "../../stores/agentStore";
+import { useSelectionStore } from "../../stores/selectionStore";
 import type { AgentRunRead, Shot } from "../../api/types";
 import { queryKeys } from "../../api/queryKeys";
 import { isWaitingHuman } from "../../lib/agentProposals";
 import { ProposalReview } from "./ProposalReview";
+import { ChangeSetPanel } from "./ChangeSetPanel";
 import { useDirectorContext } from "./useDirectorContext";
 
 function compactId(value: string): string {
@@ -51,6 +53,17 @@ export function AIDirectorPanel() {
       listRef.current.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
     }
   }, [agent.messages.length, agent.status]);
+
+  // P2-E3-T03: jump-to-shot requests (e.g. ChangeSetPanel rows) drive the shared
+  // selection store so the ShotInspector context follows the referenced shot.
+  useEffect(() => {
+    const onSelectShot = (event: Event) => {
+      const shotId = (event as CustomEvent<{ shotId?: string }>).detail?.shotId;
+      if (shotId) useSelectionStore.getState().selectShot(shotId);
+    };
+    window.addEventListener("studio:select-shot", onSelectShot);
+    return () => window.removeEventListener("studio:select-shot", onSelectShot);
+  }, []);
 
   const submitRun = useMutation({
     mutationFn: (message: string) =>
@@ -160,6 +173,9 @@ export function AIDirectorPanel() {
 
         {/* P7-T019/020/021: proposal review (shown while waiting + non-empty list) */}
         {agent.runId && <ProposalReview runId={agent.runId} fallbackStatus={waitingHuman ? "WAITING_HUMAN" : null} />}
+
+        {/* P2-E3-T03: applied change sets of this run (hidden while the list is empty) */}
+        {agent.runId && <ChangeSetPanel runId={agent.runId} />}
 
         {/* P7-T019: visible hint when the run is paused for human approval */}
         {waitingHuman && (

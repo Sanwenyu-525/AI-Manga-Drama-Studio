@@ -7,10 +7,12 @@
 // on exit — never touch a user-started backend).
 
 mod backend;
+mod local_fs;
 
 use backend::{
     BackendRuntime, BackendState, ensure_backend, get_session_token, stop_spawned_backend,
 };
+use local_fs::{list_text_dir, read_text_file};
 use std::sync::Mutex;
 use tauri::Manager; // app_handle()/state() on Window/AppHandle
 
@@ -22,7 +24,7 @@ pub fn run() {
             child: None,
             session_token: None,
         })))
-        .invoke_handler(tauri::generate_handler![get_session_token])
+        .invoke_handler(tauri::generate_handler![get_session_token, read_text_file, list_text_dir])
         .setup(|app| {
             ensure_backend(app.handle());
             Ok(())

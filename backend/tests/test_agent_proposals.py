@@ -1,17 +1,19 @@
-"""P7 proposal system + persistence + checkpointer tests.
+"""P7/P2-E3 proposal system + persistence + checkpointer tests.
 
-Covers:
-- Scenario A: update_shot → pending Proposal + WAITING_HUMAN + agent.approval.required
-- approve → ShotService applies (shot field + revision+1) + proposal applied
-- reject → not applied + proposal rejected
-- BaseRevision conflict (user edit before approve) → conflict, not overwritten
-- Schema validation: illegal field → 422
-- proposals list endpoint; generate_image / get_shot produce no proposal
-- checkpointer: interrupt then resume continues (deterministic fake path)
-- run persistence: a new runner session can read the run back
+P2-E3-T02 semantics (supersedes P7's approve-everything):
+- update_shot (R1) auto-applies and records a ChangeSet — NO proposal (test_agent.py).
+- generate_image (R2) produces a pending Proposal (risk metadata + TTL);
+  the run parks in WAITING_HUMAN and emits agent.approval.required.
+- approve → the Generation is created only here (base_revision guarded);
+  reject → nothing is created.
+- Expired proposals are terminal: approve → 409 + status=expired; a fully
+  expired WAITING_HUMAN run fails (never hangs).
+- checkpointer: interrupt then resume continues (deterministic fake path).
+- run persistence: a new runner session can read the run back.
 """
 
 import time
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -58,119 +60,147 @@ def _wait_pending(client, run_id):
     return _wait_status(client, run_id, {"waiting_human", "waiting_approval"})
 
 
-def test_update_shot_produces_proposal_and_waiting_human(client: TestClient) -> None:
-    """Scenario A baseline: pending proposal + run WAITING_HUMAN + approval event."""
+def _run_generation_request(client: TestClient, ctx: dict, shot: dict, message: str) -> str:
+    resp = client.post(
+        "/api/v1/agent/director/runs",
+        json={
+            "project_id": ctx["project_id"],
+            "message": message,
+            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
+        },
+    )
+    assert resp.status_code == 202
+    return resp.json()["id"]
+
+
+def test_generate_image_proposal_and_waiting_human(client: TestClient) -> None:
+    """R2 baseline: pending proposal + run WAITING_HUMAN + approval event."""
     from app.events.bus import EVENT_AGENT_APPROVAL_REQUIRED, EVENT_AGENT_PROPOSAL_CREATED
 
     ctx = _make_project_shot(client)
     shot = ctx["shots"][1]
 
     collected, cb = _subscribe_events({EVENT_AGENT_APPROVAL_REQUIRED, EVENT_AGENT_PROPOSAL_CREATED})
-
-    resp = client.post(
-        "/api/v1/agent/director/runs",
-        json={
-            "project_id": ctx["project_id"],
-            "message": "把这个镜头改成近景。",
-            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
-        },
-    )
-    run_id = resp.json()["id"]
+    run_id = _run_generation_request(client, ctx, shot, "重新生成这个镜头。")
     waiting = _wait_pending(client, run_id)
     assert waiting["status"] == "waiting_human"
     assert len(waiting["pending_proposals"]) == 1
 
-    # shot NOT mutated yet
+    # shot NOT mutated, NO generation created
     assert client.get(f"/api/v1/shots/{shot['id']}").json()["revision"] == 1
+    assert client.get(f"/api/v1/shots/{shot['id']}/generations").json() == []
 
     _unsubscribe(cb)
     prop_events = [e for e in collected if e["type"] == EVENT_AGENT_PROPOSAL_CREATED]
     approve_events = [e for e in collected if e["type"] == EVENT_AGENT_APPROVAL_REQUIRED]
     assert len(prop_events) == 1
     assert prop_events[0]["payload"]["target_id"] == shot["id"]
+    assert prop_events[0]["payload"]["risk_level"] == "R2"
     assert len(approve_events) >= 1
     assert approve_events[0]["payload"]["proposal_id"] == waiting["pending_proposals"][0]["id"]
-    assert approve_events[0]["payload"]["changes"] == {"shot_type": "close_up"}
+    assert approve_events[0]["payload"]["risk_level"] == "R2"
 
 
-def test_approve_applies_shot_via_service(client: TestClient) -> None:
+def test_approve_creates_generation_via_service(client: TestClient) -> None:
     ctx = _make_project_shot(client)
     shot = ctx["shots"][0]
-    resp = client.post(
-        "/api/v1/agent/director/runs",
-        json={
-            "project_id": ctx["project_id"],
-            "message": "把这个镜头改成近景。",
-            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
-        },
-    )
-    run_id = resp.json()["id"]
+    run_id = _run_generation_request(client, ctx, shot, "重新生成这个镜头。")
     waiting = _wait_pending(client, run_id)
     proposal_id = waiting["pending_proposals"][0]["id"]
 
     approved = client.post(f"/api/v1/agent/proposals/{proposal_id}/approve").json()
     assert approved["status"] == "applied"
 
-    updated = client.get(f"/api/v1/shots/{shot['id']}").json()
-    assert updated["shot_type"] == "close_up"
-    assert updated["revision"] == 2
+    generations = client.get(f"/api/v1/shots/{shot['id']}/generations").json()
+    assert len(generations) == 1
+    assert generations[0]["type"] == "image"
 
     proposals = client.get(f"/api/v1/agent/runs/{run_id}/proposals").json()
     assert proposals[0]["status"] == "applied"
+    assert proposals[0]["risk_level"] == "R2"
+    assert proposals[0]["expires_at"]
 
 
-def test_reject_does_not_apply(client: TestClient) -> None:
+def test_reject_does_not_create_generation(client: TestClient) -> None:
     ctx = _make_project_shot(client)
     shot = ctx["shots"][1]
-    resp = client.post(
-        "/api/v1/agent/director/runs",
-        json={
-            "project_id": ctx["project_id"],
-            "message": "把这个镜头改成近景。",
-            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
-        },
-    )
-    run_id = resp.json()["id"]
+    run_id = _run_generation_request(client, ctx, shot, "重新生成这个镜头。")
     waiting = _wait_pending(client, run_id)
     proposal_id = waiting["pending_proposals"][0]["id"]
 
     rejected = client.post(f"/api/v1/agent/proposals/{proposal_id}/reject").json()
     assert rejected["status"] == "rejected"
 
-    updated = client.get(f"/api/v1/shots/{shot['id']}").json()
-    assert updated["shot_type"] == "medium"
-    assert updated["revision"] == 1
+    assert client.get(f"/api/v1/shots/{shot['id']}/generations").json() == []
+    assert client.get(f"/api/v1/shots/{shot['id']}").json()["revision"] == 1
+
+    # approve after reject → 409 (terminal, idempotent)
+    again = client.post(f"/api/v1/agent/proposals/{proposal_id}/approve")
+    assert again.status_code == 409
 
 
-def test_base_revision_conflict_not_overwritten(client: TestClient) -> None:
-    """P7-T016: user edits the shot while a proposal is pending → approve = conflict."""
+def test_proposal_expired_is_terminal(client: TestClient) -> None:
+    """P2-E3-T02: an overdue proposal cannot be decided — 409 + status=expired;
+    the waiting run fails (never hangs forever)."""
+    from app.events.bus import EVENT_AGENT_PROPOSAL_EXPIRED
+
     ctx = _make_project_shot(client)
-    shot = ctx["shots"][1]
-    resp = client.post(
-        "/api/v1/agent/director/runs",
-        json={
-            "project_id": ctx["project_id"],
-            "message": "把这个镜头改成近景。",
-            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
-        },
-    )
-    run_id = resp.json()["id"]
+    shot = ctx["shots"][2]
+    run_id = _run_generation_request(client, ctx, shot, "重新生成这个镜头。")
     waiting = _wait_pending(client, run_id)
-    proposal = waiting["pending_proposals"][0]
-    assert proposal["base_revision"] == 1
+    proposal_id = waiting["pending_proposals"][0]["id"]
 
-    # user edits → revision 2
-    client.patch(f"/api/v1/shots/{shot['id']}", json={"revision": 1, "patch": {"emotion": "tense"}})
-    current = client.get(f"/api/v1/shots/{shot['id']}").json()
-    assert current["revision"] == 2
+    collected, cb = _subscribe_events({EVENT_AGENT_PROPOSAL_EXPIRED})
 
-    approved = client.post(f"/api/v1/agent/proposals/{proposal['id']}/approve").json()
-    assert approved["status"] == "conflict"
+    # backdate the expiry (simulates TTL elapsed)
+    from app.agents.director.runner import _session
+    from app.db.models import AgentProposal
 
-    updated = client.get(f"/api/v1/shots/{shot['id']}").json()
-    assert updated["revision"] == 2
-    assert updated["emotion"] == "tense"
-    assert updated["shot_type"] == "medium"  # agent change NOT applied
+    with _session() as session:
+        proposal = session.get(AgentProposal, proposal_id)
+        proposal.expires_at = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+        session.commit()
+
+    # approve → 409, proposal terminal=expired, nothing created
+    resp = client.post(f"/api/v1/agent/proposals/{proposal_id}/approve")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["details"]["status"] == "expired"
+    assert client.get(f"/api/v1/shots/{shot['id']}/generations").json() == []
+
+    # reject on the expired proposal → also 409 (terminal)
+    resp2 = client.post(f"/api/v1/agent/proposals/{proposal_id}/reject")
+    assert resp2.status_code == 409
+
+    # GET run (lazy sweep) → run failed, no pending proposals left
+    run = client.get(f"/api/v1/agent/runs/{run_id}").json()
+    assert run["status"] == "failed"
+    assert run["pending_proposals"] == []
+    _unsubscribe(cb)
+    assert len(collected) >= 1
+
+    # resume on the failed run → 409
+    resp3 = client.post(f"/api/v1/agent/runs/{run_id}/resume", json={"decision": "approve"})
+    assert resp3.status_code == 409
+
+
+def test_expired_proposal_via_list_sweep(client: TestClient) -> None:
+    """The proposals list also sweeps: an overdue pending proposal shows expired."""
+    ctx = _make_project_shot(client)
+    shot = ctx["shots"][0]
+    run_id = _run_generation_request(client, ctx, shot, "重新生成这个镜头。")
+    waiting = _wait_pending(client, run_id)
+    proposal_id = waiting["pending_proposals"][0]["id"]
+
+    from app.agents.director.runner import _session
+    from app.db.models import AgentProposal
+
+    with _session() as session:
+        proposal = session.get(AgentProposal, proposal_id)
+        proposal.expires_at = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+        session.commit()
+
+    proposals = client.get(f"/api/v1/agent/runs/{run_id}/proposals").json()
+    assert proposals[0]["status"] == "expired"
 
 
 def test_schema_invalid_field_raises_422(client: TestClient) -> None:
@@ -188,22 +218,22 @@ def test_schema_invalid_field_raises_422(client: TestClient) -> None:
             raise AssertionError("expected 422 for illegal field")
 
 
-def test_generate_image_and_get_shot_no_proposal(client: TestClient) -> None:
-    """generate_image / get_shot do not produce proposals and don't need approval."""
+def test_get_shot_and_update_shot_produce_no_proposal(client: TestClient) -> None:
+    """R0/R1 tools do not produce proposals (update auto-applies + ChangeSet)."""
     ctx = _make_project_shot(client)
     shot = ctx["shots"][0]
     resp = client.post(
         "/api/v1/agent/director/runs",
         json={
             "project_id": ctx["project_id"],
-            "message": "重新生成这个镜头。",
+            "message": "把这个镜头改成近景。",
             "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
         },
     )
     run_id = resp.json()["id"]
     done = _wait_run(client, run_id)  # completes directly (no waiting_human)
     assert done["status"] == "completed"
-    assert done["result"]["generation_submitted"] == 1
+    assert client.get(f"/api/v1/shots/{shot['id']}").json()["shot_type"] == "close_up"
     assert client.get(f"/api/v1/agent/runs/{run_id}/proposals").json() == []
 
 
@@ -212,15 +242,7 @@ def test_run_persists_across_new_store(client: TestClient) -> None:
     from app.agents.director.runner import get_run
 
     ctx = _make_project_shot(client)
-    resp = client.post(
-        "/api/v1/agent/director/runs",
-        json={
-            "project_id": ctx["project_id"],
-            "message": "把这个镜头改成近景。",
-            "selection": {"shot_ids": [ctx["shots"][0]["id"]], "scene_id": ctx["scene_id"]},
-        },
-    )
-    run_id = resp.json()["id"]
+    run_id = _run_generation_request(client, ctx, ctx["shots"][0], "重新生成这个镜头。")
     _wait_pending(client, run_id)
     # a brand-new get_run call (fresh session) reads it from the DB
     reloaded = get_run(run_id)
@@ -232,25 +254,17 @@ def test_run_persists_across_new_store(client: TestClient) -> None:
 def test_proposals_endpoint_lists_decided(client: TestClient) -> None:
     ctx = _make_project_shot(client)
     shot = ctx["shots"][2]
-    resp = client.post(
-        "/api/v1/agent/director/runs",
-        json={
-            "project_id": ctx["project_id"],
-            "message": "把这个镜头改成近景。",
-            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
-        },
-    )
-    run_id = resp.json()["id"]
+    run_id = _run_generation_request(client, ctx, shot, "重新生成这个镜头。")
     waiting = _wait_pending(client, run_id)
     proposal_id = waiting["pending_proposals"][0]["id"]
     client.post(f"/api/v1/agent/proposals/{proposal_id}/approve")
     proposals = client.get(f"/api/v1/agent/runs/{run_id}/proposals").json()
     assert proposals[0]["status"] == "applied"
-    assert proposals[0]["changes"] == {"shot_type": "close_up"}
+    assert proposals[0]["tool"] == "generate_image"
 
 
-def test_resume_continue_generation_after_approve(client: TestClient) -> None:
-    """Scenario B: approve via resume → update applies AND generate_image runs."""
+def test_resume_continue_after_approve_creates_generation(client: TestClient) -> None:
+    """Scenario B: approve via resume → generation created, run completes."""
     ctx = _make_project_shot(client)
     shot = ctx["shots"][2]
     resp = client.post(
@@ -271,6 +285,51 @@ def test_resume_continue_generation_after_approve(client: TestClient) -> None:
     assert "update_shot" in tools and "generate_image" in tools
     assert done["result"]["generation_submitted"] == 1
     assert client.get(f"/api/v1/shots/{shot['id']}").json()["revision"] == 2
+
+
+def test_resume_reject_does_not_repropose(client: TestClient) -> None:
+    """Resume re-executes the node; a rejected proposal must not be re-created —
+    the run completes with zero generations."""
+    ctx = _make_project_shot(client)
+    shot = ctx["shots"][0]
+    run_id = _run_generation_request(client, ctx, shot, "重新生成这个镜头。")
+    _wait_pending(client, run_id)
+
+    client.post(f"/api/v1/agent/runs/{run_id}/resume", json={"decision": "reject"})
+    done = _wait_run(client, run_id)
+    assert done["status"] == "completed"
+
+    # exactly ONE proposal for the run (no re-proposal after resume re-run)
+    proposals = client.get(f"/api/v1/agent/runs/{run_id}/proposals").json()
+    assert len(proposals) == 1
+    assert proposals[0]["status"] == "rejected"
+    assert client.get(f"/api/v1/shots/{shot['id']}/generations").json() == []
+
+
+def test_interrupt_restart_resume_scenario(client: TestClient) -> None:
+    """P2-E3-T02 AC: interrupt → (simulated) restart → resume still works — the
+    run/proposals live in the DB and the checkpointer holds the graph state."""
+    from app.agents.director.runner import get_run
+
+    ctx = _make_project_shot(client)
+    shot = ctx["shots"][1]
+    run_id = _run_generation_request(client, ctx, shot, "重新生成这个镜头。")
+    _wait_pending(client, run_id)
+
+    # simulated restart: read everything back through fresh sessions only
+    reloaded = get_run(run_id)
+    assert reloaded.status == "waiting_human"
+    proposal_id = reloaded.pending_proposals[0]["id"]
+
+    resp = client.post(f"/api/v1/agent/runs/{run_id}/resume", json={"decision": "approve"})
+    assert resp.status_code == 200
+    done = _wait_run(client, run_id)
+    assert done["status"] == "completed"
+
+    proposals = client.get(f"/api/v1/agent/runs/{run_id}/proposals").json()
+    assert proposals[0]["id"] == proposal_id
+    assert proposals[0]["status"] == "applied"
+    assert len(client.get(f"/api/v1/shots/{shot['id']}/generations").json()) == 1
 
 
 def test_checkpointer_interrupt_resume_continues() -> None:

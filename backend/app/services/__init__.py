@@ -8,12 +8,14 @@ from app.services.character_service import CharacterService
 from app.services.character_version_service import CharacterVersionService
 from app.services.continuity_service import ContinuityService
 from app.services.costume_service import CostumeService
+from app.services.document_service import DocumentService
 from app.services.episode_service import EpisodeService
 from app.services.location_service import LocationService, LocationVersionService
 from app.services.generation_service import GenerationService
 from app.services.job_service import JobService
 from app.services.project_service import ProjectService
 from app.services.provenance_service import ProvenanceService
+from app.services.pipeline_service import PipelineService
 from app.services.readmodel_service import ReadModelService
 from app.services.scene_service import SceneService
 from app.services.script_service import ScriptService
@@ -28,6 +30,7 @@ __all__ = [
     "CharacterVersionService",
     "ContinuityService",
     "CostumeService",
+    "DocumentService",
     "EpisodeService",
     "LocationService",
     "LocationVersionService",
@@ -35,6 +38,7 @@ __all__ = [
     "JobService",
     "ProjectService",
     "ProvenanceService",
+    "PipelineService",
     "ReadModelService",
     "SceneService",
     "ScriptService",

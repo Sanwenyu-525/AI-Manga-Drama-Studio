@@ -22,7 +22,9 @@ import { ApiError, api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import type { Episode, Operation, ScenePlan } from "../../api/types";
+import { isTauriRuntime, listTextDir, pickDirectory, pickTextFile, readTextFile } from "../../lib/nativeDialog";
 import { useOperationPolling } from "../ai/useOperationPolling";
+import { PipelineBar } from "../pipeline/PipelineBar";
 import { canonicalScriptPath } from "../studio/studioRoute";
 
 // AI 分析等待期轮换提示：只描述真实在发生的阶段，不伪造进度百分比。
@@ -33,10 +35,41 @@ const ANALYSIS_HINTS = [
   "正在生成结构化场景草案…",
 ];
 
+// P2-E1-T01: preview/confirm 响应信封（后端落库不可变快照）。
+interface PreviewResponse {
+  snapshot_id: string;
+  episode_id: string;
+  source_hash: string;
+  plans: ScenePlan[];
+  model: string | null;
+  status: string;
+}
+interface LatestSnapshot {
+  id: string;
+  status: "pending" | "confirmed" | "expired";
+  plans: ScenePlan[];
+  episode_revision: number;
+  created_scene_ids: string[];
+}
+
 function formatElapsed(total: number): string {
   const m = Math.floor(total / 60);
   const s = total % 60;
   return m > 0 ? `${m} 分 ${String(s).padStart(2, "0")} 秒` : `${s} 秒`;
+}
+
+// 浏览器环境读取本地文本（FileReader promise 化）；Tauri 壳改走 Rust 命令。
+function readBrowserFile(file: File | undefined | null): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error("no file"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("FileReader failed"));
+    reader.readAsText(file, "utf-8");
+  });
 }
 
 // 分析进行中的右侧面板：骨架屏 + 真实耗时，替代静默等待（LLM 调用常达 1 分钟+）。
@@ -101,12 +134,15 @@ export function EpisodePanel({
     },
   });
   // 原稿目录工作区：选择一个本地目录，列出其中的 .txt/.md 文件，点选即读入原文。
-  // 全部在浏览器/webview 本地完成，不落后端、不存路径（安全且无需 API）。
-  const [workspaceFiles, setWorkspaceFiles] = useState<{ path: string; file: File }[]>([]);
+  // 全部在本地完成（Tauri 壳经 Rust 命令只读，浏览器经 FileReader/webkitdirectory），
+  // 不落后端、不存路径（安全且无需 API）。红线：导入永远经用户在 UI 操作。
+  const [workspaceFiles, setWorkspaceFiles] = useState<{ path: string; file?: File; absPath?: string }[]>([]);
   const [workspaceDirName, setWorkspaceDirName] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [loadingFile, setLoadingFile] = useState<string | null>(null);
   const [preview, setPreview] = useState<ScenePlan[] | null>(null);
+  // P2-E1-T01: 预览落库的不可变快照 id——confirm 只提交它，后端零二次 LLM。
+  const [snapshotId, setSnapshotId] = useState<string | null>(null);
   const [activePlanIndex, setActivePlanIndex] = useState(0);
   const [previewError, setPreviewError] = useState<Error | null>(null);
   const [createOpId, setCreateOpId] = useState<string | null>(null);
@@ -114,8 +150,22 @@ export function EpisodePanel({
   useEffect(() => {
     setSourceText(episode.source_text ?? "");
     setPreview(null);
+    setSnapshotId(null);
     setActivePlanIndex(0);
   }, [episode.id, episode.source_text]);
+
+  // P2-E1-T01 刷新水合：重开页面时恢复最近一次 pending 快照（AC: 刷新后可读取 preview 状态）。
+  const { data: latestSnapshot } = useQuery({
+    queryKey: ["analysis-snapshot", episode.id],
+    queryFn: () => api.get<LatestSnapshot | null>(`/episodes/${episode.id}/analysis-snapshots/latest`),
+    enabled: !preview && !createOpId,
+  });
+  useEffect(() => {
+    if (!preview && latestSnapshot && latestSnapshot.status === "pending") {
+      setPreview(latestSnapshot.plans);
+      setSnapshotId(latestSnapshot.id);
+    }
+  }, [preview, latestSnapshot]);
 
   // Save the novel text through the §21/§88 optimistic-concurrency envelope
   // ({revision, patch}); refresh the cached revision from the response so back-
@@ -155,13 +205,16 @@ export function EpisodePanel({
   const runPreview = useMutation({
     mutationFn: async () => {
       if (sourceText !== (episode.source_text ?? "")) await saveSourceText();
-      return api.post<ScenePlan[]>(`/episodes/${episode.id}/analyze/preview`);
+      // P2-E1-T01: preview 落库不可变快照；返回 {snapshot_id, plans}。
+      return api.post<PreviewResponse>(`/episodes/${episode.id}/analyze/preview`);
     },
-    onSuccess: (plans) => {
-      setPreview(plans);
+    onSuccess: (response) => {
+      setPreview(response.plans);
+      setSnapshotId(response.snapshot_id);
       setActivePlanIndex(0);
       setPreviewError(null);
       void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(episode.project_id) });
+      void queryClient.invalidateQueries({ queryKey: ["analysis-snapshot", episode.id] });
     },
     onError: (error) => setPreviewError(error instanceof Error ? error : new Error(String(error))),
   });
@@ -178,9 +231,15 @@ export function EpisodePanel({
     return () => window.clearInterval(timer);
   }, [runPreview.isPending]);
 
+  // P2-E1-T01: confirm 只提交快照 id——写入的正是预览看到的计划（无二次 LLM）。
+  // 原文已变时后端返回失败（快照过期），提示重新预览。
   const createScenes = useMutation({
-    mutationFn: () => api.post<{ operation_id: string; status: string }>(`/episodes/${episode.id}/analyze`),
+    mutationFn: () =>
+      api.post<{ operation_id: string; status: string }>(`/episodes/${episode.id}/analyze`, {
+        snapshot_id: snapshotId ?? undefined,
+      }),
     onSuccess: (response) => setCreateOpId(response.operation_id),
+    onError: (error) => setPreviewError(error instanceof Error ? error : new Error(String(error))),
   });
 
   useOperationPolling(
@@ -203,17 +262,44 @@ export function EpisodePanel({
 
   // 替换原文 (post-mvp-audit §124): import a local .txt/.md file into the editor.
   // Content lands in the textarea first — the user reviews/saves it (real, recoverable).
-  const importFile = (file: File | undefined | null) => {
+  // 方案 B：Tauri 壳走原生文件选择 + Rust 只读命令；浏览器回落 FileReader。
+  const importFile = async (file?: File | null) => {
+    if (isTauriRuntime()) {
+      try {
+        const picked = await pickTextFile("选择小说原文（.txt/.md）");
+        if (!picked) return;
+        setSourceText(await readTextFile(picked));
+      } catch (err) {
+        setPreviewError(err instanceof Error ? err : new Error("文件读取失败，请重试。"));
+      }
+      return;
+    }
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setSourceText(String(reader.result ?? ""));
-    reader.onerror = () => setPreviewError(new Error("文件读取失败，请重试。"));
-    reader.readAsText(file, "utf-8");
+    try {
+      setSourceText(await readBrowserFile(file));
+    } catch {
+      setPreviewError(new Error("文件读取失败，请重试。"));
+    }
   };
 
   // 原稿目录工作区：选择一个本地目录，列出其中的文本稿文件供点选读入。
   const TEXT_EXT = /\.(txt|md|markdown|text)$/i;
-  const pickWorkspaceDir = (files: FileList | null) => {
+  const pickWorkspaceDir = async (files?: FileList | null) => {
+    if (isTauriRuntime()) {
+      try {
+        const dir = await pickDirectory("选择原稿目录（.txt/.md）");
+        if (!dir) return;
+        const entries = await listTextDir(dir);
+        const picked = entries.slice(0, 200).map((e) => ({ path: e.path, absPath: e.abs_path }));
+        setWorkspaceFiles(picked);
+        setWorkspaceDirName(dir.split(/[\\/]/).filter(Boolean).pop() ?? dir);
+        setWorkspaceOpen(picked.length > 0);
+        if (!picked.length) setPreviewError(new Error("该目录里没有找到 .txt / .md 文本文件。"));
+      } catch (err) {
+        setPreviewError(err instanceof Error ? err : new Error("读取目录失败，请重试。"));
+      }
+      return;
+    }
     if (!files) return;
     const picked = Array.from(files)
       .filter((f) => f.webkitRelativePath && TEXT_EXT.test(f.name))
@@ -226,18 +312,40 @@ export function EpisodePanel({
     if (!picked.length) setPreviewError(new Error("该目录里没有找到 .txt / .md 文本文件。"));
   };
 
-  const loadWorkspaceFile = (item: { path: string; file: File }) => {
+  const loadWorkspaceFile = async (item: { path: string; file?: File; absPath?: string }) => {
     setLoadingFile(item.path);
-    const reader = new FileReader();
-    reader.onload = () => {
-      setSourceText(String(reader.result ?? ""));
-      setLoadingFile(null);
-    };
-    reader.onerror = () => {
+    try {
+      const text = item.absPath ? await readTextFile(item.absPath) : await readBrowserFile(item.file);
+      setSourceText(text);
+    } catch {
       setPreviewError(new Error(`读取「${item.path}」失败，请重试。`));
+    } finally {
       setLoadingFile(null);
-    };
-    reader.readAsText(item.file, "utf-8");
+    }
+  };
+
+  // 打开入口：Tauri 壳直接调原生选择器（经 Rust 只读命令），浏览器回落隐藏 file input。
+  const openWorkspaceDir = () => {
+    if (isTauriRuntime()) {
+      void pickWorkspaceDir();
+    } else {
+      dirRef.current?.click();
+    }
+  };
+  const openReplaceFile = () => {
+    if (isTauriRuntime()) {
+      void importFile();
+    } else {
+      fileRef.current?.click();
+    }
+  };
+
+  // C2 一键成片：pipeline 分析确认复用现有 preview 展示卡（plans + snapshot）。
+  const showPipelinePlans = (plans: ScenePlan[], pipelineSnapshotId: string | null) => {
+    setPreview(plans);
+    setSnapshotId(pipelineSnapshotId);
+    setActivePlanIndex(0);
+    setPreviewError(null);
   };
 
   return (
@@ -290,6 +398,8 @@ export function EpisodePanel({
         </div>
       </header>
 
+      <PipelineBar episode={episode} onShowPlans={showPipelinePlans} />
+
       <div className="analysis-workspace">
         <section className="source-editor-column">
           <div className="column-header">
@@ -301,7 +411,7 @@ export function EpisodePanel({
                   type="button"
                   className="workspace-dir-chip"
                   title="切换工作区目录"
-                  onClick={() => dirRef.current?.click()}
+                  onClick={openWorkspaceDir}
                 >
                   <Folder size={14} /> {workspaceDirName}
                 </button>
@@ -310,14 +420,14 @@ export function EpisodePanel({
             <div className="row gap">
               <button
                 className={`btn secondary compact ${workspaceFiles.length ? "workspace-active" : ""}`}
-                onClick={() => dirRef.current?.click()}
+                onClick={openWorkspaceDir}
                 title="选择一个本地目录，列出其中的小说原稿文件供点选读入"
               >
                 <FolderOpen size={15} /> 原稿目录
               </button>
               <button
                 className="btn secondary compact"
-                onClick={() => fileRef.current?.click()}
+                onClick={openReplaceFile}
                 title="从本地 .txt/.md 文件导入小说原文"
               >
                 <FileArrowUp size={15} /> 替换原文

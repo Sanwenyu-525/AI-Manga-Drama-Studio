@@ -84,18 +84,24 @@ async def test_comfyui(body: ComfyUITestRequest | None = None) -> dict:
 
 @router.get("/comfyui/models")
 async def list_comfyui_models(base_url: str | None = None) -> dict:
-    """Checkpoint filenames from the ComfyUI server (never raises).
+    """Per-architecture model catalog from the ComfyUI server (never raises).
 
-    Reads the runtime image.json comfyui_url unless an override query param is given
-    (probe-before-save). {connected, base_url, models} — UI renders "not connected"
-    from data instead of an error.
+    Sprint 05 (P2-1): legacy `models` (checkpoints flat list) is preserved for
+    backward compatibility; `catalog` groups by loader architecture so DiT unets
+    (UNETLoader — e.g. Z-Image-Turbo), clips and vaes are visible to the settings UI.
+    Reads the runtime image.json comfyui_url unless an override query param is given.
     """
     from app.providers.comfyui.client import ComfyUIClient
     from app.services.image_settings_service import get_image_config
 
     url = (base_url or "").strip() or get_image_config()["comfyui_url"]
-    reachable, models = await ComfyUIClient(url).get_models()
-    return {"connected": reachable, "base_url": url, "models": models}
+    reachable, catalog = await ComfyUIClient(url).get_catalog()
+    return {
+        "connected": reachable,
+        "base_url": url,
+        "models": catalog.get("checkpoints", []),
+        "catalog": catalog,
+    }
 
 
 class AgnesTestRequest(BaseModel):

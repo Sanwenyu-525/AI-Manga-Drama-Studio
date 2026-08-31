@@ -20,8 +20,8 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError, ValidationError
 from app.core.logging import get_logger
-from app.db.models import Generation
-from app.domain.generation import VoiceoverGenerateRequest
+from app.db.models import Asset, Generation
+from app.domain.generation import VoiceoverBatchItem, VoiceoverBatchResult, VoiceoverGenerateRequest
 from app.events.bus import EVENT_GENERATION_QUEUED, StudioEvent, bus
 from app.repositories import TimelineRepository
 
@@ -124,6 +124,64 @@ class AudioService:
             generation.id, clip_id, generation.provider, len(text),
         )
         return generation
+
+    def create_voiceover_batch(self, timeline_id: str) -> VoiceoverBatchResult:
+        """C1 整轨批量配音: queue a voiceover for every VOICE-track clip with text.
+
+        Reuses create_voiceover_generation per clip (same 202 semantics, one
+        type="audio" generation + queued event each). Skips:
+        - clips already bound to an AUDIO asset (won't re-generate → already_bound)
+        - VOICE clips without text (→ skipped_no_text)
+        """
+        timeline = self.timelines.get(timeline_id)
+        if timeline is None:
+            raise NotFoundError("Timeline does not exist.", {"timeline_id": timeline_id})
+
+        submitted: list[VoiceoverBatchItem] = []
+        skipped_no_text: list[str] = []
+        already_bound: list[str] = []
+
+        for clip in self.timelines.list_clips(timeline_id):
+            if getattr(clip, "enabled", 1) == 0:
+                continue
+            track = self.timelines.get_track(clip.track_id)
+            if track is None or track.track_type != "VOICE":
+                continue
+            if self._clip_has_audio(clip):
+                already_bound.append(clip.id)
+                continue
+            text = (clip.text or "").strip()
+            if not text:
+                skipped_no_text.append(clip.id)
+                continue
+            gen = self.create_voiceover_generation(
+                clip.id, VoiceoverGenerateRequest(text=text)
+            )
+            submitted.append(
+                VoiceoverBatchItem(
+                    clip_id=clip.id,
+                    generation_id=gen.id,
+                    text_head=text[:50],
+                )
+            )
+
+        logger.info(
+            "voiceover batch for timeline %s: %d queued, %d no-text, %d already-bound",
+            timeline_id, len(submitted), len(skipped_no_text), len(already_bound),
+        )
+        return VoiceoverBatchResult(
+            timeline_id=timeline_id,
+            submitted=submitted,
+            skipped_no_text=skipped_no_text,
+            already_bound=already_bound,
+        )
+
+    def _clip_has_audio(self, clip) -> bool:
+        """True when the clip is already bound to an AUDIO asset (has a voiceover)."""
+        if not clip.asset_id:
+            return False
+        asset = self.session.get(Asset, clip.asset_id)
+        return asset is not None and asset.type == "audio"
 
 
 def _resolved_default_provider_id() -> str:

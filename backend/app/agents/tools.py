@@ -8,10 +8,12 @@ Strict rules (red lines):
 
 from __future__ import annotations
 
+import json
+
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.errors import StudioError
+from app.core.errors import ConflictError, StudioError
 from app.domain.agent import ToolOperation
 from app.db.models import AgentRun
 from app.services.context_service import ContextService
@@ -169,14 +171,18 @@ class ToolExecutor:
         )
 
     def _update_shot(self, args: dict) -> ToolResult:
-        """P7-T012/13: update_shot NO LONGER writes directly — it produces a pending
-        AgentProposal; the run parks in WAITING_HUMAN and emits agent.approval.required.
-        A human approves/rejects it; apply happens ONLY through ShotService (never raw
-        ORM) guarded by a base_revision optimistic-concurrency check (P7-T016).
+        """R1 (P2-E3-T02): update_shot is a reversible edit — it AUTO-APPLIES through
+        ShotService (never raw ORM) and records an undoable ChangeSet (P2-E3-T03),
+        so the default flow is not interrupted by confirmation fatigue. If the risk
+        policy escalates it to approval (risk.py), it falls back to the P7 proposal
+        path: a pending AgentProposal, run WAITING_HUMAN, apply on human approve.
 
-        Idempotent on graph resume: if the run already has a DECIDED proposal for this
-        target, the step returns without re-creating (the human decision already
-        happened), so resume re-running execute_node doesn't double-propose."""
+        Idempotent on graph resume: LangGraph re-executes the whole execute node
+        after an interrupt — an identical agent change set for (run, shot) means
+        this step already applied in the pre-interrupt pass, so it is skipped.
+        """
+        from app.agents.risk import approval_needed, classify_tool_operation
+
         schema = UpdateShotArgs.model_validate(args)
         shot = self._require_shot(schema.shot_id)
         requested = {key: value for key, value in schema.patch.items() if value is not None}
@@ -194,6 +200,60 @@ class ToolExecutor:
                 error="update_shot requires a persisted agent run.",
                 data={"code": "AGENT_RUN_REQUIRED"},
             )
+        assessment = classify_tool_operation("update_shot", args)
+        if approval_needed("update_shot", args):
+            return self._update_shot_via_proposal(run, shot, requested, assessment)
+
+        # Already applied by this run in the pre-interrupt pass? (resume re-run)
+        existing = self._existing_agent_change_set(run.id, shot.id, "update_shot")
+        if existing is not None:
+            after = json.loads(existing.after_json) if existing.after_json else {}
+            if after == requested:
+                return ToolResult(
+                    success=True,
+                    entity_id=shot.id,
+                    changed_fields=list(requested),
+                    data={"message": "already applied", "change_set_id": existing.id, "revision": existing.revision_after},
+                )
+        from app.domain.shot import ShotUpdate
+        from app.services.change_set_service import ChangeSetService
+
+        patch = ShotUpdate.model_validate(requested)
+        before = self.shots.get_shot(shot.id)  # user-visible before values (read DTO)
+        try:
+            updated = self.shots.update_shot(
+                shot.id,
+                shot.revision,
+                patch,
+                source="agent",
+                run_id=run.id,
+            )
+        except ConflictError as exc:
+            return ToolResult(success=False, error=exc.message, data={"code": exc.code})
+        change_set = ChangeSetService(self.session).record_shot_patch(
+            project_id=run.project_id,
+            run_id=run.id,
+            tool="update_shot",
+            shot_id=shot.id,
+            before={f: getattr(before, f, None) for f in requested},
+            after={f: getattr(updated, f, None) for f in requested},
+            revision_before=before.revision,
+            revision_after=updated.revision,
+        )
+        return ToolResult(
+            success=True,
+            entity_id=shot.id,
+            changed_fields=list(requested),
+            data={
+                "applied": True,
+                "change_set_id": change_set.id,
+                "revision": updated.revision,
+                "risk_level": assessment.risk_level,
+            },
+        )
+
+    def _update_shot_via_proposal(self, run, shot, requested: dict, assessment) -> ToolResult:
+        """Escalated update path (risk policy): pending proposal + WAITING_HUMAN."""
         # Already decided? (resume re-runs execute_node) — do not re-propose.
         existing = self._existing_shot_proposal(run.id, shot.id)
         if existing is not None:
@@ -215,6 +275,7 @@ class ToolExecutor:
             shot.id,
             shot.revision,
             requested,
+            assessment=assessment,
         )
         return ToolResult(
             success=True,
@@ -227,36 +288,150 @@ class ToolExecutor:
                 "status": "pending",
                 "base_revision": shot.revision,
                 "changes": requested,
+                "risk_level": assessment.risk_level,
             },
         )
 
     def _existing_shot_proposal(self, run_id: str, shot_id: str):
-        """The latest proposal for (run, target) — used to avoid proposing twice when
-        execute_node re-runs after a resume."""
+        """The latest update_shot proposal for (run, target) — used to avoid proposing
+        twice when execute_node re-runs after a resume."""
+        return self._existing_proposal(run_id, shot_id, "update_shot")
+
+    def _existing_proposal(self, run_id: str, shot_id: str, tool: str):
+        """The latest proposal for (run, target, tool) — any status: a decided
+        proposal means the human decision already happened (approve applied or
+        reject skipped), so a resume re-run must not re-propose."""
         from sqlalchemy import select
+
         from app.db.models import AgentProposal
 
         return self.session.scalar(
             select(AgentProposal)
-            .where(AgentProposal.run_id == run_id, AgentProposal.target_id == shot_id)
+            .where(
+                AgentProposal.run_id == run_id,
+                AgentProposal.target_id == shot_id,
+                AgentProposal.tool == tool,
+            )
             .order_by(AgentProposal.created_at.desc())
             .limit(1)
         )
 
+    def _existing_agent_change_set(self, run_id: str, shot_id: str, tool: str):
+        """The latest agent change set for (run, target, tool) — an identical patch
+        means the auto-apply already ran in the pre-interrupt pass (resume re-run)."""
+        from sqlalchemy import select
+
+        from app.db.models import AgentChangeSet
+
+        return self.session.scalar(
+            select(AgentChangeSet)
+            .where(
+                AgentChangeSet.run_id == run_id,
+                AgentChangeSet.entity_id == shot_id,
+                AgentChangeSet.tool == tool,
+                AgentChangeSet.source == "agent",
+            )
+            .order_by(AgentChangeSet.created_at.desc())
+            .limit(1)
+        )
+
     def _generate_image(self, args: dict) -> ToolResult:
+        """R2 (P2-E3-T02): generation is expensive — by default NO Generation row is
+        created before a human approves a pending proposal carrying the risk
+        metadata (affected shot, task count, cost=unknown for local providers).
+        With STUDIO_AGENT_AUTO_APPROVE_R2=true (dev/demo) it queues directly."""
+        from app.agents.risk import approval_needed, classify_tool_operation
+
         schema = GenerateImageArgs.model_validate(args)
-        self._require_shot(schema.shot_id)
+        shot = self._require_shot(schema.shot_id)
+        run = self.session.get(AgentRun, self.run_id) if self.run_id else None
+        if run is None:
+            return ToolResult(
+                success=False,
+                error="generate_image requires a persisted agent run.",
+                data={"code": "AGENT_RUN_REQUIRED"},
+            )
+        assessment = classify_tool_operation("generate_image", args)
+
+        # Idempotent on graph resume — LangGraph re-executes the whole execute
+        # node after an interrupt. Two cases mean this step already ran:
+        # 1) a generation already queued by THIS run for this shot (approved), or
+        # 2) a generate_image proposal already exists for this run+target (decided
+        #    or pending) — a rejected/expired proposal must not re-propose.
+        existing_generation = self._existing_run_generation(run.id, schema.shot_id)
+        if existing_generation is not None:
+            return ToolResult(
+                success=True,
+                entity_id=existing_generation.id,
+                created_entities=[existing_generation.id],
+                data={"generation_id": existing_generation.id, "status": existing_generation.status, "message": "already queued"},
+            )
+        existing_proposal = self._existing_proposal(run.id, schema.shot_id, "generate_image")
+        if existing_proposal is not None:
+            return ToolResult(
+                success=True,
+                entity_id=shot.id,
+                proposal_created=False,
+                proposal_id=existing_proposal.id,
+                data={
+                    "proposal_id": existing_proposal.id,
+                    "status": existing_proposal.status,
+                    "message": "already decided",
+                },
+            )
+
+        if approval_needed("generate_image", args):
+            proposal = ProposalService(self.session).create_generation_proposal(
+                run,
+                shot.id,
+                shot.revision,
+                {
+                    "prompt": schema.prompt,
+                    "seed": schema.seed,
+                    "width": schema.width,
+                    "height": schema.height,
+                },
+                assessment,
+            )
+            return ToolResult(
+                success=True,
+                entity_id=shot.id,
+                proposal_created=True,
+                proposal_id=proposal.id,
+                data={
+                    "proposal_id": proposal.id,
+                    "status": "pending",
+                    "risk_level": assessment.risk_level,
+                    "estimated_tasks": assessment.estimated_tasks,
+                    "message": "generation awaits approval",
+                },
+            )
+
         from app.domain.generation import GenerationCreate
 
         generation = self.generations.create_generation(
             schema.shot_id,
             GenerationCreate(type="image", prompt=schema.prompt, seed=schema.seed, width=schema.width, height=schema.height),
+            run_id=run.id,
         )
         return ToolResult(
             success=True,
             entity_id=generation.id,
             created_entities=[generation.id],
-            data={"generation_id": generation.id, "status": generation.status},
+            data={"generation_id": generation.id, "status": generation.status, "risk_level": assessment.risk_level},
+        )
+
+    def _existing_run_generation(self, run_id: str, shot_id: str):
+        """A generation already queued by this run for this shot (resume idempotency)."""
+        from sqlalchemy import select
+
+        from app.db.models import Generation
+
+        return self.session.scalar(
+            select(Generation)
+            .where(Generation.run_id == run_id, Generation.shot_id == shot_id)
+            .order_by(Generation.created_at.desc())
+            .limit(1)
         )
 
     def _continuity_fix(self, args: dict) -> ToolResult:

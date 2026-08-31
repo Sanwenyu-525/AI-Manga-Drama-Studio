@@ -5,6 +5,10 @@
 > **Sprint 02 完成（2026-08-30）**：P1-E2-T03（完成链原子化）+ P1-E4-T02（Event Gateway 加固）完成。
 > **Sprint 03 完成（2026-08-30）**：P1-E5-T01（生产配置 Fail-closed）+ P1-E5-T02（本地 Session/WS Origin/CSP）完成。
 > **Phase 1 全部 P0 已关闭**；下一批 P0 在 [Backlog](backlog.md)（P2-E1-T01 等，Phase 2）；P1 任务 P1-E4-T03（关联日志）与 P1-E6-T02（文档事实源）待办。
+> **Sprint 04 完成（2026-08-31）— 真实链路验证**：真实 LLM（Agnes agnes-2.5-flash）+ 双引擎图像（Agnes 云端 / 本地 ComfyUI + Z-Image-Turbo int8 对跑）端到端验证完成。3 Scenes → 20 shots → 40 张双引擎图（首可用率 Agnes 70% / ComfyUI 85%，重生成后 85%）；核心假设成立；Phase 2 重排见 [验证报告](../reports/real-chain-validation-report.md)。
+> **Sprint 05 完成（2026-08-31）— P2-E4-T01 收敛版**：分架构模型枚举（`/comfyui/models` 返回 catalog，DiT unets 可见）+ workflow 模板目录自动发现（drop-in 注册，零代码）+ 前端单镜头生成引擎选择（GenerationEnginePicker）。图像 Provider Profile（镜像 /llm/profiles 模式）留待后续。
+> **P2-E1-T01 完成（2026-08-31）— Analysis Snapshot**：preview 落库不可变快照（analysis_snapshots 表 + provenance），confirm 只提交 snapshot_id（**零二次 LLM**，live 实证 preview 3.7s → confirm 0.0s）；幂等重放 / 原文或 revision 变更后过期 409 / 刷新水合（GET /analysis-snapshots/latest）；契约 §14.1。K1 机制缺口关闭。
+> **用户设想落地三方案完成（2026-08-31）— A 设定文档库 / B Tauri 本地导入 / C 一键成片（C1 整轨批量配音 + C2 Episode Pipeline）**：方案 A/B 于本批会话交付；方案 C 本次收尾——后端 pipeline/批量配音 9 项 pytest 全绿，前端补 PipelineBar（5 项）+ TimelineView C1（2 项）vitest 测试；契约 §15.1 已同步。详见 AGENTS.md §5 状态记录。
 
 ## Sprint 01 — Project State Correctness & Runtime Stabilization
 

@@ -44,11 +44,31 @@ from app.providers.comfyui.workflow_schema import WorkflowSchema
 
 logger = get_logger("comfyui.mapper")
 
-# Canonical workflow catalog: workflow_id -> template filename under settings.workflows_dir.
+# Canonical workflow catalog seed: workflow_id -> template filename under the
+# workflows dir. Sprint 05 (P2-2): the runtime catalog is DISCOVERED from the
+# workflows dir (see _resolve_catalog) — dropping a new template JSON into
+# workflows/ makes it immediately resolvable without a code change. The seed
+# only pins templates whose filename stem differs from the canonical id.
 WORKFLOW_CATALOG: dict[str, str] = {
     "default_image_api": "default_image_api.json",
 }
 DEFAULT_WORKFLOW_ID = "default_image_api"
+
+
+def _resolve_catalog(workflows_dir: Path | None = None) -> dict[str, str]:
+    """Yield a workflow_id -> template filename mapping for the given dir.
+
+    Auto-discovery: every *.json under the workflows dir is registered by its
+    filename stem, then pinned overrides (WORKFLOW_CATALOG) win on collision.
+    This is what makes Sprint 04's zimage_turbo_api.json resolvable with zero
+    code changes (P2-2: catalog extension is flow-based, not edit-a-dict).
+    """
+    base = workflows_dir or settings.workflows_dir
+    catalog = dict(WORKFLOW_CATALOG)
+    if base is not None and base.is_dir():
+        for path in sorted(base.glob("*.json")):
+            catalog[path.stem] = path.name
+    return catalog
 
 # Placeholders required for a working image workflow (preflight contract) — derived
 # from the declarative schema. REQUIRED_PLACEHOLDERS is re-exported from
@@ -66,17 +86,17 @@ def _default_schema() -> WorkflowSchema:
 
 
 def resolve_workflow_path(workflow_id: str | None, workflows_dir: Path | None = None) -> Path:
-    """Map a canonical workflow_id to a template path.
+    """Map a canonical workflow_id to a template path (auto-discovered catalog).
 
     Raises ValidationError (422) for unknown ids — the caller decides whether to
     surface it at creation time; the mapper never silently falls back.
     """
     wid = workflow_id or DEFAULT_WORKFLOW_ID
-    filename = WORKFLOW_CATALOG.get(wid)
+    filename = _resolve_catalog(workflows_dir).get(wid)
     if filename is None:
         raise ValidationError(
             "Unknown workflow template.",
-            {"workflow_id": wid, "supported": sorted(WORKFLOW_CATALOG)},
+            {"workflow_id": wid, "supported": sorted(_resolve_catalog(workflows_dir))},
         )
     base = workflows_dir or settings.workflows_dir
     return base / filename

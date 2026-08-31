@@ -36,7 +36,7 @@ class GenerationService:
         self.session = session
         self.shots = ShotRepository(session)
 
-    def create_generation(self, shot_id: str, data: GenerationCreate) -> Generation:
+    def create_generation(self, shot_id: str, data: GenerationCreate, *, run_id: str | None = None) -> Generation:
         shot = self.shots.get(shot_id)
         if shot is None:
             raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
@@ -113,6 +113,7 @@ class GenerationService:
             provider=provider,
             workflow_id=resolved_workflow_id,
             prompt_version_id=prompt_version_id,
+            run_id=run_id,  # P2-E3-T03: agent provenance (approved generate_image proposal)
             status="queued",
             parameters=json.dumps(
                 {

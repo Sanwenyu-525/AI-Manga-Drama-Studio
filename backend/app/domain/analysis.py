@@ -42,6 +42,37 @@ class AnalysisResult(BaseModel):
     created_scene_ids: list[str]
 
 
+class AnalysisPreview(BaseModel):
+    """P2-E1-T01: preview response — the persisted snapshot the user reviewed.
+
+    Confirm submits `snapshot_id`; the backend writes EXACTLY `plans` (no second
+    LLM call), so what the user saw is what gets written.
+    """
+
+    snapshot_id: str
+    episode_id: str
+    source_hash: str
+    plans: list[ScenePlan]
+    model: str | None = None
+    status: str = "pending"
+
+
+class SnapshotRead(BaseModel):
+    """Snapshot retrieval (refresh rehydration / audit)."""
+
+    id: str
+    episode_id: str
+    source_hash: str
+    episode_revision: int
+    status: str
+    plans: list[ScenePlan]
+    model: str | None = None
+    prompt_version: str | None = None
+    schema_version: str | None = None
+    created_scene_ids: list[str] = []
+    created_at: str
+
+
 class ShotPlanResult(BaseModel):
     """Result payload of a generate-shots operation."""
 

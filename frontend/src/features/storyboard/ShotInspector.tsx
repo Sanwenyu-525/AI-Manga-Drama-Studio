@@ -14,6 +14,8 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
+import type { ImageEngineChoice } from "../../api/types";
+import { GenerationEnginePicker } from "./GenerationEnginePicker";
 import type {
   AssetVersionRead,
   Character,
@@ -99,10 +101,16 @@ export function ShotInspector() {
     });
   };
 
+  // P2-4 (Sprint 05): 显式引擎选择（provider + workflow），缺省回落后端 resolver。
+  const [engineChoice, setEngineChoice] = useState<ImageEngineChoice>({});
+
   const generate = useMutation({
     mutationFn: () => {
       if (!activeShotId) throw new Error("no active shot");
-      return api.post<GenerationRead>(`/shots/${activeShotId}/generations`, { type: "image" });
+      const body: Record<string, unknown> = { type: "image" };
+      if (engineChoice.provider) body.provider = engineChoice.provider;
+      if (engineChoice.workflow_id) body.workflow_id = engineChoice.workflow_id;
+      return api.post<GenerationRead>(`/shots/${activeShotId}/generations`, body);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.shotGenerations(activeShotId) });
@@ -398,6 +406,7 @@ export function ShotInspector() {
           >
             <MagicWand size={15} /> {generate.isPending ? "提交中…" : "生成当前镜头"}
           </button>
+          <GenerationEnginePicker value={engineChoice} onChange={setEngineChoice} />
         </div>
         <button
           className="btn secondary grow"

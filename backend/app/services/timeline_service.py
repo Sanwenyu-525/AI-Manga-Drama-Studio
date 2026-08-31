@@ -1,23 +1,30 @@
 """TimelineService (Phase 9, api-event-contract §93) — per-episode media arrangement.
 
 Timeline (one per episode) holds tracks (lanes) and clips (Timeline Items) whose
-asset_id binds a SPECIFIC asset version (P9-T004). Edit operations are
-last-write-wins (no revision guard: editing state, design §66-68). Events are
-published after commit (red line).
+asset_id binds a SPECIFIC asset version (P9-T004).
+
+P4-E3-T02 (AC-2): edit operations are no longer plain last-write-wins.
+- TimelineClip carries a `revision` (optimistic concurrency): updates with a
+  `revision` in the patch use an atomic conditional UPDATE (mismatch → 409).
+- TimelineClip carries a `transition` (cut/fade/dissolve) at the clip head.
+- Every applied user Timeline edit is recorded as a ChangeSet (source="timeline")
+  so it can be undone through the shared ChangeSet/Undo machinery. Events are
+  published after commit (red line).
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.core.errors import NotFoundError, ValidationError
+from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.logging import get_logger
 from app.db.models import Asset, Episode, Scene, Shot, Timeline, TimelineClip, TimelineTrack
 from app.domain.timeline import (
     DEFAULT_TRACK_TYPES,
+    TRANSITIONS,
     TRACK_TYPES,
     TimelineClipCreate,
     TimelineClipUpdatePatch,
@@ -35,6 +42,7 @@ from app.events.bus import (
     bus,
 )
 from app.repositories import SceneRepository, ShotRepository, TimelineRepository
+from app.services.change_set_service import ChangeSetService
 
 logger = get_logger("timeline")
 
@@ -194,6 +202,7 @@ class TimelineService:
             raise ValidationError("Asset does not exist in this project.", {"asset_id": data.asset_id})
         if data.end_time <= data.start_time:
             raise ValidationError("end_time must be greater than start_time.", {})
+        self._validate_transition(data.transition)
         order = data.order_index if data.order_index is not None else self.timelines.next_clip_order(track.id)
         clip = TimelineClip(
             timeline_id=timeline_id,
@@ -204,6 +213,8 @@ class TimelineService:
             end_time=float(data.end_time),
             source_in=float(data.source_in or 0),
             source_out=data.source_out,
+            transition=data.transition or "cut",
+            revision=1,
             order_index=float(order),
             enabled=data.enabled if data.enabled is not None else 1,
             text=data.text,
@@ -216,7 +227,22 @@ class TimelineService:
         self._publish_clip(timeline, clip, "created")
         return self._clip_read(clip)
 
-    def update_clip(self, clip_id: str, patch: TimelineClipUpdatePatch) -> dict:
+    def update_clip(
+        self,
+        clip_id: str,
+        patch: TimelineClipUpdatePatch,
+        *,
+        run_id: str | None = None,
+        record_change_set: bool = True,
+    ) -> dict:
+        """Apply a clip edit with optimistic concurrency (P4-E3-T02 AC-2).
+
+        When `patch.revision` is provided the write is an atomic conditional
+        UPDATE (revision guard → 409 on mismatch, never a silent overwrite).
+        Without a revision the write falls back to last-write-wins for backward
+        compatibility, but still bumps revision. Applied edits are recorded as
+        ChangeSets (source="timeline") so they can be undone.
+        """
         clip = self.timelines.get_clip(clip_id)
         if clip is None:
             raise NotFoundError("Clip does not exist.", {"clip_id": clip_id})
@@ -224,36 +250,91 @@ class TimelineService:
         if timeline is None:
             raise NotFoundError("Timeline does not exist.", {"timeline_id": clip.timeline_id})
 
+        if patch.transition is not None:
+            self._validate_transition(patch.transition)
+
         new_track_id = patch.track_id if patch.track_id is not None else clip.track_id
         track = self.timelines.get_track(new_track_id)
         if track is None or track.timeline_id != clip.timeline_id:
             raise ValidationError("Target track does not belong to this timeline.", {"track_id": new_track_id})
 
-        if patch.start_time is not None:
-            clip.start_time = float(patch.start_time)
-        if patch.end_time is not None:
-            clip.end_time = float(patch.end_time)
-        if patch.source_in is not None:
-            clip.source_in = float(patch.source_in)
-        if patch.source_out is not None:
-            clip.source_out = patch.source_out
-        if patch.track_id is not None:
-            clip.track_id = new_track_id
-        if patch.order_index is not None:
-            clip.order_index = float(patch.order_index)
-        if patch.enabled is not None:
-            clip.enabled = int(patch.enabled)
-        if patch.text is not None:
-            clip.text = patch.text  # subtitle/voiceover copy (TASK-012)
+        # Collect the fields that actually change (minimal before/after for the ChangeSet).
+        changed: dict[str, object] = {}
+        before: dict[str, object] = {}
+        for field in (
+            "track_id",
+            "start_time",
+            "end_time",
+            "source_in",
+            "source_out",
+            "order_index",
+            "enabled",
+            "text",
+            "transition",
+        ):
+            value = getattr(patch, field)
+            if value is None:
+                continue
+            current = getattr(clip, field)
+            if field in ("start_time", "end_time", "source_in", "order_index"):
+                value = float(value)
+            if field == "enabled":
+                value = int(value)
+            if current == value:
+                continue
+            changed[field] = value
+            before[field] = current
 
-        if clip.end_time <= clip.start_time:
+        if not changed:
+            return self._clip_read(clip)
+
+        new_start = float(changed.get("start_time", clip.start_time))
+        new_end = float(changed.get("end_time", clip.end_time))
+        if new_end <= new_start:
             raise ValidationError("end_time must be greater than start_time.", {})
 
-        clip.updated_at = _now()
-        if timeline.duration is None or clip.end_time > timeline.duration:
-            timeline.duration = clip.end_time
+        now = _now()
+        # Atomic revision guard when the client sends its known revision.
+        if patch.revision is not None:
+            stmt = (
+                update(TimelineClip)
+                .where(TimelineClip.id == clip_id, TimelineClip.revision == patch.revision)
+                .values(revision=TimelineClip.revision + 1, updated_at=now, **changed)
+                .execution_options(synchronize_session=False)
+            )
+            result = self.session.execute(stmt)
+            if result.rowcount == 0:
+                current_rev = self.session.scalar(
+                    select(TimelineClip.revision).where(TimelineClip.id == clip_id)
+                )
+                raise ConflictError(
+                    "Timeline clip was modified by another editor.",
+                    {"clip_id": clip_id, "expected_revision": patch.revision, "current_revision": current_rev},
+                )
+            self.session.expire(clip)
+        else:
+            for field, value in changed.items():
+                setattr(clip, field, value)
+            clip.revision = (clip.revision or 1) + 1
+            clip.updated_at = now
+
+        if timeline.duration is None or new_end > timeline.duration:
+            timeline.duration = new_end
         self.session.commit()
+        self.session.refresh(clip)
+        revision_after = clip.revision
         self._publish_clip(timeline, clip, "updated")
+        if record_change_set:
+            ChangeSetService(self.session).record_timeline_clip_patch(
+                project_id=timeline.project_id,
+                run_id=run_id,
+                tool="timeline.edit",
+                clip_id=clip.id,
+                before=before,
+                after=changed,
+                revision_before=revision_after - 1,
+                revision_after=revision_after,
+            )
         return self._clip_read(clip)
 
     def delete_clip(self, clip_id: str) -> None:
@@ -273,8 +354,10 @@ class TimelineService:
             )
         )
 
-    def replace_clip_asset(self, clip_id: str, asset_id: str) -> dict:
-        """P9-T012: rebind a clip to another asset/version."""
+    def replace_clip_asset(
+        self, clip_id: str, asset_id: str, *, record_change_set: bool = True
+    ) -> dict:
+        """P9-T012: rebind a clip to another asset/version (recorded for undo)."""
         clip = self.timelines.get_clip(clip_id)
         if clip is None:
             raise NotFoundError("Clip does not exist.", {"clip_id": clip_id})
@@ -282,10 +365,26 @@ class TimelineService:
         asset = self.session.get(Asset, asset_id)
         if asset is None or asset.deleted_at or (timeline and asset.project_id != timeline.project_id):
             raise ValidationError("Asset does not exist in this project.", {"asset_id": asset_id})
+        if clip.asset_id == asset_id:
+            return self._clip_read(clip)
+        before = {"asset_id": clip.asset_id}
         clip.asset_id = asset_id
+        clip.revision = (clip.revision or 1) + 1
         clip.updated_at = _now()
+        revision_after = clip.revision
         self.session.commit()
         self._publish_clip(timeline, clip, "updated")
+        if record_change_set:
+            ChangeSetService(self.session).record_timeline_clip_patch(
+                project_id=timeline.project_id,
+                run_id=None,
+                tool="timeline.replace_asset",
+                clip_id=clip.id,
+                before=before,
+                after={"asset_id": asset_id},
+                revision_before=revision_after - 1,
+                revision_after=revision_after,
+            )
         return self._clip_read(clip)
 
     # -------------------------------------------------------- one-click arrange
@@ -342,6 +441,8 @@ class TimelineService:
                     end_time=cursor + duration,
                     source_in=0.0,
                     source_out=None,
+                    transition="cut",
+                    revision=1,
                     order_index=order,
                     enabled=1,
                     text=None,
@@ -359,6 +460,8 @@ class TimelineService:
                         end_time=cursor + duration,
                         source_in=0.0,
                         source_out=None,
+                        transition="cut",
+                        revision=1,
                         order_index=order,
                         enabled=1,
                         text=shot.dialogue,
@@ -511,6 +614,8 @@ class TimelineService:
             "end_time": float(clip.end_time),
             "source_in": float(clip.source_in or 0),
             "source_out": clip.source_out,
+            "transition": clip.transition or "cut",
+            "revision": int(clip.revision or 1),
             "order_index": float(clip.order_index),
             "enabled": int(clip.enabled) if clip.enabled is not None else 1,
             "text": clip.text,
@@ -518,6 +623,13 @@ class TimelineService:
             "created_at": clip.created_at,
             "updated_at": clip.updated_at,
         }
+
+    def _validate_transition(self, transition: str | None) -> None:
+        if transition is not None and transition not in TRANSITIONS:
+            raise ValidationError(
+                "Invalid transition.",
+                {"transition": transition, "supported": list(TRANSITIONS)},
+            )
 
     def _timeline_read(self, timeline: Timeline) -> dict:
         tracks = [self._track_read(t) for t in self.timelines.list_tracks(timeline.id)]

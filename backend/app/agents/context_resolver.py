@@ -64,7 +64,13 @@ class ContextResolver:
     def _story_planning(self, project_id):
         scenes = _scene_briefs(self.session, self._scenes_of(project_id))
         model = StoryContext(project_id=project_id, scenes=scenes)
-        budgeted = self.budget.truncate(model.render_text())
+        raw = model.render_text()
+        # Setting-document digest (mvp-spec DOC-004): gives the Director the project's
+        # archived setting facts so story planning is consistent with them.
+        digest = _document_digest(self.session, project_id)
+        if digest:
+            raw = "SETTING_DOCUMENTS:\n" + digest + "\n\n" + raw
+        budgeted = self.budget.truncate(raw)
         return {"context_type": CONTEXT_STORY_PLANNING, "project_id": project_id, "text": budgeted, "token_chars": len(budgeted)}
 
     def _prompt_context(self, project_id, shot_id):
@@ -117,3 +123,10 @@ class ContextResolver:
 
 def _scene_briefs(session, stmt):
     return [{"id": s.id, "scene_number": s.scene_number, "name": s.name} for s in session.scalars(stmt)]
+
+
+def _document_digest(session, project_id: str) -> str:
+    """Budgeted setting-document digest (mvp-spec DOC-004). Read-only; never mutates."""
+    from app.services.document_service import DocumentService
+
+    return DocumentService(session).render_digest(project_id)

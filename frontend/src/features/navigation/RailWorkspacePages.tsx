@@ -23,6 +23,7 @@ import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { ContinuityWarningList } from "../continuity/ContinuityWarningList";
 import { CharactersSection } from "../libraries/CharactersSection";
+import { DocumentsSection } from "../libraries/DocumentsSection";
 import { canonicalScriptPath, canonicalShotPath, canonicalStoryboardPath } from "../studio/studioRoute";
 
 function useProjectId(): string {
@@ -249,24 +250,22 @@ function shotStatusLabel(status: string): string {
 export function KnowledgeWorkspacePage() {
   const projectId = useProjectId();
   return (
-    <div className="rail-module-page">
+    <div className="rail-module-page knowledge-workspace">
       <ModuleHeader
         icon={<Brain size={22} weight="fill" />}
         title="知识库"
-        description="集中管理项目事实、世界观规则与 Agent 可检索的创作约束。"
+        description="集中管理项目设定文档（人物设定/世界观/大纲/小说原稿）——AI 分析时按预算引用这些事实。"
       />
-      <div className="empty-state rail-module-empty">
-        <Brain size={32} />
-        <h2>知识库 UI 正在规划</h2>
-        <p>当前可靠事实仍来自 Project State。现阶段可从源内容与提示词历史查看已有创作上下文。</p>
-        <div className="rail-module-actions">
-          <Link className="btn secondary compact" to={`/projects/${projectId}/source`}>
-            查看源内容
-          </Link>
-          <Link className="btn secondary compact" to={`/projects/${projectId}/prompts`}>
-            查看提示词历史
-          </Link>
-        </div>
+      <section className="rail-module-panel knowledge-library-panel">
+        <DocumentsSection projectId={projectId} />
+      </section>
+      <div className="rail-module-actions knowledge-footer-actions">
+        <Link className="btn secondary compact" to={`/projects/${projectId}/source`}>
+          查看源内容
+        </Link>
+        <Link className="btn secondary compact" to={`/projects/${projectId}/prompts`}>
+          查看提示词历史
+        </Link>
       </div>
     </div>
   );

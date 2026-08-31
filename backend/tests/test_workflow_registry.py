@@ -63,13 +63,18 @@ def test_workflow_versions_unknown_workflow_422(client: TestClient) -> None:
 
 
 def test_versions_present_in_db(session_factory, client: TestClient) -> None:
-    """Registration snapshots a WorkflowTemplate + v1 WorkflowVersion row."""
+    """Registration snapshots a WorkflowTemplate + v1 WorkflowVersion row.
+
+    Assertions are workflow_id-scoped: the shared workflows/ dir may hold more
+    than one template (e.g. Sprint 04's zimage_turbo_api.json), so we never
+    assume a single row in the registry tables.
+    """
     client.get("/api/v1/workflows")  # trigger registration
     factory, _ = session_factory
     with factory() as session:
-        template = session.scalars(select(WorkflowTemplate)).one_or_none()
+        templates = session.scalars(select(WorkflowTemplate)).all()
+        template = next((t for t in templates if t.workflow_id == "default_image_api"), None)
         assert template is not None
-        assert template.workflow_id == "default_image_api"
         versions = session.scalars(
             select(WorkflowVersion).where(WorkflowVersion.template_id == template.id)
         ).all()

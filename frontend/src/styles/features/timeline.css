@@ -126,6 +126,17 @@
   border-bottom: 1px solid var(--hairline-soft);
   background: rgba(217, 92, 92, 0.08);
 }
+.timeline-workspace > .inline-notice {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--hairline-soft);
+  background: rgba(95, 176, 130, 0.1);
+  color: var(--ink);
+  font-size: 12px;
+}
 
 .timeline-body {
   display: grid;
@@ -478,6 +489,37 @@
   padding: 3px 6px;
   font-size: 12px;
 }
+/* P4-E3-T02: basic transition (cut/fade/dissolve) on VIDEO clips */
+.clip-transition {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--hairline-soft);
+  border-radius: var(--radius-sm);
+  background: var(--elevated);
+}
+.clip-transition label {
+  color: var(--muted);
+  font-size: 10px;
+}
+.clip-transition select {
+  width: 100%;
+  min-height: 28px;
+  padding: 3px 6px;
+  border: 1px solid var(--hairline-soft);
+  border-radius: var(--radius-sm);
+  background: var(--workbench);
+  color: var(--ink);
+  font-size: 12px;
+}
+/* P4-E3-T02: optimistic-concurrency conflict notice */
+.clip-conflict {
+  padding: 6px 8px;
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-sm);
+  background: var(--orange-dim);
+}
 .clip-versions {
   display: flex;
   flex-direction: column;
@@ -569,6 +611,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
   padding-top: 2px;
 }
 .timeline-side .toggle {

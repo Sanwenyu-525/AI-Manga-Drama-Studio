@@ -3,10 +3,11 @@
 // （RailWorkspacePages.CharactersWorkspacePage）承载，卡片展开即版本库。
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CaretRight, Check, PencilSimple, Plus, Star, Trash, UsersThree, X } from "@phosphor-icons/react";
+import { CaretRight, Check, FileText, PencilSimple, Plus, Star, Trash, UsersThree, X } from "@phosphor-icons/react";
+import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { Character, CharacterUpdatePatch } from "../../api/types";
+import type { Character, CharacterUpdatePatch, SourceDocument } from "../../api/types";
 import { EntityVersionBlock } from "./EntityVersionBlock";
 
 export function CharactersSection({ projectId }: { projectId: string }) {
@@ -208,6 +209,7 @@ function CharacterRow({
             <span className="section-kicker">视觉版本</span>
           </div>
           <EntityVersionBlock kind="character" entityId={character.id} projectId={projectId} />
+          <CharacterDocumentsBlock characterId={character.id} projectId={projectId} />
           <label className="field">
             <span className="field-label">名称</span>
             <input value={active.name} onChange={(e) => setField("name", e.target.value)} />
@@ -253,6 +255,44 @@ function CharacterRow({
             </button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// 角色页关联块（database-v0.1 §32.6, mvp-spec DOC-005）：展示该角色名下的人物设定
+// 文档（doc_type=character_setting 且 character_id=本角色）。只读摘要 + 跳转知识库。
+function CharacterDocumentsBlock({ characterId, projectId }: { characterId: string; projectId: string }) {
+  const { data: documents } = useQuery({
+    queryKey: queryKeys.documents(projectId),
+    queryFn: () => api.get<SourceDocument[]>("/projects/" + projectId + "/documents"),
+    enabled: Boolean(projectId),
+  });
+  const linked = (documents ?? []).filter(
+    (doc) => doc.doc_type === "character_setting" && doc.character_id === characterId,
+  );
+  return (
+    <div className="character-documents-block">
+      <div className="library-section-heading">
+        <span className="section-kicker">关联设定</span>
+        <Link className="muted small" to={`/projects/${projectId}/knowledge`} title="打开知识库管理设定文档">
+          去知识库
+        </Link>
+      </div>
+      {linked.length === 0 ? (
+        <p className="tree-muted-item">
+          暂无人物设定文档。在<Link className="muted" to={`/projects/${projectId}/knowledge`}>知识库</Link>
+          新建并关联本角色后，AI 分析会引用这些设定。
+        </p>
+      ) : (
+        <ul className="character-document-list">
+          {linked.map((doc) => (
+            <li key={doc.id}>
+              <FileText size={13} />
+              <span className="ellipsis">{doc.title}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

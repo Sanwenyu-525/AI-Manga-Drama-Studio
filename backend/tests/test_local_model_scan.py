@@ -232,12 +232,16 @@ def test_api_scan_autodetect_never_raises(client, tmp_path, monkeypatch) -> None
 
 def test_api_comfyui_models_unreachable(client, tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(image_svc.settings, "data_dir", tmp_path)
+    # 显式死端口而非依赖 env 默认：本机 ComfyUI 运行中会让「默认不可达」断言
+    # 随环境翻转（本地开发机真实服务在 8188 可达 → connected=True）。
+    monkeypatch.setattr(image_svc.settings, "comfyui_url", "http://127.0.0.1:9")
     resp = client.get("/api/v1/providers/comfyui/models")
     assert resp.status_code == 200
     body = resp.json()
     assert body["connected"] is False
     assert body["models"] == []
-    assert body["base_url"]  # 仍回显目标地址（env 默认）
+    assert body["catalog"] == {}
+    assert body["base_url"] == "http://127.0.0.1:9"  # 仍回显目标地址
 
 
 def test_api_comfyui_models_with_override(client) -> None:

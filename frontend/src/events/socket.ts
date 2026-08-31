@@ -219,13 +219,30 @@ export class EventRouter {
       case "agent.proposal.created":
       case "agent.proposal.approved":
       case "agent.proposal.rejected":
-      case "agent.proposal.conflict": {
+      case "agent.proposal.conflict":
+      case "agent.proposal.expired": {
         const propRunId = (event.payload.run_id as string | undefined) ?? event.entity_id ?? agent.runId;
         if (propRunId) this.invalidateProposals(propRunId);
         else {
           void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.proposals });
           void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.agentRun });
         }
+        break;
+      }
+
+      // ---- P2-E3-T03: change-set events → refresh the undo history + shot views ----
+      // A change set applied or undone means Project State moved: refresh the
+      // change-set queries (scoped by run when the payload carries one) plus the
+      // storyboard/shot caches that render the affected entities.
+      case "agent.change_set.created":
+      case "agent.change_set.undone": {
+        const csRunId = event.payload.run_id as string | undefined;
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.changeSets });
+        if (csRunId) {
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.changeSetsForRun(csRunId) });
+        }
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.storyboard });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.shots });
         break;
       }
 
@@ -283,6 +300,25 @@ export class EventRouter {
       case "character.deleted":
         if (event.project_id) {
           void this.queryClient.invalidateQueries({ queryKey: queryKeys.characters(event.project_id) });
+        }
+        break;
+      // ---- 设定文档库（database-v0.1 §32.6）：document.* → 刷新知识库文档列表 ----
+      case "document.created":
+      case "document.updated":
+      case "document.deleted":
+        if (event.project_id) {
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.documents(event.project_id) });
+        }
+        break;
+      // ---- C2 一键成片（api-event-contract §15.1）：pipeline.updated → 刷新流水线状态 ----
+      case "pipeline.updated":
+        {
+          const pipeEpisode = event.payload.episode_id as string | undefined;
+          if (pipeEpisode) {
+            void this.queryClient.invalidateQueries({ queryKey: queryKeys.pipeline(pipeEpisode) });
+          } else {
+            void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.pipeline });
+          }
         }
         break;
       // ---- P6-T022/023/024: job events → invalidate job list + detail queries ----

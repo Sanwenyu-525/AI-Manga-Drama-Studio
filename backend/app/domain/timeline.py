@@ -18,6 +18,11 @@ DEFAULT_TRACK_TYPES = ("VIDEO", "VOICE", "MUSIC", "SUBTITLE")
 
 TIMELINE_STATUSES = ("DRAFT", "READY", "RENDERED", "RENDER_FAILED")
 
+# P4-E3-T02 (AC-2): basic transitions at a clip's head. "cut" is the hard-cut
+# default; "fade"/"dissolve" cross-fade into the clip when rendered.
+TRANSITIONS = ("cut", "fade", "dissolve")
+DEFAULT_TRANSITION = "cut"
+
 
 class TimelineClipAssetRead(BaseModel):
     """Lightweight summary of the bound asset (never the raw file path)."""
@@ -53,6 +58,8 @@ class TimelineClipRead(BaseModel):
     end_time: float
     source_in: float = 0
     source_out: float | None = None
+    transition: str = "cut"
+    revision: int = 1
     order_index: float = 0
     text: str | None = None  # subtitle/voice content
     enabled: int = 1
@@ -117,6 +124,7 @@ class TimelineClipCreate(BaseModel):
     end_time: float = 3
     source_in: float = 0
     source_out: float | None = None
+    transition: str = DEFAULT_TRANSITION
     order_index: float | None = None  # None → after the current max on the track
     enabled: int = 1
     text: str | None = Field(default=None, max_length=4000)  # subtitle/voiceover copy
@@ -124,13 +132,16 @@ class TimelineClipCreate(BaseModel):
 
 class TimelineClipUpdatePatch(BaseModel):
     """Drag → start_time/end_time (with same duration unless trimmed); trim → edges;
-    re-track → track_id; disable → enabled; text → subtitle/voiceover copy."""
+    re-track → track_id; disable → enabled; text → subtitle/voiceover copy;
+    transition → basic transition at the clip head; revision → optimistic guard."""
 
     track_id: str | None = None
     start_time: float | None = None
     end_time: float | None = None
     source_in: float | None = None
     source_out: float | None = None
+    transition: str | None = None
+    revision: int | None = None  # required for updates; mismatched → 409
     order_index: float | None = None
     enabled: int | None = None
     text: str | None = Field(default=None, max_length=4000)

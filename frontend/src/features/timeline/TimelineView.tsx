@@ -4,7 +4,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowCounterClockwise,
   ArrowsClockwise,
+  CheckCircle,
   DownloadSimple,
   FilmStrip,
   Image as ImageIcon,
@@ -28,6 +30,7 @@ import type {
   TimelineClip,
   TimelineRenderRead,
   TimelineTrack,
+  VoiceoverBatchResult,
 } from "../../api/types";
 import {
   clipDuration,
@@ -96,6 +99,20 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
     return timeline.clips.filter((c) => c.track_id === videoTrack.id && c.enabled).length;
   }, [timeline]);
 
+  // C1: VOICE 轨中「有台词且未绑定音频配音」的片段数（批量配音的可用目标）。
+  const voiceTargetCount = useMemo(() => {
+    if (!timeline) return 0;
+    const voiceTrackIds = new Set(timeline.tracks.filter((t) => t.track_type === "VOICE").map((t) => t.id));
+    if (!voiceTrackIds.size) return 0;
+    return timeline.clips.filter(
+      (c) =>
+        c.enabled &&
+        voiceTrackIds.has(c.track_id) &&
+        (c.asset?.type ?? null) !== "audio" &&
+        (c.text ?? "").trim(),
+    ).length;
+  }, [timeline]);
+
   const createTimeline = useMutation({
     mutationFn: () => api.post<Timeline>("/episodes/" + episodeId + "/timeline"),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.timeline(episodeId) }),
@@ -109,6 +126,27 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
   const render = useMutation({
     mutationFn: (timelineId: string) => api.post<TimelineRenderRead>("/timelines/" + timelineId + "/render"),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.timeline(episodeId) }),
+  });
+
+  // C1 整轨批量配音：一次为所有有台词的 VOICE 轨片段排队配音。
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const voiceoverBatch = useMutation({
+    mutationFn: (timelineId: string) =>
+      api.post<VoiceoverBatchResult>("/timelines/" + timelineId + "/generate-voiceovers"),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.timeline(episodeId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.generations });
+      const parts = [`已提交 ${result.submitted.length} 条配音`];
+      if (result.skipped_no_text.length) parts.push(`${result.skipped_no_text.length} 条无台词跳过`);
+      if (result.already_bound.length) parts.push(`${result.already_bound.length} 条已有配音跳过`);
+      setVoiceNotice(parts.join(" · "));
+      setVoiceError(null);
+    },
+    onError: (err) => {
+      setVoiceError(err instanceof Error ? err.message : "批量配音失败");
+      setVoiceNotice(null);
+    },
   });
 
   const duration = Math.max(timeline?.duration ?? 0, 0.1);
@@ -127,14 +165,20 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
         const { [clipId]: _drop, ...rest } = prev;
         return rest;
       });
+      // P4-E3-T02: carry the optimistic-concurrency revision (409 → server wins).
+      const clip = timeline?.clips.find((c) => c.id === clipId);
       void api
         .patch<TimelineClip>("/timeline-clips/" + clipId, {
-          patch: { start_time: ov.start_time, end_time: ov.end_time },
+          patch: {
+            start_time: ov.start_time,
+            end_time: ov.end_time,
+            ...(clip ? { revision: clip.revision } : {}),
+          },
         })
         .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.timeline(episodeId) }))
         .catch(() => queryClient.invalidateQueries({ queryKey: queryKeys.timeline(episodeId) }));
     },
-    [overrides, queryClient, episodeId],
+    [overrides, queryClient, episodeId, timeline],
   );
 
   // global pointer listeners while dragging
@@ -254,6 +298,18 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
           </button>
           <button
             className="btn"
+            disabled={!voiceTargetCount || voiceoverBatch.isPending}
+            title={
+              voiceTargetCount
+                ? `为 ${voiceTargetCount} 条有台词的 VOICE 片段批量生成配音`
+                : "没有待配音的 VOICE 片段（需先写台词且未绑定配音）"
+            }
+            onClick={() => voiceoverBatch.mutate(timeline.id)}
+          >
+            <MagicWand size={15} /> {voiceoverBatch.isPending ? "提交中…" : `整轨配音${voiceTargetCount ? `（${voiceTargetCount}）` : ""}`}
+          </button>
+          <button
+            className="btn"
             onClick={() => {
               setSideTab("media");
               setAddToStart(snapTime(playhead));
@@ -276,6 +332,16 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
       {render.isError && (
         <div className="inline-error">
           <ApiErrorPanel error={render.error as never} />
+        </div>
+      )}
+      {voiceError && (
+        <div className="inline-error">
+          <ApiErrorPanel error={new Error(voiceError)} />
+        </div>
+      )}
+      {voiceNotice && !voiceError && (
+        <div className="inline-notice">
+          <CheckCircle size={14} /> {voiceNotice}
         </div>
       )}
 
@@ -519,10 +585,50 @@ function ClipInspectorPanel({
   const [sourceIn, setSourceIn] = useState(String((clip.source_in ?? 0).toFixed(1)));
   // TASK-012: subtitle/voiceover copy on VOICE/SUBTITLE clips (draft → PATCH on blur)
   const [text, setText] = useState(clip.text ?? "");
+  // P4-E3-T02: basic transition (cut/fade/dissolve) on VIDEO clips
+  const [transition, setTransition] = useState(clip.transition || "cut");
+  const [conflict, setConflict] = useState(false);
   const [voState, setVoState] = useState<"idle" | "queued" | "error">("idle");
   const [voError, setVoError] = useState<string | null>(null);
   const isVoice = trackType === "VOICE";
   const isSubtitle = trackType === "SUBTITLE";
+  const isVideo = trackType === "VIDEO";
+
+  // P4-E3-T02: undo the latest Timeline edit of this clip via the shared
+  // ChangeSet machinery (source="timeline" → POST /agent/change-sets/{id}/undo).
+  const { data: clipChangeSets } = useQuery({
+    queryKey: ["timeline", "clip-change-sets", clip.id],
+    queryFn: () => api.get<unknown>("/agent/change-sets?entity_id=" + clip.id),
+    enabled: Boolean(clip.id),
+  });
+  const latestTimelineEdit = useMemo(() => {
+    const rows = Array.isArray(clipChangeSets) ? clipChangeSets : [];
+    return (
+      (rows.find(
+        (cs) =>
+          (cs as { source?: string }).source === "timeline" && !(cs as { undone?: boolean }).undone,
+      ) as { id: string; tool: string } | undefined) ?? null
+    );
+  }, [clipChangeSets]);
+  const [undoError, setUndoError] = useState<string | null>(null);
+  const undoLatest = () => {
+    if (!latestTimelineEdit) return;
+    setUndoError(null);
+    void api
+      .post(`/agent/change-sets/${latestTimelineEdit.id}/undo`)
+      .then(() => {
+        setConflict(false);
+        onChanged();
+      })
+      .catch((err: unknown) => {
+        setUndoError(
+          (err as { status?: number })?.status === 409
+            ? "该修改已被后续编辑覆盖；如需强制恢复，请在 Agent 变更记录中操作。"
+            : "撤销失败。",
+        );
+        onChanged();
+      });
+  };
 
   const { data: versions } = useQuery({
     queryKey: queryKeys.shotVersionEntries(clip.shot_id ?? "none"),
@@ -534,23 +640,34 @@ function ClipInspectorPanel({
     [versions, clip.asset?.type],
   );
 
+  // P4-E3-T02: every edit carries the clip revision (optimistic concurrency).
   const updateClip = (patch: Record<string, number | string>) => {
     void api
-      .patch<TimelineClip>("/timeline-clips/" + clip.id, { patch })
+      .patch<TimelineClip>("/timeline-clips/" + clip.id, { patch: { ...patch, revision: clip.revision } })
       .then(() => {
+        setConflict(false);
         onChanged();
         onGoPreview();
       })
-      .catch(() => onChanged());
+      .catch((err: unknown) => {
+        if ((err as { status?: number })?.status === 409) setConflict(true);
+        onChanged();
+      });
   };
 
   const saveText = () => {
     const next = text.trim();
     if (next === (clip.text ?? "")) return;
     void api
-      .patch<TimelineClip>("/timeline-clips/" + clip.id, { patch: { text: next } })
-      .then(onChanged)
-      .catch(onChanged);
+      .patch<TimelineClip>("/timeline-clips/" + clip.id, { patch: { text: next, revision: clip.revision } })
+      .then(() => {
+        setConflict(false);
+        onChanged();
+      })
+      .catch((err: unknown) => {
+        if ((err as { status?: number })?.status === 409) setConflict(true);
+        onChanged();
+      });
   };
 
   const generateVoiceover = () => {
@@ -642,6 +759,25 @@ function ClipInspectorPanel({
           </dd>
         </div>
       </dl>
+      {isVideo && (
+        <div className="clip-transition">
+          <label htmlFor="clip-transition">转场（进入本片段）</label>
+          <select
+            id="clip-transition"
+            value={transition}
+            onChange={(e) => {
+              const next = e.target.value;
+              setTransition(next);
+              updateClip({ transition: next });
+            }}
+          >
+            <option value="cut">硬切（cut）</option>
+            <option value="fade">淡入淡出（fade）</option>
+            <option value="dissolve">溶解（dissolve）</option>
+          </select>
+        </div>
+      )}
+      {conflict && <div className="clip-conflict muted small">已被其他编辑器修改，已刷新为最新值。</div>}
       <div className="clip-versions">
         <h4>替换版本（P9-T012）</h4>
         {clip.shot_id ? (
@@ -697,6 +833,14 @@ function ClipInspectorPanel({
         </div>
       )}
       <div className="clip-actions">
+        {latestTimelineEdit && (
+          <>
+            <button className="btn secondary compact" onClick={undoLatest} title="撤销最近一次对该片段的修改（转场/时长等）">
+              <ArrowCounterClockwise size={14} /> 撤销本次修改
+            </button>
+            {undoError && <span className="small danger-text">{undoError}</span>}
+          </>
+        )}
         <button className="btn danger compact" onClick={del}>
           <Trash size={14} /> 删除片段
         </button>
@@ -707,9 +851,15 @@ function ClipInspectorPanel({
             onChange={() => {
               const next = clip.enabled ? 0 : 1;
               void api
-                .patch<TimelineClip>("/timeline-clips/" + clip.id, { patch: { enabled: next } })
-                .then(onChanged)
-                .catch(onChanged);
+                .patch<TimelineClip>("/timeline-clips/" + clip.id, { patch: { enabled: next, revision: clip.revision } })
+                .then(() => {
+                  setConflict(false);
+                  onChanged();
+                })
+                .catch((err: unknown) => {
+                  if ((err as { status?: number })?.status === 409) setConflict(true);
+                  onChanged();
+                });
             }}
           />
           <span>启用</span>
