@@ -55,7 +55,12 @@ export function CharactersSection({ projectId }: { projectId: string }) {
 
   return (
     <div className="tree-section quiet-section">
-      <button type="button" className={`tree-section-title ${sectionOpen ? "open" : ""}`} onClick={() => setSectionOpen((value) => !value)} aria-expanded={sectionOpen}>
+      <button
+        type="button"
+        className={`tree-section-title ${sectionOpen ? "open" : ""}`}
+        onClick={() => setSectionOpen((value) => !value)}
+        aria-expanded={sectionOpen}
+      >
         <CaretRight size={13} className="tree-section-caret" />
         <UsersThree size={16} /> 角色 <span className="tree-section-count">{characters?.length ?? 0}</span>
       </button>

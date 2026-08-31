@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CaretDown, CheckCircle, ImageSquare, ListBullets, MagicWand, Plus, Play, SquaresFour } from "@phosphor-icons/react";
+import {
+  CaretDown,
+  CheckCircle,
+  ImageSquare,
+  ListBullets,
+  MagicWand,
+  Plus,
+  Play,
+  SquaresFour,
+} from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
@@ -124,8 +133,7 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
   );
   const failedShots = shots.filter((shot) => !shot.active_generation && shot.status === "failed");
   const totalDuration = shots.reduce((sum, shot) => sum + (shot.duration ?? 0), 0);
-  const readyCount =
-    shots.filter((shot) => shot.status === "image_ready" || shot.status === "approved").length;
+  const readyCount = shots.filter((shot) => shot.status === "image_ready" || shot.status === "approved").length;
   const sceneMeta = [scene?.time_of_day, scene?.weather, sceneLocation ?? scene?.lighting, scene?.mood].filter(
     (item): item is string => Boolean(item),
   );
@@ -141,18 +149,22 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
           <span className="scene-index mono">
             SC{String(storyboard?.scene.scene_number ?? scene?.scene_number ?? "—").padStart(2, "0")}
           </span>
-          <h1>
-            {isLoading
-              ? "正在读取场景…"
-              : storyboard?.scene.name ?? scene?.name ?? "未命名场景"}
-          </h1>
+          <h1>{isLoading ? "正在读取场景…" : (storyboard?.scene.name ?? scene?.name ?? "未命名场景")}</h1>
           <div className="scene-meta-line">
-            {sceneMeta.length > 0 ? sceneMeta.map((item) => <span key={item}>{item}</span>) : <span>场景信息待补充</span>}
-            <span>{shots.length} 镜 · {totalDuration.toFixed(1)}s</span>
+            {sceneMeta.length > 0 ? (
+              sceneMeta.map((item) => <span key={item}>{item}</span>)
+            ) : (
+              <span>场景信息待补充</span>
+            )}
+            <span>
+              {shots.length} 镜 · {totalDuration.toFixed(1)}s
+            </span>
           </div>
         </div>
         <div className="scene-header-actions">
-          <span className="storyboard-ready-count"><CheckCircle size={14} /> 已出图 {isLoading ? "…" : `${readyCount}/${shots.length}`}</span>
+          <span className="storyboard-ready-count">
+            <CheckCircle size={14} /> 已出图 {isLoading ? "…" : `${readyCount}/${shots.length}`}
+          </span>
           <SceneWarningBadge sceneId={sceneId} />
           <button className="btn secondary compact" onClick={() => createShot.mutate()} disabled={createShot.isPending}>
             <Plus size={14} /> 新建镜头
@@ -169,16 +181,36 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
             </button>
             {generationMenuOpen && (
               <div className="generation-menu-popover" role="menu">
-                <button type="button" role="menuitem" disabled={!currentShot || generateImages.isPending} onClick={() => currentShot && submitImageGeneration([currentShot])}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!currentShot || generateImages.isPending}
+                  onClick={() => currentShot && submitImageGeneration([currentShot])}
+                >
                   生成当前镜头
                 </button>
-                <button type="button" role="menuitem" disabled={!pendingShots.length || generateImages.isPending} onClick={() => submitImageGeneration(pendingShots)}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!pendingShots.length || generateImages.isPending}
+                  onClick={() => submitImageGeneration(pendingShots)}
+                >
                   生成待生成镜头 <span>{pendingShots.length}</span>
                 </button>
-                <button type="button" role="menuitem" disabled={!failedShots.length || generateImages.isPending} onClick={() => submitImageGeneration(failedShots)}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!failedShots.length || generateImages.isPending}
+                  onClick={() => submitImageGeneration(failedShots)}
+                >
                   重新生成失败镜头 <span>{failedShots.length}</span>
                 </button>
-                <button type="button" role="menuitem" disabled={!shots.length || generateImages.isPending} onClick={() => submitImageGeneration(shots.filter((shot) => !shot.active_generation))}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!shots.length || generateImages.isPending}
+                  onClick={() => submitImageGeneration(shots.filter((shot) => !shot.active_generation))}
+                >
                   批量生成当前场景
                 </button>
               </div>
@@ -196,7 +228,9 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
               }}
             />
           </div>
-          <span>制作进度 {readyCount}/{shots.length}</span>
+          <span>
+            制作进度 {readyCount}/{shots.length}
+          </span>
         </div>
         <div className="row gap">
           <button
@@ -204,14 +238,27 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
             disabled={generateShotPlan.isPending || Boolean(planOpId)}
             onClick={() => generateShotPlan.mutate()}
           >
-            <MagicWand size={15} weight="fill" /> {generateShotPlan.isPending || planOpId ? "规划中…" : "AI 生成分镜规划"}
+            <MagicWand size={15} weight="fill" />{" "}
+            {generateShotPlan.isPending || planOpId ? "规划中…" : "AI 生成分镜规划"}
           </button>
           {generationNotice && <span className="generation-notice">{generationNotice}</span>}
           <div className="view-toggle" role="tablist" aria-label="Storyboard 视图">
-            <button type="button" className={view === "grid" ? "active" : ""} aria-label="网格视图" title="网格视图" onClick={() => setView("grid")}>
+            <button
+              type="button"
+              className={view === "grid" ? "active" : ""}
+              aria-label="网格视图"
+              title="网格视图"
+              onClick={() => setView("grid")}
+            >
               <SquaresFour size={16} />
             </button>
-            <button type="button" className={view === "list" ? "active" : ""} aria-label="列表视图" title="列表视图" onClick={() => setView("list")}>
+            <button
+              type="button"
+              className={view === "list" ? "active" : ""}
+              aria-label="列表视图"
+              title="列表视图"
+              onClick={() => setView("list")}
+            >
               <ListBullets size={16} />
             </button>
           </div>
@@ -292,8 +339,11 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
 
 function statusText(status: string): string {
   return (
-    ({ draft: "待生成", planned: "待生成", image_ready: "已生成", approved: "已确认", failed: "失败" } as Record<string, string>)[
-      status
-    ] ?? status
+    (
+      { draft: "待生成", planned: "待生成", image_ready: "已生成", approved: "已确认", failed: "失败" } as Record<
+        string,
+        string
+      >
+    )[status] ?? status
   );
 }

@@ -78,7 +78,14 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
     for (const g of recent ?? []) {
       if (g.project_id !== pid || !g.output_asset_id || seen.has(g.output_asset_id)) continue;
       seen.add(g.output_asset_id);
-      items.push({ assetId: g.output_asset_id, shotId: g.shot_id, provider: g.provider, model: g.model, createdAt: g.created_at, type: g.type });
+      items.push({
+        assetId: g.output_asset_id,
+        shotId: g.shot_id,
+        provider: g.provider,
+        model: g.model,
+        createdAt: g.created_at,
+        type: g.type,
+      });
       if (items.length >= 6) break;
     }
     return items;
@@ -133,14 +140,19 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
                 >
                   <i style={{ width: `${percent(ep.imageReadyCount, ep.shotCount)}%` }} />
                 </span>
-                <Link className="icon-button ws-ep-open" to={canonicalScriptPath(pid, ep.episodeId)} title="打开该集剧本">
+                <Link
+                  className="icon-button ws-ep-open"
+                  to={canonicalScriptPath(pid, ep.episodeId)}
+                  title="打开该集剧本"
+                >
                   <ArrowRight size={14} />
                 </Link>
               </li>
             ))}
           </ul>
           <div className="ws-total-line muted small">
-            合计：{progress.sceneCount} 场 · {progress.shotCount} 镜头 · 已出图 {progress.imageReadyCount}（{imagePct}%）
+            合计：{progress.sceneCount} 场 · {progress.shotCount} 镜头 · 已出图 {progress.imageReadyCount}（{imagePct}
+            %）
           </div>
         </section>
 
@@ -180,9 +192,15 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
             <ul className="ws-output-grid">
               {outputs.map((o) => (
                 <li key={o.assetId} className="ws-output-card">
-                  <img loading="lazy" src={`/api/v1/assets/${o.assetId}/thumbnail`} alt={`产出 ${o.assetId.slice(0, 6)}`} />
+                  <img
+                    loading="lazy"
+                    src={`/api/v1/assets/${o.assetId}/thumbnail`}
+                    alt={`产出 ${o.assetId.slice(0, 6)}`}
+                  />
                   <span className="ws-output-meta">
-                    <span className="mono tiny">{o.shotId ? `Shot ${o.shotId.slice(-4).toUpperCase()}` : "项目任务"}</span>
+                    <span className="mono tiny">
+                      {o.shotId ? `Shot ${o.shotId.slice(-4).toUpperCase()}` : "项目任务"}
+                    </span>
                     <span className="muted tiny ellipsis">
                       {o.provider}
                       {o.model ? ` · ${o.model}` : ""}
@@ -200,9 +218,7 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
           <ul className="ws-attention-list">
             <li className={failedRecent > 0 ? "attn bad" : "attn"}>
               <Warning size={14} weight={failedRecent > 0 ? "fill" : "regular"} />
-              <span>
-                {failedRecent > 0 ? `${failedRecent} 条生成失败` : "暂无失败生成"}
-              </span>
+              <span>{failedRecent > 0 ? `${failedRecent} 条生成失败` : "暂无失败生成"}</span>
               <Link to={`/projects/${pid}/production-log`} className="text-link">
                 生产日志
               </Link>

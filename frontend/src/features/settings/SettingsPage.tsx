@@ -274,106 +274,108 @@ export function SettingsPage() {
 
           {!isLoading && (
             <div className="settings-body">
-            {/* 宽屏两两成行（高度相近的卡片配对，避免空洞）；<1220px 回落单列 */}
-            <div className="settings-duo">
-              <section className="settings-group">
-                <span className="section-kicker">AI 服务</span>
-                <LlmConfigCard />
-              </section>
+              {/* 宽屏两两成行（高度相近的卡片配对，避免空洞）；<1220px 回落单列 */}
+              <div className="settings-duo">
+                <section className="settings-group">
+                  <span className="section-kicker">AI 服务</span>
+                  <LlmConfigCard />
+                </section>
 
-              <section className="settings-group">
-                <span className="section-kicker">图像服务</span>
-                <ImageConfigCard />
-              </section>
-            </div>
+                <section className="settings-group">
+                  <span className="section-kicker">图像服务</span>
+                  <ImageConfigCard />
+                </section>
+              </div>
 
-            <div className="settings-duo">
-              <section className="settings-group">
-                <span className="section-kicker">视频服务</span>
-                <VideoConfigCard />
-              </section>
+              <div className="settings-duo">
+                <section className="settings-group">
+                  <span className="section-kicker">视频服务</span>
+                  <VideoConfigCard />
+                </section>
 
-              <section className="settings-group">
-                <span className="section-kicker">状态说明</span>
-                <div className="provider-card status-legend-card">
-                  <div className="status-legend">
-                    {STATUS_LEGEND.map((item) => (
-                      <div key={item.status} className="status-legend-item">
-                        <span className={`provider-dot ${item.status}`} />
-                        <div>
-                          <strong>{item.label}</strong>
-                          <small>{item.hint}</small>
+                <section className="settings-group">
+                  <span className="section-kicker">状态说明</span>
+                  <div className="provider-card status-legend-card">
+                    <div className="status-legend">
+                      {STATUS_LEGEND.map((item) => (
+                        <div key={item.status} className="status-legend-item">
+                          <span className={`provider-dot ${item.status}`} />
+                          <div>
+                            <strong>{item.label}</strong>
+                            <small>{item.hint}</small>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
+                    <p className="status-legend-note">
+                      徽标反映注册表与最近一次探测结果；点各卡片「测试连接」实时刷新（agnes 探测不消耗生图额度）。
+                    </p>
                   </div>
-                  <p className="status-legend-note">
-                    徽标反映注册表与最近一次探测结果；点各卡片「测试连接」实时刷新（agnes
-                    探测不消耗生图额度）。
+                </section>
+              </div>
+
+              <section className="settings-group">
+                <span className="section-kicker">生成服务{providers ? ` · ${providers.length} 个 Provider` : ""}</span>
+                <div className="settings-list">
+                  {(providers ?? []).map((provider) => {
+                    const result = results[provider.id];
+                    return (
+                      <section key={provider.id} className="provider-card">
+                        <div className="provider-card-head">
+                          <span className={`provider-dot ${provider.status}`} />
+                          <strong>{provider.name}</strong>
+                          <span
+                            className={`badge ${provider.status === "connected" ? "ok" : provider.status === "error" || provider.status === "disconnected" ? "failed" : "neutral"}`}
+                          >
+                            {STATUS_LABELS[provider.status] ?? provider.status}
+                          </span>
+                          {provider.base_url && <code className="provider-url">{provider.base_url}</code>}
+                        </div>
+                        <div className="provider-capabilities">
+                          {Object.entries(provider.capabilities ?? {}).map(([key, enabled]) => (
+                            <span key={key} className={enabled ? "cap-on" : "cap-off"}>
+                              {enabled ? <CheckCircle size={13} weight="fill" /> : <XCircle size={13} />}{" "}
+                              {capLabel(key)}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="provider-card-actions">
+                          {provider.id === "comfyui_local" ? (
+                            <button
+                              className="btn secondary compact"
+                              disabled={test.isPending}
+                              onClick={() => test.mutate()}
+                            >
+                              <Plug size={14} /> {test.isPending ? "测试中…" : "测试连接"}
+                            </button>
+                          ) : provider.id === "agnes" ? (
+                            <button
+                              className="btn secondary compact"
+                              disabled={agnesTest.isPending}
+                              onClick={() => agnesTest.mutate()}
+                              title="用已配置的 STUDIO_AGNES_API_KEY 探测网关（GET /models，不消耗生图额度）"
+                            >
+                              <Plug size={14} /> {agnesTest.isPending ? "测试中…" : "测试连接"}
+                            </button>
+                          ) : (
+                            <span className="muted small">内置 Provider · 随 Studio Service 运行</span>
+                          )}
+                          {result && <TestResultView result={result} />}
+                          {provider.id === "agnes" && agnesTest.data && <AgnesResultView result={agnesTest.data} />}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+
+                <div className="settings-note">
+                  <span className="field-label">当前生成服务</span>
+                  <p>
+                    生成任务按创建时选定的 Provider 执行；默认值由上方「图像服务」配置决定（env
+                    仅作未配置时的兜底）。连接 ComfyUI 后建议先「测试连接」确认健康检查与默认工作流预检通过。
                   </p>
                 </div>
               </section>
-            </div>
-
-            <section className="settings-group">
-              <span className="section-kicker">
-                生成服务{providers ? ` · ${providers.length} 个 Provider` : ""}
-              </span>
-              <div className="settings-list">
-                {(providers ?? []).map((provider) => {
-                  const result = results[provider.id];
-                  return (
-                    <section key={provider.id} className="provider-card">
-                      <div className="provider-card-head">
-                        <span className={`provider-dot ${provider.status}`} />
-                        <strong>{provider.name}</strong>
-                        <span
-                          className={`badge ${provider.status === "connected" ? "ok" : provider.status === "error" || provider.status === "disconnected" ? "failed" : "neutral"}`}
-                        >
-                          {STATUS_LABELS[provider.status] ?? provider.status}
-                        </span>
-                        {provider.base_url && <code className="provider-url">{provider.base_url}</code>}
-                      </div>
-                      <div className="provider-capabilities">
-                        {Object.entries(provider.capabilities ?? {}).map(([key, enabled]) => (
-                          <span key={key} className={enabled ? "cap-on" : "cap-off"}>
-                            {enabled ? <CheckCircle size={13} weight="fill" /> : <XCircle size={13} />} {capLabel(key)}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="provider-card-actions">
-                        {provider.id === "comfyui_local" ? (
-                          <button className="btn secondary compact" disabled={test.isPending} onClick={() => test.mutate()}>
-                            <Plug size={14} /> {test.isPending ? "测试中…" : "测试连接"}
-                          </button>
-                        ) : provider.id === "agnes" ? (
-                          <button
-                            className="btn secondary compact"
-                            disabled={agnesTest.isPending}
-                            onClick={() => agnesTest.mutate()}
-                            title="用已配置的 STUDIO_AGNES_API_KEY 探测网关（GET /models，不消耗生图额度）"
-                          >
-                            <Plug size={14} /> {agnesTest.isPending ? "测试中…" : "测试连接"}
-                          </button>
-                        ) : (
-                          <span className="muted small">内置 Provider · 随 Studio Service 运行</span>
-                        )}
-                        {result && <TestResultView result={result} />}
-                        {provider.id === "agnes" && agnesTest.data && <AgnesResultView result={agnesTest.data} />}
-                      </div>
-                    </section>
-                  );
-                })}
-              </div>
-
-              <div className="settings-note">
-                <span className="field-label">当前生成服务</span>
-                <p>
-                  生成任务按创建时选定的 Provider 执行；默认值由上方「图像服务」配置决定（env
-                  仅作未配置时的兜底）。连接 ComfyUI 后建议先「测试连接」确认健康检查与默认工作流预检通过。
-                </p>
-              </div>
-            </section>
             </div>
           )}
         </div>
@@ -491,10 +493,15 @@ function LlmConfigCard() {
         if (apiKey.trim()) body.api_key = apiKey.trim();
         if (model.trim()) body.model = model.trim();
       }
-      return api.post<{ connected: boolean; mode: string; latency_ms?: number | null; detail?: string; models_count?: number; sample_models?: string[]; error?: string }>(
-        "/llm/test",
-        body,
-      );
+      return api.post<{
+        connected: boolean;
+        mode: string;
+        latency_ms?: number | null;
+        detail?: string;
+        models_count?: number;
+        sample_models?: string[];
+        error?: string;
+      }>("/llm/test", body);
     },
   });
 
@@ -614,9 +621,7 @@ function LlmConfigCard() {
       <div className="provider-card-head">
         <Cpu size={16} />
         <strong>LLM 连接</strong>
-        {data && (
-          <span className="badge neutral">{mode === "openai" ? "openai · 真实模型" : "fake · 无 Key"}</span>
-        )}
+        {data && <span className="badge neutral">{mode === "openai" ? "openai · 真实模型" : "fake · 无 Key"}</span>}
       </div>
 
       {isLoading && <p className="muted small link-note">正在读取 LLM 配置…</p>}
@@ -671,222 +676,234 @@ function LlmConfigCard() {
 
       {!isLoading && data && (
         <>
-        <div className="settings-llm-grid">
-          <label className="field">
-            <span className="field-label">模式</span>
-            <select value={mode} onChange={(e) => setMode(e.target.value as LLMConfig["mode"])}>
-              <option value="fake">fake（开发/测试，确定性规则，无需 Key）</option>
-              <option value="openai">openai（真实 OpenAI 兼容端点）</option>
-            </select>
-          </label>
-          <label className="field">
-            <span className="field-label">Base URL</span>
-            <input
-              value={baseUrl}
-              placeholder="如 https://api.deepseek.com 或 http://127.0.0.1:11434/v1"
-              onChange={(e) => setBaseUrl(e.target.value)}
-            />
-          </label>
-          <label className="field">
-            <span className="field-label">
-              模型
-              {modelOptions.length > 0 && (
-                <button
-                  type="button"
-                  className="mini-refresh"
-                  onClick={() => void queryClient.invalidateQueries({ queryKey: ["llm-models"] })}
-                  title="从已保存的端点重新拉取模型列表"
-                >
-                  <ArrowClockwise size={11} weight="bold" /> 刷新列表
-                </button>
-              )}
-            </span>
-            <input
-              value={model}
-              list="llm-model-options"
-              placeholder={modelsQuery.isError ? "如 deepseek-chat（列表拉取失败，可手输）" : "如 deepseek-chat / qwen2"}
-              onChange={(e) => setModel(e.target.value)}
-            />
-            <datalist id="llm-model-options">
-              {modelOptions.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-          </label>
-          <label className="field">
-            <span className="field-label">API Key {data.api_key_set && <span className="llm-key-hint">{data.api_key_hint}</span>}</span>
-            <input
-              type="password"
-              value={apiKey}
-              autoComplete="off"
-              placeholder={data.api_key_set ? "已设置（留空保持不变）" : "留空则跳过"}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-          </label>
-          <div className="settings-llm-actions">
-            <button
-              className="btn primary compact"
-              disabled={save.isPending}
-              onClick={() => save.mutate()}
-              title="保存 LLM 连接配置并重建网关"
-            >
-              {save.isPending ? "保存中…" : "保存 LLM 配置"}
-            </button>
-            <button
-              type="button"
-              className="btn secondary compact"
-              disabled={test.isPending}
-              onClick={() => test.mutate()}
-              title={mode === "openai" || baseUrl.trim() ? "探测该连接（GET /models，失败时降级最小 chat 探测）" : "fake 模式无需连接"}
-            >
-              {test.isPending ? "测试中…" : "测试连接"}
-            </button>
-            <button
-              type="button"
-              className="btn secondary compact"
-              disabled={detect.isPending}
-              onClick={() => detect.mutate()}
-              title="探测本机常见本地模型服务（Ollama 11434 / LM Studio 1234 / vLLM 8000 等），一键填入"
-            >
-              <Plug size={14} /> {detect.isPending ? "探测中…" : "检测本地服务"}
-            </button>
-            {saved && (
-              <span className="test-result ok">
-                <CheckCircle size={14} weight="fill" /> 已保存
+          <div className="settings-llm-grid">
+            <label className="field">
+              <span className="field-label">模式</span>
+              <select value={mode} onChange={(e) => setMode(e.target.value as LLMConfig["mode"])}>
+                <option value="fake">fake（开发/测试，确定性规则，无需 Key）</option>
+                <option value="openai">openai（真实 OpenAI 兼容端点）</option>
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">Base URL</span>
+              <input
+                value={baseUrl}
+                placeholder="如 https://api.deepseek.com 或 http://127.0.0.1:11434/v1"
+                onChange={(e) => setBaseUrl(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span className="field-label">
+                模型
+                {modelOptions.length > 0 && (
+                  <button
+                    type="button"
+                    className="mini-refresh"
+                    onClick={() => void queryClient.invalidateQueries({ queryKey: ["llm-models"] })}
+                    title="从已保存的端点重新拉取模型列表"
+                  >
+                    <ArrowClockwise size={11} weight="bold" /> 刷新列表
+                  </button>
+                )}
               </span>
-            )}
-          </div>
+              <input
+                value={model}
+                list="llm-model-options"
+                placeholder={
+                  modelsQuery.isError ? "如 deepseek-chat（列表拉取失败，可手输）" : "如 deepseek-chat / qwen2"
+                }
+                onChange={(e) => setModel(e.target.value)}
+              />
+              <datalist id="llm-model-options">
+                {modelOptions.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </label>
+            <label className="field">
+              <span className="field-label">
+                API Key {data.api_key_set && <span className="llm-key-hint">{data.api_key_hint}</span>}
+              </span>
+              <input
+                type="password"
+                value={apiKey}
+                autoComplete="off"
+                placeholder={data.api_key_set ? "已设置（留空保持不变）" : "留空则跳过"}
+                onChange={(e) => setApiKey(e.target.value)}
+              />
+            </label>
+            <div className="settings-llm-actions">
+              <button
+                className="btn primary compact"
+                disabled={save.isPending}
+                onClick={() => save.mutate()}
+                title="保存 LLM 连接配置并重建网关"
+              >
+                {save.isPending ? "保存中…" : "保存 LLM 配置"}
+              </button>
+              <button
+                type="button"
+                className="btn secondary compact"
+                disabled={test.isPending}
+                onClick={() => test.mutate()}
+                title={
+                  mode === "openai" || baseUrl.trim()
+                    ? "探测该连接（GET /models，失败时降级最小 chat 探测）"
+                    : "fake 模式无需连接"
+                }
+              >
+                {test.isPending ? "测试中…" : "测试连接"}
+              </button>
+              <button
+                type="button"
+                className="btn secondary compact"
+                disabled={detect.isPending}
+                onClick={() => detect.mutate()}
+                title="探测本机常见本地模型服务（Ollama 11434 / LM Studio 1234 / vLLM 8000 等），一键填入"
+              >
+                <Plug size={14} /> {detect.isPending ? "探测中…" : "检测本地服务"}
+              </button>
+              {saved && (
+                <span className="test-result ok">
+                  <CheckCircle size={14} weight="fill" /> 已保存
+                </span>
+              )}
+            </div>
 
-          {bindableTasks.length > 0 && (
-            <div className="llm-task-bindings" aria-label="任务分配">
-              <span className="muted small">任务分配</span>
-              {bindableTasks.map((t) => {
-                const bound = taskBindings[t.id];
-                const fallbacks = taskFallbacks[t.id] ?? [];
-                const chainIds = new Set(
-                  [bound?.profile_id, ...fallbacks.map((f) => f.profile_id)].filter(
-                    (id): id is string => Boolean(id),
-                  ),
-                );
-                const addCandidates = savedProfiles.filter((p) => !chainIds.has(p.id));
-                return (
-                  <div className="field" key={t.id}>
-                    <span className="field-label">{t.label}</span>
-                    <select
-                      aria-label={t.label}
-                      value={bound?.profile_id ?? ""}
-                      disabled={bindTask.isPending}
-                      onChange={(e) => bindTask.mutate({ task: t.id, profileId: e.target.value || null })}
-                    >
-                      <option value="">跟随激活连接</option>
-                      {savedProfiles.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                    {fallbacks.length > 0 && (
-                      <span className="llm-fallback-chain">
-                        {fallbacks.map((f, i) => (
-                          <span key={f.profile_id} className="llm-profile-chip">
-                            <span className="chip-btn" title="主连接失败时按序降级到此连接（后端事件宣告）">
-                              ↓ {f.profile_name}
-                            </span>
-                            {i > 0 && (
-                              <button
-                                type="button"
-                                className="chip-del"
-                                title="前移（更早尝试）"
-                                onClick={() => moveUpFallback(t.id, i)}
-                              >
-                                ↑
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              className="chip-del"
-                              title="移除降级"
-                              onClick={() => removeFallback(t.id, f.profile_id)}
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))}
-                      </span>
-                    )}
-                    {addCandidates.length > 0 && (
+            {bindableTasks.length > 0 && (
+              <div className="llm-task-bindings" aria-label="任务分配">
+                <span className="muted small">任务分配</span>
+                {bindableTasks.map((t) => {
+                  const bound = taskBindings[t.id];
+                  const fallbacks = taskFallbacks[t.id] ?? [];
+                  const chainIds = new Set(
+                    [bound?.profile_id, ...fallbacks.map((f) => f.profile_id)].filter((id): id is string =>
+                      Boolean(id),
+                    ),
+                  );
+                  const addCandidates = savedProfiles.filter((p) => !chainIds.has(p.id));
+                  return (
+                    <div className="field" key={t.id}>
+                      <span className="field-label">{t.label}</span>
                       <select
-                        aria-label={`添加降级-${t.label}`}
-                        className="llm-fallback-add"
-                        value=""
-                        disabled={setFallbacks.isPending}
-                        title="主连接失败时按序降级；降级发生时后端会发 llm.fallback.used 事件"
-                        onChange={(e) => {
-                          if (e.target.value) addFallback(t.id, e.target.value);
-                        }}
+                        aria-label={t.label}
+                        value={bound?.profile_id ?? ""}
+                        disabled={bindTask.isPending}
+                        onChange={(e) => bindTask.mutate({ task: t.id, profileId: e.target.value || null })}
                       >
-                        <option value="">+ 添加降级…</option>
-                        {addCandidates.map((p) => (
+                        <option value="">跟随激活连接</option>
+                        {savedProfiles.map((p) => (
                           <option key={p.id} value={p.id}>
                             {p.name}
                           </option>
                         ))}
                       </select>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                      {fallbacks.length > 0 && (
+                        <span className="llm-fallback-chain">
+                          {fallbacks.map((f, i) => (
+                            <span key={f.profile_id} className="llm-profile-chip">
+                              <span className="chip-btn" title="主连接失败时按序降级到此连接（后端事件宣告）">
+                                ↓ {f.profile_name}
+                              </span>
+                              {i > 0 && (
+                                <button
+                                  type="button"
+                                  className="chip-del"
+                                  title="前移（更早尝试）"
+                                  onClick={() => moveUpFallback(t.id, i)}
+                                >
+                                  ↑
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="chip-del"
+                                title="移除降级"
+                                onClick={() => removeFallback(t.id, f.profile_id)}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </span>
+                      )}
+                      {addCandidates.length > 0 && (
+                        <select
+                          aria-label={`添加降级-${t.label}`}
+                          className="llm-fallback-add"
+                          value=""
+                          disabled={setFallbacks.isPending}
+                          title="主连接失败时按序降级；降级发生时后端会发 llm.fallback.used 事件"
+                          onChange={(e) => {
+                            if (e.target.value) addFallback(t.id, e.target.value);
+                          }}
+                        >
+                          <option value="">+ 添加降级…</option>
+                          {addCandidates.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
-          {detect.data && (
-            <div className="settings-llm-actions" role="status">
-              {detect.data.servers.length === 0 ? (
-                <span className="muted small">
-                  未发现运行中的本地模型服务——请确认 Ollama / LM Studio 等已启动（也可直接手填 Base URL）。
+            {detect.data && (
+              <div className="settings-llm-actions" role="status">
+                {detect.data.servers.length === 0 ? (
+                  <span className="muted small">
+                    未发现运行中的本地模型服务——请确认 Ollama / LM Studio 等已启动（也可直接手填 Base URL）。
+                  </span>
+                ) : (
+                  detect.data.servers.map((server) => (
+                    <div className="scan-row" key={server.base_url}>
+                      <span className="badge ok">{server.label}</span>
+                      <code className="provider-url">{server.base_url}</code>
+                      <span className="muted small mono">
+                        {server.models_count} 个模型
+                        {server.sample_models.length > 0 ? ` · ${server.sample_models.slice(0, 3).join("、")}` : ""}
+                      </span>
+                      <button type="button" className="btn secondary compact" onClick={() => applyLocalServer(server)}>
+                        使用
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+            {detect.isError && <ApiErrorPanel error={detect.error} />}
+
+            {test.data && (
+              <div className={`test-result ${test.data.connected ? "ok" : "fail"}`} role="status">
+                {test.data.connected ? (
+                  <CheckCircle size={14} weight="fill" />
+                ) : (
+                  <WarningCircle size={14} weight="fill" />
+                )}
+                <span>
+                  {test.data.connected
+                    ? `连接成功 · ${test.data.mode}${test.data.latency_ms != null ? ` · ${test.data.latency_ms}ms` : ""}${
+                        test.data.models_count != null ? ` · ${test.data.models_count} 个模型` : ""
+                      }${test.data.detail ? ` · ${test.data.detail}` : ""}`
+                    : `连接失败：${test.data.error ?? "未知错误"}`}
                 </span>
-              ) : (
-                detect.data.servers.map((server) => (
-                  <div className="scan-row" key={server.base_url}>
-                    <span className="badge ok">{server.label}</span>
-                    <code className="provider-url">{server.base_url}</code>
-                    <span className="muted small mono">
-                      {server.models_count} 个模型
-                      {server.sample_models.length > 0 ? ` · ${server.sample_models.slice(0, 3).join("、")}` : ""}
-                    </span>
-                    <button type="button" className="btn secondary compact" onClick={() => applyLocalServer(server)}>
-                      使用
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-          {detect.isError && <ApiErrorPanel error={detect.error} />}
-
-          {test.data && (
-            <div className={`test-result ${test.data.connected ? "ok" : "fail"}`} role="status">
-              {test.data.connected ? <CheckCircle size={14} weight="fill" /> : <WarningCircle size={14} weight="fill" />}
-              <span>
-                {test.data.connected
-                  ? `连接成功 · ${test.data.mode}${test.data.latency_ms != null ? ` · ${test.data.latency_ms}ms` : ""}${
-                      test.data.models_count != null ? ` · ${test.data.models_count} 个模型` : ""
-                    }${test.data.detail ? ` · ${test.data.detail}` : ""}`
-                  : `连接失败：${test.data.error ?? "未知错误"}`}
-              </span>
-              {test.data.connected && (test.data.sample_models?.length ?? 0) > 0 && (
-                <span className="muted small mono">{test.data.sample_models!.slice(0, 4).join(" · ")}</span>
-              )}
-            </div>
-          )}
-          {test.isError && <ApiErrorPanel error={test.error} />}
-        </div>
-        {/* 说明钉在卡底（.settings-duo 等高拉伸时吸收高度差） */}
-        <p className="muted small link-note">
-          fake 用于开发/测试（确定性输出，无需 Key）；openai 接入真实模型需提供 Base URL。保存后模型下拉自动拉取 /models；
-          测试连接可对未保存的表单值先行探测。「检测本地服务」会探测本机常见端口（Ollama/LM Studio/vLLM 等）。
-          切换后立即生效，无需重启。
-        </p>
+                {test.data.connected && (test.data.sample_models?.length ?? 0) > 0 && (
+                  <span className="muted small mono">{test.data.sample_models!.slice(0, 4).join(" · ")}</span>
+                )}
+              </div>
+            )}
+            {test.isError && <ApiErrorPanel error={test.error} />}
+          </div>
+          {/* 说明钉在卡底（.settings-duo 等高拉伸时吸收高度差） */}
+          <p className="muted small link-note">
+            fake 用于开发/测试（确定性输出，无需 Key）；openai 接入真实模型需提供 Base URL。保存后模型下拉自动拉取
+            /models； 测试连接可对未保存的表单值先行探测。「检测本地服务」会探测本机常见端口（Ollama/LM Studio/vLLM
+            等）。 切换后立即生效，无需重启。
+          </p>
         </>
       )}
 
@@ -1036,7 +1053,9 @@ function ImageConfigCard() {
       });
       const op = await pollOperation(started.operation_id);
       if (op.status === "completed" && op.result) {
-        setImportMsg(`已导入 ${file.name} → ${op.result.target}（${op.result.strategy === "hardlink" ? "硬链接" : "复制"}）。ComfyUI 未立即显示时重启一次即可。`);
+        setImportMsg(
+          `已导入 ${file.name} → ${op.result.target}（${op.result.strategy === "hardlink" ? "硬链接" : "复制"}）。ComfyUI 未立即显示时重启一次即可。`,
+        );
       } else {
         setImportErr(op.error ?? "导入失败");
       }
@@ -1064,313 +1083,308 @@ function ImageConfigCard() {
 
       {!isLoading && data && (
         <>
-        <div className="settings-llm-grid">
-          <label className="field">
-            <span className="field-label">Provider</span>
-            <select
-              value={provider}
-              onChange={(e) => setProvider(e.target.value as ImageConfig["provider"])}
-            >
-              <option value="mock">mock（占位图，无需 Key）</option>
-              <option value="comfyui">comfyui（本地 ComfyUI 服务器）</option>
-              <option value="agnes">agnes（真实云端生图）</option>
-            </select>
-          </label>
-          {provider === "agnes" && (
-            <>
-              <label className="field">
-                <span className="field-label">Agnes Base URL</span>
-                <input
-                  value={baseUrl}
-                  placeholder="默认 https://api.agnes-ai.cn/v1"
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span className="field-label">
-                  Agnes API Key{" "}
-                  {data.api_key_set && <span className="llm-key-hint">{data.api_key_hint}</span>}
-                </span>
-                <input
-                  type="password"
-                  value={apiKey}
-                  autoComplete="off"
-                  placeholder={data.api_key_set ? "已设置（留空保持不变）" : "必填：Agnes 图像 API Key"}
-                  onChange={(e) => setApiKey(e.target.value)}
-                />
-              </label>
-            </>
-          )}
+          <div className="settings-llm-grid">
+            <label className="field">
+              <span className="field-label">Provider</span>
+              <select value={provider} onChange={(e) => setProvider(e.target.value as ImageConfig["provider"])}>
+                <option value="mock">mock（占位图，无需 Key）</option>
+                <option value="comfyui">comfyui（本地 ComfyUI 服务器）</option>
+                <option value="agnes">agnes（真实云端生图）</option>
+              </select>
+            </label>
+            {provider === "agnes" && (
+              <>
+                <label className="field">
+                  <span className="field-label">Agnes Base URL</span>
+                  <input
+                    value={baseUrl}
+                    placeholder="默认 https://api.agnes-ai.cn/v1"
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">
+                    Agnes API Key {data.api_key_set && <span className="llm-key-hint">{data.api_key_hint}</span>}
+                  </span>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    autoComplete="off"
+                    placeholder={data.api_key_set ? "已设置（留空保持不变）" : "必填：Agnes 图像 API Key"}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                </label>
+              </>
+            )}
 
-          {/* ComfyUI 本地引擎（P-LocalModels）：地址 / checkpoint / 模型目录 + 扫描导入 */}
-          <div className="settings-llm-actions">
-            <span className="field-label">ComfyUI 本地引擎</span>
-          </div>
-          <label className="field">
-            <span className="field-label">ComfyUI 地址</span>
-            <input
-              value={comfyUrl}
-              placeholder="如 http://127.0.0.1:8188"
-              onChange={(e) => setComfyUrl(e.target.value)}
-            />
-          </label>
-          <label className="field">
-            <span className="field-label">
-              生成模型（checkpoint）
-              {(comfyModelsQuery.data?.models?.length ?? 0) > 0 && (
+            {/* ComfyUI 本地引擎（P-LocalModels）：地址 / checkpoint / 模型目录 + 扫描导入 */}
+            <div className="settings-llm-actions">
+              <span className="field-label">ComfyUI 本地引擎</span>
+            </div>
+            <label className="field">
+              <span className="field-label">ComfyUI 地址</span>
+              <input
+                value={comfyUrl}
+                placeholder="如 http://127.0.0.1:8188"
+                onChange={(e) => setComfyUrl(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span className="field-label">
+                生成模型（checkpoint）
+                {(comfyModelsQuery.data?.models?.length ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    className="mini-refresh"
+                    onClick={() => void queryClient.invalidateQueries({ queryKey: queryKeys.comfyuiModels })}
+                    title="从 ComfyUI 重新拉取 checkpoint 列表"
+                  >
+                    <ArrowClockwise size={11} weight="bold" /> 刷新列表
+                  </button>
+                )}
+              </span>
+              <input
+                value={checkpoint}
+                list="comfy-checkpoint-options"
+                placeholder={
+                  comfyModelsQuery.data && !comfyModelsQuery.data.connected
+                    ? "ComfyUI 未连接，可手动输入文件名"
+                    : "从列表选择，或手输 ComfyUI models 里的文件名"
+                }
+                onChange={(e) => setCheckpoint(e.target.value)}
+              />
+              <datalist id="comfy-checkpoint-options">
+                {(comfyModelsQuery.data?.models ?? []).map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </label>
+            <label className="field">
+              <span className="field-label">ComfyUI 模型目录（models 根目录，导入目标）</span>
+              <div className="path-input-row">
+                <input
+                  value={modelsRoot}
+                  placeholder="如 D:\ComfyUI_windows_portable\ComfyUI\models"
+                  onChange={(e) => setModelsRoot(e.target.value)}
+                />
                 <button
                   type="button"
-                  className="mini-refresh"
-                  onClick={() => void queryClient.invalidateQueries({ queryKey: queryKeys.comfyuiModels })}
-                  title="从 ComfyUI 重新拉取 checkpoint 列表"
+                  className="btn secondary compact"
+                  onClick={() => void browseFor("modelsRoot")}
+                  title="浏览并选择 ComfyUI 模型目录（桌面壳调原生对话框）"
                 >
-                  <ArrowClockwise size={11} weight="bold" /> 刷新列表
+                  <FolderOpen size={14} /> 浏览
                 </button>
-              )}
-            </span>
-            <input
-              value={checkpoint}
-              list="comfy-checkpoint-options"
-              placeholder={
-                comfyModelsQuery.data && !comfyModelsQuery.data.connected
-                  ? "ComfyUI 未连接，可手动输入文件名"
-                  : "从列表选择，或手输 ComfyUI models 里的文件名"
-              }
-              onChange={(e) => setCheckpoint(e.target.value)}
-            />
-            <datalist id="comfy-checkpoint-options">
-              {(comfyModelsQuery.data?.models ?? []).map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-          </label>
-          <label className="field">
-            <span className="field-label">ComfyUI 模型目录（models 根目录，导入目标）</span>
-            <div className="path-input-row">
-              <input
-                value={modelsRoot}
-                placeholder="如 D:\ComfyUI_windows_portable\ComfyUI\models"
-                onChange={(e) => setModelsRoot(e.target.value)}
-              />
+              </div>
+            </label>
+            <div className="settings-llm-actions">
               <button
                 type="button"
                 className="btn secondary compact"
-                onClick={() => void browseFor("modelsRoot")}
-                title="浏览并选择 ComfyUI 模型目录（桌面壳调原生对话框）"
+                disabled={comfyTest.isPending}
+                onClick={() => comfyTest.mutate()}
+                title="健康检查 + 默认工作流预检；携带上方未保存的地址先行探测"
               >
-                <FolderOpen size={14} /> 浏览
+                <Plug size={14} /> {comfyTest.isPending ? "测试中…" : "测试 ComfyUI 连接"}
               </button>
-            </div>
-          </label>
-          <div className="settings-llm-actions">
-            <button
-              type="button"
-              className="btn secondary compact"
-              disabled={comfyTest.isPending}
-              onClick={() => comfyTest.mutate()}
-              title="健康检查 + 默认工作流预检；携带上方未保存的地址先行探测"
-            >
-              <Plug size={14} /> {comfyTest.isPending ? "测试中…" : "测试 ComfyUI 连接"}
-            </button>
-            {comfyTest.data && <TestResultView result={comfyTest.data} />}
-            {comfyTest.isError && (
-              <span className="test-result fail">
-                <WarningCircle size={14} /> 测试请求失败
-              </span>
-            )}
-          </div>
-
-          <label className="field">
-            <span className="field-label">扫描模型目录路径</span>
-            <div className="path-input-row">
-              <input
-                value={scanPath}
-                placeholder="如 D:\Models，或 ComfyUI 的 models 目录"
-                onChange={(e) => setScanPath(e.target.value)}
-              />
-              <button
-                type="button"
-                className="btn secondary compact"
-                onClick={() => void browseFor("scanPath")}
-                title="浏览并选择要扫描的目录（桌面壳调原生对话框）"
-              >
-                <FolderOpen size={14} /> 浏览
-              </button>
-            </div>
-          </label>
-          <div className="settings-llm-actions">
-            <button
-              type="button"
-              className="btn secondary compact"
-              disabled={scan.isPending || !scanPath.trim()}
-              onClick={() => scan.mutate(scanPath)}
-              title="递归扫描该目录下的模型文件（safetensors/ckpt/gguf…，限深 4 层）"
-            >
-              {scan.isPending ? "扫描中…" : "扫描该目录"}
-            </button>
-            <button
-              type="button"
-              className="btn secondary compact"
-              disabled={scan.isPending}
-              onClick={() => scan.mutate(undefined)}
-              title="自动检索 Ollama / LM Studio / ComfyUI Desktop / HuggingFace 缓存等常见位置"
-            >
-              {scan.isPending ? "检索中…" : "自动检索常见位置"}
-            </button>
-          </div>
-          {scan.error && (
-            <div className="settings-llm-actions">
-              <span className="test-result fail" role="status">
-                <WarningCircle size={14} /> {(scan.error as Error).message}
-              </span>
-            </div>
-          )}
-          {scan.data?.mode === "path" && (
-            <div className="settings-llm-actions">
-              {(scan.data.files ?? []).length === 0 ? (
-                <span className="muted small">该目录下未发现模型文件（支持 safetensors/ckpt/pt/gguf/onnx）。</span>
-              ) : (
-                <>
-                  <span className="muted small">
-                    发现 {scan.data.total ?? 0} 个模型文件{scan.data.truncated ? "（已达上限，结果截断）" : ""}：
-                  </span>
-                  {(scan.data.files ?? []).map((file) => (
-                    <div className="scan-row" key={file.path}>
-                      <span className="badge neutral">{KIND_LABELS[file.kind] ?? file.kind}</span>
-                      <code className="provider-url">
-                        {file.dir ? `${file.dir}/` : ""}
-                        {file.name}
-                      </code>
-                      <span className="muted small mono">{formatBytes(file.size_bytes)}</span>
-                      <button
-                        type="button"
-                        className="btn secondary compact"
-                        disabled={importing != null}
-                        onClick={() => void runImport(file)}
-                        title="导入到 ComfyUI models 目录（同盘硬链接优先，跨盘复制）"
-                      >
-                        {importing === file.name ? "导入中…" : "导入到 ComfyUI"}
-                      </button>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-          {scan.data?.mode === "autodetect" && (
-            <div className="settings-llm-actions">
-              {(scan.data.locations ?? []).length === 0 ? (
-                <span className="muted small">
-                  未在本机常见位置发现模型目录（Ollama / LM Studio / ComfyUI Desktop / HF 缓存均未找到）。
+              {comfyTest.data && <TestResultView result={comfyTest.data} />}
+              {comfyTest.isError && (
+                <span className="test-result fail">
+                  <WarningCircle size={14} /> 测试请求失败
                 </span>
-              ) : (
-                (scan.data.locations ?? []).map((loc) => (
-                  <div className="scan-row" key={loc.path}>
-                    <span className="badge ok">{loc.label}</span>
-                    <code className="provider-url">{loc.path}</code>
-                    <span className="muted small mono">
-                      {loc.model_count} 个模型
-                      {loc.sample_models.length > 0 ? ` · ${loc.sample_models.slice(0, 3).join("、")}` : ""}
+              )}
+            </div>
+
+            <label className="field">
+              <span className="field-label">扫描模型目录路径</span>
+              <div className="path-input-row">
+                <input
+                  value={scanPath}
+                  placeholder="如 D:\Models，或 ComfyUI 的 models 目录"
+                  onChange={(e) => setScanPath(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn secondary compact"
+                  onClick={() => void browseFor("scanPath")}
+                  title="浏览并选择要扫描的目录（桌面壳调原生对话框）"
+                >
+                  <FolderOpen size={14} /> 浏览
+                </button>
+              </div>
+            </label>
+            <div className="settings-llm-actions">
+              <button
+                type="button"
+                className="btn secondary compact"
+                disabled={scan.isPending || !scanPath.trim()}
+                onClick={() => scan.mutate(scanPath)}
+                title="递归扫描该目录下的模型文件（safetensors/ckpt/gguf…，限深 4 层）"
+              >
+                {scan.isPending ? "扫描中…" : "扫描该目录"}
+              </button>
+              <button
+                type="button"
+                className="btn secondary compact"
+                disabled={scan.isPending}
+                onClick={() => scan.mutate(undefined)}
+                title="自动检索 Ollama / LM Studio / ComfyUI Desktop / HuggingFace 缓存等常见位置"
+              >
+                {scan.isPending ? "检索中…" : "自动检索常见位置"}
+              </button>
+            </div>
+            {scan.error && (
+              <div className="settings-llm-actions">
+                <span className="test-result fail" role="status">
+                  <WarningCircle size={14} /> {(scan.error as Error).message}
+                </span>
+              </div>
+            )}
+            {scan.data?.mode === "path" && (
+              <div className="settings-llm-actions">
+                {(scan.data.files ?? []).length === 0 ? (
+                  <span className="muted small">该目录下未发现模型文件（支持 safetensors/ckpt/pt/gguf/onnx）。</span>
+                ) : (
+                  <>
+                    <span className="muted small">
+                      发现 {scan.data.total ?? 0} 个模型文件{scan.data.truncated ? "（已达上限，结果截断）" : ""}：
                     </span>
-                    <button
-                      type="button"
-                      className="btn secondary compact"
-                      onClick={() => {
-                        setScanPath(loc.path);
-                        scan.mutate(loc.path);
-                      }}
-                    >
-                      查看
-                    </button>
-                    {loc.kind === "comfyui" && (
+                    {(scan.data.files ?? []).map((file) => (
+                      <div className="scan-row" key={file.path}>
+                        <span className="badge neutral">{KIND_LABELS[file.kind] ?? file.kind}</span>
+                        <code className="provider-url">
+                          {file.dir ? `${file.dir}/` : ""}
+                          {file.name}
+                        </code>
+                        <span className="muted small mono">{formatBytes(file.size_bytes)}</span>
+                        <button
+                          type="button"
+                          className="btn secondary compact"
+                          disabled={importing != null}
+                          onClick={() => void runImport(file)}
+                          title="导入到 ComfyUI models 目录（同盘硬链接优先，跨盘复制）"
+                        >
+                          {importing === file.name ? "导入中…" : "导入到 ComfyUI"}
+                        </button>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+            {scan.data?.mode === "autodetect" && (
+              <div className="settings-llm-actions">
+                {(scan.data.locations ?? []).length === 0 ? (
+                  <span className="muted small">
+                    未在本机常见位置发现模型目录（Ollama / LM Studio / ComfyUI Desktop / HF 缓存均未找到）。
+                  </span>
+                ) : (
+                  (scan.data.locations ?? []).map((loc) => (
+                    <div className="scan-row" key={loc.path}>
+                      <span className="badge ok">{loc.label}</span>
+                      <code className="provider-url">{loc.path}</code>
+                      <span className="muted small mono">
+                        {loc.model_count} 个模型
+                        {loc.sample_models.length > 0 ? ` · ${loc.sample_models.slice(0, 3).join("、")}` : ""}
+                      </span>
                       <button
                         type="button"
                         className="btn secondary compact"
-                        onClick={() => setModelsRoot(loc.path)}
-                        title="把该目录填为导入目标（记得点保存）"
+                        onClick={() => {
+                          setScanPath(loc.path);
+                          scan.mutate(loc.path);
+                        }}
                       >
-                        设为模型目录
+                        查看
                       </button>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-          {importMsg && (
-            <div className="settings-llm-actions">
-              <span className="test-result ok" role="status">
-                <CheckCircle size={14} weight="fill" /> {importMsg}
-              </span>
-            </div>
-          )}
-          {importErr && (
-            <div className="settings-llm-actions">
-              <span className="test-result fail" role="status">
-                <WarningCircle size={14} /> {importErr}
-              </span>
-            </div>
-          )}
-
-          <div className="settings-llm-actions">
-            <button
-              className="btn primary compact"
-              disabled={save.isPending}
-              onClick={() => save.mutate()}
-              title="保存图像服务配置并重置 Provider 缓存"
-            >
-              {save.isPending ? "保存中…" : "保存图像配置"}
-            </button>
-            <button
-              type="button"
-              className="btn secondary compact"
-              disabled={test.isPending || provider === "comfyui"}
-              onClick={() => test.mutate()}
-              title={
-                provider === "agnes"
-                  ? "探测该连接（GET /models，不消耗生图额度）"
-                  : provider === "mock"
-                    ? "mock 无需连接"
-                    : "comfyui 请使用上方 ComfyUI 区块的「测试 ComfyUI 连接」"
-              }
-            >
-              {test.isPending ? "测试中…" : "测试连接"}
-            </button>
-            {saved && (
-              <span className="test-result ok">
-                <CheckCircle size={14} weight="fill" /> 已保存，下次生图即生效
-              </span>
+                      {loc.kind === "comfyui" && (
+                        <button
+                          type="button"
+                          className="btn secondary compact"
+                          onClick={() => setModelsRoot(loc.path)}
+                          title="把该目录填为导入目标（记得点保存）"
+                        >
+                          设为模型目录
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             )}
-          </div>
+            {importMsg && (
+              <div className="settings-llm-actions">
+                <span className="test-result ok" role="status">
+                  <CheckCircle size={14} weight="fill" /> {importMsg}
+                </span>
+              </div>
+            )}
+            {importErr && (
+              <div className="settings-llm-actions">
+                <span className="test-result fail" role="status">
+                  <WarningCircle size={14} /> {importErr}
+                </span>
+              </div>
+            )}
 
-          {test.data && (
-            <div
-              className={`test-result ${test.data.connected === true ? "ok" : test.data.connected === false ? "fail" : "warn"}`}
-              role="status"
-            >
-              {test.data.connected === false ? (
-                <WarningCircle size={14} weight="fill" />
-              ) : (
-                <CheckCircle size={14} weight="fill" />
+            <div className="settings-llm-actions">
+              <button
+                className="btn primary compact"
+                disabled={save.isPending}
+                onClick={() => save.mutate()}
+                title="保存图像服务配置并重置 Provider 缓存"
+              >
+                {save.isPending ? "保存中…" : "保存图像配置"}
+              </button>
+              <button
+                type="button"
+                className="btn secondary compact"
+                disabled={test.isPending || provider === "comfyui"}
+                onClick={() => test.mutate()}
+                title={
+                  provider === "agnes"
+                    ? "探测该连接（GET /models，不消耗生图额度）"
+                    : provider === "mock"
+                      ? "mock 无需连接"
+                      : "comfyui 请使用上方 ComfyUI 区块的「测试 ComfyUI 连接」"
+                }
+              >
+                {test.isPending ? "测试中…" : "测试连接"}
+              </button>
+              {saved && (
+                <span className="test-result ok">
+                  <CheckCircle size={14} weight="fill" /> 已保存，下次生图即生效
+                </span>
               )}
-              <span>
-                {test.data.connected === true
-                  ? `连接成功 · ${test.data.provider}${test.data.latency_ms != null ? ` · ${test.data.latency_ms}ms` : ""}${
-                      test.data.image_model_available ? " · agnes-image-2.1-flash 可用" : ""
-                    }`
-                  : (test.data.detail ?? test.data.error ?? "未知状态")}
-              </span>
             </div>
-          )}
-          {test.isError && <ApiErrorPanel error={test.error} />}
-        </div>
-        {/* 说明钉在卡底（.settings-duo 等高拉伸时吸收高度差） */}
-        <p className="muted small link-note">
-          保存后立即生效，无需重启；之后在分镜板或镜头检查器点「生成」即按此 Provider
-          执行。ComfyUI 本地引擎支持地址编辑、checkpoint 拉取选用、目录浏览选择（桌面壳
-          原生对话框 · 浏览器内置浏览）、本地目录扫描与一键导入（同盘硬链接优先）；agnes
-          探测不消耗生图额度。
-        </p>
+
+            {test.data && (
+              <div
+                className={`test-result ${test.data.connected === true ? "ok" : test.data.connected === false ? "fail" : "warn"}`}
+                role="status"
+              >
+                {test.data.connected === false ? (
+                  <WarningCircle size={14} weight="fill" />
+                ) : (
+                  <CheckCircle size={14} weight="fill" />
+                )}
+                <span>
+                  {test.data.connected === true
+                    ? `连接成功 · ${test.data.provider}${test.data.latency_ms != null ? ` · ${test.data.latency_ms}ms` : ""}${
+                        test.data.image_model_available ? " · agnes-image-2.1-flash 可用" : ""
+                      }`
+                    : (test.data.detail ?? test.data.error ?? "未知状态")}
+                </span>
+              </div>
+            )}
+            {test.isError && <ApiErrorPanel error={test.error} />}
+          </div>
+          {/* 说明钉在卡底（.settings-duo 等高拉伸时吸收高度差） */}
+          <p className="muted small link-note">
+            保存后立即生效，无需重启；之后在分镜板或镜头检查器点「生成」即按此 Provider 执行。ComfyUI
+            本地引擎支持地址编辑、checkpoint 拉取选用、目录浏览选择（桌面壳 原生对话框 ·
+            浏览器内置浏览）、本地目录扫描与一键导入（同盘硬链接优先）；agnes 探测不消耗生图额度。
+          </p>
         </>
       )}
 
@@ -1452,9 +1466,7 @@ function VideoConfigCard() {
         <Cpu size={16} />
         <strong>视频服务</strong>
         {data && (
-          <span className="badge neutral">
-            {videoProvider === "agnes" ? "agnes · 真实视频" : "mock · 不可用"}
-          </span>
+          <span className="badge neutral">{videoProvider === "agnes" ? "agnes · 真实视频" : "mock · 不可用"}</span>
         )}
       </div>
 
@@ -1463,65 +1475,65 @@ function VideoConfigCard() {
 
       {!isLoading && data && (
         <>
-        <div className="settings-llm-grid">
-          <label className="field">
-            <span className="field-label">Provider</span>
-            <select
-              value={videoProvider}
-              onChange={(e) => setVideoProvider(e.target.value as ImageConfig["video_provider"])}
-            >
-              <option value="mock">mock（占位，不可用）</option>
-              <option value="agnes">agnes（真实云端视频，2.5-flash 当前免费）</option>
-            </select>
-          </label>
-          {videoProvider === "agnes" && (
+          <div className="settings-llm-grid">
             <label className="field">
-              <span className="field-label">视频模型</span>
-              <select value={videoModel} onChange={(e) => setVideoModel(e.target.value)}>
-                {savedModelOutsideCatalog && (
-                  <option value={videoModel}>{`${videoModel}（当前保存 · 不在目录）`}</option>
-                )}
-                {videoModelOptions.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {videoModelLabel(m)}
-                  </option>
-                ))}
+              <span className="field-label">Provider</span>
+              <select
+                value={videoProvider}
+                onChange={(e) => setVideoProvider(e.target.value as ImageConfig["video_provider"])}
+              >
+                <option value="mock">mock（占位，不可用）</option>
+                <option value="agnes">agnes（真实云端视频，2.5-flash 当前免费）</option>
               </select>
             </label>
-          )}
-          {videoProvider === "agnes" && modelsQuery.isPending && (
-            <p className="muted small link-note">正在读取视频模型目录…</p>
-          )}
-          {videoProvider === "agnes" && modelsQuery.isError && (
-            <p className="muted small link-note">模型目录读取失败，仅保留当前已保存模型。</p>
-          )}
-          {videoProvider === "agnes" && currentModel?.available === false && (
-            <div className="test-result warn" role="status">
-              <WarningCircle size={14} weight="fill" />
-              <span>{currentModel.id} 不在该账号可用模型列表，生成会失败；建议切回 agnes-video-2.5-flash。</span>
-            </div>
-          )}
-          <div className="settings-llm-actions">
-            <button
-              className="btn primary compact"
-              disabled={save.isPending}
-              onClick={() => save.mutate()}
-              title="保存视频服务配置并重置 Provider 缓存"
-            >
-              {save.isPending ? "保存中…" : "保存视频配置"}
-            </button>
-            {saved && (
-              <span className="test-result ok">
-                <CheckCircle size={14} weight="fill" /> 已保存，下次生成即生效
-              </span>
+            {videoProvider === "agnes" && (
+              <label className="field">
+                <span className="field-label">视频模型</span>
+                <select value={videoModel} onChange={(e) => setVideoModel(e.target.value)}>
+                  {savedModelOutsideCatalog && (
+                    <option value={videoModel}>{`${videoModel}（当前保存 · 不在目录）`}</option>
+                  )}
+                  {videoModelOptions.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {videoModelLabel(m)}
+                    </option>
+                  ))}
+                </select>
+              </label>
             )}
+            {videoProvider === "agnes" && modelsQuery.isPending && (
+              <p className="muted small link-note">正在读取视频模型目录…</p>
+            )}
+            {videoProvider === "agnes" && modelsQuery.isError && (
+              <p className="muted small link-note">模型目录读取失败，仅保留当前已保存模型。</p>
+            )}
+            {videoProvider === "agnes" && currentModel?.available === false && (
+              <div className="test-result warn" role="status">
+                <WarningCircle size={14} weight="fill" />
+                <span>{currentModel.id} 不在该账号可用模型列表，生成会失败；建议切回 agnes-video-2.5-flash。</span>
+              </div>
+            )}
+            <div className="settings-llm-actions">
+              <button
+                className="btn primary compact"
+                disabled={save.isPending}
+                onClick={() => save.mutate()}
+                title="保存视频服务配置并重置 Provider 缓存"
+              >
+                {save.isPending ? "保存中…" : "保存视频配置"}
+              </button>
+              {saved && (
+                <span className="test-result ok">
+                  <CheckCircle size={14} weight="fill" /> 已保存，下次生成即生效
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-        {/* 说明钉在卡底（.settings-duo 等高拉伸时吸收高度差） */}
-        <p className="muted small link-note">
-          视频为异步任务（提交 → 轮询 → 下载），在镜头检查器点「生成视频」发起，约 1–2 分钟出片；
-          Agnes Key 与上方「图像服务」共用同一账号。
-        </p>
+          {/* 说明钉在卡底（.settings-duo 等高拉伸时吸收高度差） */}
+          <p className="muted small link-note">
+            视频为异步任务（提交 → 轮询 → 下载），在镜头检查器点「生成视频」发起，约 1–2 分钟出片； Agnes Key
+            与上方「图像服务」共用同一账号。
+          </p>
         </>
       )}
 

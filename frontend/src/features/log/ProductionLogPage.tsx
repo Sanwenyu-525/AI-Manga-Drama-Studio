@@ -27,7 +27,12 @@ export function ProductionLogPage({ projectId }: { projectId?: string }) {
   const pid = projectId ?? params.projectId ?? "";
   const [filter, setFilter] = useState<StatusFilter>("all");
 
-  const { data: generations, isLoading, isError, error } = useQuery({
+  const {
+    data: generations,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: [...queryKeys.prefixes.generations, "recent"],
     queryFn: () => api.get<GenerationRead[]>("/generations/recent"),
     refetchInterval: 15_000,
@@ -70,7 +75,8 @@ export function ProductionLogPage({ projectId }: { projectId?: string }) {
       <div className="panel-head">
         <h1>生产日志</h1>
         <span className="muted small">
-          共 {rows.length} 条 · 已完成 {counts.completed} · 运行中/排队 {Math.max(counts.running, 0)} · 失败 {counts.failed}
+          共 {rows.length} 条 · 已完成 {counts.completed} · 运行中/排队 {Math.max(counts.running, 0)} · 失败{" "}
+          {counts.failed}
         </span>
         <div className="segmented-control" role="tablist" aria-label="日志筛选">
           {(
@@ -102,7 +108,11 @@ export function ProductionLogPage({ projectId }: { projectId?: string }) {
         <div className="empty-state">
           <ListChecks size={32} />
           <h2>{rows.length === 0 ? "还没有生成任务" : "该筛选条件下暂无记录"}</h2>
-          <p>{rows.length === 0 ? "在分镜视图选择镜头并生成图片后，这里会出现完整的生产事件流。" : "切换筛选条件查看其他状态的任务。"}</p>
+          <p>
+            {rows.length === 0
+              ? "在分镜视图选择镜头并生成图片后，这里会出现完整的生产事件流。"
+              : "切换筛选条件查看其他状态的任务。"}
+          </p>
         </div>
       )}
 

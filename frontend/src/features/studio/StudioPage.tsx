@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  CaretLineLeft,
-  CaretLineRight,
-  FilmStrip,
-} from "@phosphor-icons/react";
+import { CaretLineLeft, CaretLineRight, FilmStrip } from "@phosphor-icons/react";
 import { Navigate, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";

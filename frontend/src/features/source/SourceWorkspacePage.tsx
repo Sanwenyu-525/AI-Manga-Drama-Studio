@@ -8,14 +8,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  ArrowsLeftRight,
-  BookOpen,
-  CaretRight,
-  LockSimple,
-  Scroll,
-  UsersThree,
-} from "@phosphor-icons/react";
+import { ArrowsLeftRight, BookOpen, CaretRight, LockSimple, Scroll, UsersThree } from "@phosphor-icons/react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
@@ -116,7 +109,9 @@ export function SourceWorkspacePage({ projectId }: { projectId?: string }) {
                     <span className="sw-doc-name">
                       EP{String(doc.episodeNumber).padStart(2, "0")} · {doc.title || "未命名"}
                     </span>
-                    <span className={`sw-doc-state ${doc.hasSource ? "ok" : ""}`}>{doc.hasSource ? "已导入" : "空"}</span>
+                    <span className={`sw-doc-state ${doc.hasSource ? "ok" : ""}`}>
+                      {doc.hasSource ? "已导入" : "空"}
+                    </span>
                   </button>
                 </li>
               ))}

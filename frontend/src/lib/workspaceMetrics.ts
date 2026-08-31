@@ -69,7 +69,11 @@ export function summarizeEpisodes(tree: ProjectTreeRead | undefined, episodes: E
  * 语义对齐设计：✓=该阶段真实完成（各项独立判断，允许跳步，如直接建分镜的场景）；
  * ●=首个未完成阶段（当前行动点）；其余=等待。全空项目全部等待。
  */
-export function derivePipeline(progress: ProjectProgress, hasTimeline: boolean, hasFinalVideo: boolean): PipelineStage[] {
+export function derivePipeline(
+  progress: ProjectProgress,
+  hasTimeline: boolean,
+  hasFinalVideo: boolean,
+): PipelineStage[] {
   const stages: PipelineStage[] = [
     { key: "source", label: "小说分析", state: "waiting" },
     { key: "scenes", label: "剧本 · 场景", state: "waiting" },

@@ -48,9 +48,7 @@ const episodeTree: EpisodeTreeItem[] = [
     episode_number: 1,
     title: "第一集",
     scene_count: 1,
-    scenes: [
-      { id: "sc1", scene_number: 1, name: "场景一", shot_count: 1, shots: [readyShot] },
-    ],
+    scenes: [{ id: "sc1", scene_number: 1, name: "场景一", shot_count: 1, shots: [readyShot] }],
   },
   { id: "ep2", episode_number: 2, title: "第二集", scene_count: 0, scenes: [] },
 ];

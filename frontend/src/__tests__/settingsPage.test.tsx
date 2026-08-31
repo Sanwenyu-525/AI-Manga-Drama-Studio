@@ -77,7 +77,15 @@ describe("SettingsPage — LLM 本地服务检测", () => {
     const post = vi.fn().mockImplementation((path: string) => {
       if (path === "/llm/detect-local") {
         return Promise.resolve({
-          servers: [{ kind: "ollama", label: "Ollama", base_url: "http://127.0.0.1:11434/v1", models_count: 2, sample_models: ["qwen2.5:7b", "llama3:8b"] }],
+          servers: [
+            {
+              kind: "ollama",
+              label: "Ollama",
+              base_url: "http://127.0.0.1:11434/v1",
+              models_count: 2,
+              sample_models: ["qwen2.5:7b", "llama3:8b"],
+            },
+          ],
         });
       }
       return Promise.resolve({});
@@ -115,7 +123,11 @@ describe("SettingsPage — ComfyUI 本地引擎", () => {
       "/llm/config": llmConfig,
       "/image/config": imageConfig,
       "/providers": providers,
-      "/providers/comfyui/models": { connected: true, base_url: "http://127.0.0.1:8188", models: ["a.safetensors", "b.safetensors"] },
+      "/providers/comfyui/models": {
+        connected: true,
+        base_url: "http://127.0.0.1:8188",
+        models: ["a.safetensors", "b.safetensors"],
+      },
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
     const put = vi.fn().mockResolvedValue({ ...imageConfig, checkpoint: "b.safetensors" });
@@ -201,12 +213,11 @@ describe("SettingsPage — ComfyUI 本地引擎", () => {
     expect(screen.getByText("2.0 GB")).toBeTruthy();
 
     fireEvent.click(screen.getByText("导入到 ComfyUI").closest("button")!);
-    await waitFor(
-      () =>
-        expect(post).toHaveBeenCalledWith("/providers/models/import", {
-          source: "D:/Models/checkpoints/flux.safetensors",
-          kind: "checkpoint",
-        }),
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/providers/models/import", {
+        source: "D:/Models/checkpoints/flux.safetensors",
+        kind: "checkpoint",
+      }),
     );
     await waitFor(() => expect(screen.getByText(/已导入 flux.safetensors/)).toBeTruthy(), { timeout: 5000 });
     expect(screen.getByText(/复制/)).toBeTruthy();
@@ -431,14 +442,10 @@ describe("SettingsPage — 原生目录对话框（Tauri 桌面壳）", () => {
     await screen.findByDisplayValue("http://127.0.0.1:8188");
     fireEvent.click(screen.getByTitle(/浏览并选择要扫描的目录/));
     await waitFor(() =>
-      expect(nativeOpen).toHaveBeenCalledWith(
-        expect.objectContaining({ directory: true, multiple: false }),
-      ),
+      expect(nativeOpen).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: false })),
     );
     await waitFor(() =>
-      expect((screen.getByDisplayValue("D:\\Picked\\Models") as HTMLInputElement).value).toBe(
-        "D:\\Picked\\Models",
-      ),
+      expect((screen.getByDisplayValue("D:\\Picked\\Models") as HTMLInputElement).value).toBe("D:\\Picked\\Models"),
     );
     expect(screen.queryByRole("dialog")).toBeNull(); // 内置弹窗没有打开
   });
@@ -542,9 +549,7 @@ describe("SettingsPage — LLM 连接 Profiles（P-LLM-Profiles）", () => {
     const directorSelect = (await screen.findByLabelText("AI 导演")) as HTMLSelectElement;
     expect(directorSelect.value).toBe("prof_local");
     fireEvent.change(directorSelect, { target: { value: "" } });
-    await waitFor(() =>
-      expect(put).toHaveBeenCalledWith("/llm/task-bindings", { bindings: { director: null } }),
-    );
+    await waitFor(() => expect(put).toHaveBeenCalledWith("/llm/task-bindings", { bindings: { director: null } }));
   });
 
   it("「+ 存为新连接」把当前表单配置 POST 为命名 profile", async () => {

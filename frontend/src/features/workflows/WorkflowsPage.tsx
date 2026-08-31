@@ -11,15 +11,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router-dom";
-import {
-  ArrowLeft,
-  Circle,
-  FlowArrow,
-  GearSix,
-  ImageSquare,
-  Plus,
-  TreeStructure,
-} from "@phosphor-icons/react";
+import { ArrowLeft, Circle, FlowArrow, GearSix, ImageSquare, Plus, TreeStructure } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { lastProjectId } from "../../lib/lastProject";
@@ -170,7 +162,9 @@ export function WorkflowsPage() {
               })}
             </div>
             <section className="workflow-detail" aria-live="polite">
-              {selected ? <WorkflowDetail w={selected} /> : (
+              {selected ? (
+                <WorkflowDetail w={selected} />
+              ) : (
                 <div className="review-canvas-empty">
                   <ImageSquare size={34} />
                   <p>选择一个模板查看详情</p>
@@ -205,7 +199,9 @@ function WorkflowDetail({ w }: { w: WorkflowRead }) {
       <div className="workflow-facts">
         <div>
           <span>模板文件</span>
-          <strong className="mono-ellipsis" title={w.file ?? undefined}>{w.file ?? "—"}</strong>
+          <strong className="mono-ellipsis" title={w.file ?? undefined}>
+            {w.file ?? "—"}
+          </strong>
         </div>
         <div>
           <span>节点数量</span>
@@ -224,7 +220,9 @@ function WorkflowDetail({ w }: { w: WorkflowRead }) {
         </div>
         <div>
           <span>当前指纹</span>
-          <strong className="mono-value" title={w.file_hash ?? undefined}>{shortHash(w.file_hash)}</strong>
+          <strong className="mono-value" title={w.file_hash ?? undefined}>
+            {shortHash(w.file_hash)}
+          </strong>
         </div>
         <div>
           <span>状态</span>
@@ -295,9 +293,7 @@ function WorkflowDetail({ w }: { w: WorkflowRead }) {
         <span className="field-label">必需占位符（preflight）</span>
         <p className="muted small">
           {(w.required_placeholders ?? []).join(" · ") || "— 无"}
-          {missingRequired.length > 0 && (
-            <WarnNote missing={missingRequired} />
-          )}
+          {missingRequired.length > 0 && <WarnNote missing={missingRequired} />}
         </p>
       </div>
 
@@ -311,9 +307,5 @@ function WorkflowDetail({ w }: { w: WorkflowRead }) {
 
 function WarnNote({ missing }: { missing: string[] }) {
   if (missing.length === 0) return null;
-  return (
-    <span className="warn-inline">
-      {" "}· 缺失：{missing.join(", ")}
-    </span>
-  );
+  return <span className="warn-inline"> · 缺失：{missing.join(", ")}</span>;
 }

@@ -90,11 +90,7 @@ function cameraLabel(detail?: ShotCardDetail, shotType?: string): string {
   const type = SHOT_TYPE_LABELS[shotType ?? ""] ?? shotType ?? "镜头";
   const movement = detail?.camera_movement?.trim();
   const angle = detail?.camera_angle?.trim();
-  const suffix = movement
-    ? (CAMERA_MOVEMENT_LABELS[movement.toLowerCase()] ?? movement)
-    : angle
-      ? angle
-      : null;
+  const suffix = movement ? (CAMERA_MOVEMENT_LABELS[movement.toLowerCase()] ?? movement) : angle ? angle : null;
   return suffix ? `${type} · ${suffix}` : type;
 }
 
@@ -108,7 +104,8 @@ function renderCard(
 ) {
   const isSelected = selectedShotId === shot.id;
   const isGenerating = shot.active_generation && typeof shot.active_generation === "object";
-  const progress = isGenerating && typeof shot.active_generation?.progress === "number" ? shot.active_generation.progress : null;
+  const progress =
+    isGenerating && typeof shot.active_generation?.progress === "number" ? shot.active_generation.progress : null;
   const detail = details?.[shot.id];
   const description = detail?.action?.trim();
   return (
@@ -137,7 +134,8 @@ function renderCard(
         </div>
         <div className="shot-camera-label">{cameraLabel(detail, shot.shot_type)}</div>
         <p className="shot-description">
-          {description ?? (shot.character_names.length ? `${shot.character_names.join("、")} · 画面描述待编辑` : "画面描述待编辑")}
+          {description ??
+            (shot.character_names.length ? `${shot.character_names.join("、")} · 画面描述待编辑` : "画面描述待编辑")}
         </p>
         <div className="shot-cast-line">
           {shot.character_names.length ? shot.character_names.join(" · ") : "角色待关联"}
@@ -153,8 +151,11 @@ function renderCard(
 
 function statusText(status: string): string {
   return (
-    ({ draft: "待生成", planned: "待生成", image_ready: "已生成", approved: "已确认", failed: "失败" } as Record<string, string>)[
-      status
-    ] ?? status
+    (
+      { draft: "待生成", planned: "待生成", image_ready: "已生成", approved: "已确认", failed: "失败" } as Record<
+        string,
+        string
+      >
+    )[status] ?? status
   );
 }

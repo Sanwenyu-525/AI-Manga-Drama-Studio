@@ -27,14 +27,35 @@ const project: Project = {
   updated_at: "",
 };
 
-const projects: Project[] = [
-  project,
-  { ...project, id: "p2", name: "另一部剧" },
-];
+const projects: Project[] = [project, { ...project, id: "p2", name: "另一部剧" }];
 
 const episodes: Episode[] = [
-  { id: "ep1", project_id: "p1", episode_number: 1, title: "初入村", source_text: null, script_text: null, summary: null, status: "active", revision: 1, created_at: "", updated_at: "" },
-  { id: "ep2", project_id: "p1", episode_number: 2, title: "风波", source_text: null, script_text: null, summary: null, status: "active", revision: 1, created_at: "", updated_at: "" },
+  {
+    id: "ep1",
+    project_id: "p1",
+    episode_number: 1,
+    title: "初入村",
+    source_text: null,
+    script_text: null,
+    summary: null,
+    status: "active",
+    revision: 1,
+    created_at: "",
+    updated_at: "",
+  },
+  {
+    id: "ep2",
+    project_id: "p1",
+    episode_number: 2,
+    title: "风波",
+    source_text: null,
+    script_text: null,
+    summary: null,
+    status: "active",
+    revision: 1,
+    created_at: "",
+    updated_at: "",
+  },
 ];
 
 const storyboard: Storyboard = {
@@ -55,9 +76,60 @@ const storyboard: Storyboard = {
 };
 
 const scenes: Scene[] = [
-  { id: "sc0", episode_id: "ep1", scene_number: 1, name: "开场", location_id: null, time_of_day: null, lighting: null, weather: null, mood: null, description: null, scene_order: null, status: "active", shot_count: 0, revision: 1, created_at: "", updated_at: "" },
-  { id: "sc2", episode_id: "ep1", scene_number: 2, name: "午后", location_id: null, time_of_day: null, lighting: null, weather: null, mood: null, description: null, scene_order: null, status: "active", shot_count: 0, revision: 1, created_at: "", updated_at: "" },
-  { id: "sc1", episode_id: "ep1", scene_number: 3, name: "村口对峙", location_id: null, time_of_day: null, lighting: null, weather: null, mood: null, description: null, scene_order: null, status: "active", shot_count: 1, revision: 1, created_at: "", updated_at: "" },
+  {
+    id: "sc0",
+    episode_id: "ep1",
+    scene_number: 1,
+    name: "开场",
+    location_id: null,
+    time_of_day: null,
+    lighting: null,
+    weather: null,
+    mood: null,
+    description: null,
+    scene_order: null,
+    status: "active",
+    shot_count: 0,
+    revision: 1,
+    created_at: "",
+    updated_at: "",
+  },
+  {
+    id: "sc2",
+    episode_id: "ep1",
+    scene_number: 2,
+    name: "午后",
+    location_id: null,
+    time_of_day: null,
+    lighting: null,
+    weather: null,
+    mood: null,
+    description: null,
+    scene_order: null,
+    status: "active",
+    shot_count: 0,
+    revision: 1,
+    created_at: "",
+    updated_at: "",
+  },
+  {
+    id: "sc1",
+    episode_id: "ep1",
+    scene_number: 3,
+    name: "村口对峙",
+    location_id: null,
+    time_of_day: null,
+    lighting: null,
+    weather: null,
+    mood: null,
+    description: null,
+    scene_order: null,
+    status: "active",
+    shot_count: 1,
+    revision: 1,
+    created_at: "",
+    updated_at: "",
+  },
 ];
 
 const STORYBOARD_ROUTE = "/projects/p1/episodes/ep1/scenes/sc1/storyboard";
@@ -143,7 +215,9 @@ describe("content breadcrumb", () => {
     const sc1 = await screen.findByRole("menuitem", { name: /SC01/ });
     fireEvent.click(sc1);
 
-    await waitFor(() => expect(screen.getByTestId("loc").textContent).toBe("/projects/p1/episodes/ep1/scenes/sc0/storyboard"));
+    await waitFor(() =>
+      expect(screen.getByTestId("loc").textContent).toBe("/projects/p1/episodes/ep1/scenes/sc0/storyboard"),
+    );
     expect(useSelectionStore.getState().selection.shotIds).toEqual([]);
   });
 

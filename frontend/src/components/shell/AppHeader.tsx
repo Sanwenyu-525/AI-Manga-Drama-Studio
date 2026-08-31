@@ -69,7 +69,12 @@ export function AppHeader() {
 
   return (
     <header className="app-header">
-      <div className="app-header-brand" data-tauri-drag-region onDoubleClick={controls?.toggleMaximize} title="双击最大化/还原">
+      <div
+        className="app-header-brand"
+        data-tauri-drag-region
+        onDoubleClick={controls?.toggleMaximize}
+        title="双击最大化/还原"
+      >
         <img className="app-header-logo" src="/assets/logo.png" alt="" draggable={false} />
         <span className="app-header-wordmark" data-tauri-drag-region>
           DeepSeek Harness
@@ -77,10 +82,21 @@ export function AppHeader() {
       </div>
 
       <div className="mode-switch" role="tablist" aria-label="应用模式">
-        <button type="button" className="mode-item" disabled title="Harness 核心工作台随桌面宿主提供；当前为漫剧智能体域模式">
+        <button
+          type="button"
+          className="mode-item"
+          disabled
+          title="Harness 核心工作台随桌面宿主提供；当前为漫剧智能体域模式"
+        >
           Harness
         </button>
-        <button type="button" className="mode-item active" aria-current="page" aria-selected title="漫剧智能体 · 当前域模式">
+        <button
+          type="button"
+          className="mode-item active"
+          aria-current="page"
+          aria-selected
+          title="漫剧智能体 · 当前域模式"
+        >
           漫剧智能体
         </button>
       </div>

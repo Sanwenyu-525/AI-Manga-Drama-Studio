@@ -57,9 +57,7 @@ function AnalysisLoadingPanel({ elapsed }: { elapsed: number }) {
           <i />
         </span>
       </p>
-      <p className="analysis-loading-elapsed">
-        已进行 {formatElapsed(elapsed)} · 长文本通常需要 1–2 分钟
-      </p>
+      <p className="analysis-loading-elapsed">已进行 {formatElapsed(elapsed)} · 长文本通常需要 1–2 分钟</p>
       <div className="scene-skeleton-list" aria-hidden>
         {[0, 1, 2].map((i) => (
           <div className="scene-skeleton" key={i} style={{ animationDelay: `${i * 0.18}s` }}>
@@ -466,9 +464,7 @@ export function EpisodePanel({
           <section className="analysis-start-panel">
             <span className="eyebrow">结构化输出</span>
             <h2>把原文拆成可制作的场景</h2>
-            <p>
-              AI 将识别场景、地点、时间与情绪节拍；预览不会写入 Project State。先预览，再确认创建。
-            </p>
+            <p>AI 将识别场景、地点、时间与情绪节拍；预览不会写入 Project State。先预览，再确认创建。</p>
           </section>
         )}
       </div>

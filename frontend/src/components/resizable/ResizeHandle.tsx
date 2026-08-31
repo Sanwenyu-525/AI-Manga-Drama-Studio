@@ -25,7 +25,15 @@ interface ResizeHandleProps {
   variant?: "default" | "right";
 }
 
-export function ResizeHandle({ axis, label, onDelta, onDragStart, onDragEnd, disabled, variant = "default" }: ResizeHandleProps) {
+export function ResizeHandle({
+  axis,
+  label,
+  onDelta,
+  onDragStart,
+  onDragEnd,
+  disabled,
+  variant = "default",
+}: ResizeHandleProps) {
   const startRef = useRef(0);
   const [dragging, setDragging] = useState(false);
 

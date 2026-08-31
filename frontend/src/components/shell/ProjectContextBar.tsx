@@ -58,7 +58,10 @@ export function ProjectContextBar() {
 
       <ContentBreadcrumb />
 
-      <span className="context-save-status" title={TAURI_RUNTIME ? "项目状态保存于本地 SQLite" : "项目状态由本地开发服务保存"}>
+      <span
+        className="context-save-status"
+        title={TAURI_RUNTIME ? "项目状态保存于本地 SQLite" : "项目状态由本地开发服务保存"}
+      >
         <span className="context-status-dot" aria-hidden />
         {projectId ? "已保存 · SQLite" : "等待项目"}
       </span>

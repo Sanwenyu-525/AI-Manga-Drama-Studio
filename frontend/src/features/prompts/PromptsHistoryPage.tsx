@@ -20,7 +20,12 @@ const PROMPT_TYPE_LABELS: Record<string, string> = {
 export function PromptsHistoryPage({ projectId }: { projectId?: string }) {
   const params = useParams();
   const pid = projectId ?? params.projectId ?? "";
-  const { data: prompts, isLoading, isError, error } = useQuery({
+  const {
+    data: prompts,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ["prompts", "project", pid],
     queryFn: () => api.get<PromptRead[]>(`/projects/${pid}/prompts`),
     enabled: Boolean(pid),
@@ -77,7 +82,9 @@ function PromptRow({ prompt }: { prompt: PromptRead }) {
     queryFn: () => api.get<PromptVersionRead[]>(`/prompts/${prompt.id}/versions`),
     enabled: open,
   });
-  const targetLabel = prompt.target_id ? `${prompt.target_type} ${prompt.target_id.slice(-6).toUpperCase()}` : prompt.prompt_type;
+  const targetLabel = prompt.target_id
+    ? `${prompt.target_type} ${prompt.target_id.slice(-6).toUpperCase()}`
+    : prompt.prompt_type;
 
   return (
     <li className="prompt-row">
@@ -97,10 +104,10 @@ function PromptRow({ prompt }: { prompt: PromptRead }) {
             .sort((a, b) => b.version_number - a.version_number)
             .map((version) => (
               <li key={version.id} className={`prompt-version ${version.is_active ? "active" : ""}`}>
-                <span className="mono small">
-                  PV{String(version.version_number).padStart(2, "0")}
-                </span>
-                {version.is_active ? <Star size={11} weight="fill" className="accent-icon" aria-label="当前版本" /> : null}
+                <span className="mono small">PV{String(version.version_number).padStart(2, "0")}</span>
+                {version.is_active ? (
+                  <Star size={11} weight="fill" className="accent-icon" aria-label="当前版本" />
+                ) : null}
                 <span className="muted tiny">{version.model ?? version.provider ?? "—"}</span>
                 <span className="muted tiny">{formatDate(version.created_at)}</span>
                 {version.positive_prompt && <p className="prompt-text">{version.positive_prompt}</p>}
@@ -115,5 +122,10 @@ function PromptRow({ prompt }: { prompt: PromptRead }) {
 function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }

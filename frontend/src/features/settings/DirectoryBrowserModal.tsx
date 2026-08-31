@@ -7,16 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  CaretRight,
-  Check,
-  File,
-  Folder,
-  FolderOpen,
-  House,
-  X,
-} from "@phosphor-icons/react";
+import { ArrowLeft, CaretRight, Check, File, Folder, FolderOpen, House, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { formatBytes } from "../../lib/format";
 

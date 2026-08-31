@@ -180,7 +180,13 @@ export function ContentBreadcrumb() {
     ];
     const moduleSeg = moduleSegment(route, pathname);
     if (moduleSeg) {
-      list.push({ key: "module", label: moduleSeg.label, title: `模块 · ${moduleSeg.label}`, to: moduleSeg.to, menu: "module" });
+      list.push({
+        key: "module",
+        label: moduleSeg.label,
+        title: `模块 · ${moduleSeg.label}`,
+        to: moduleSeg.to,
+        menu: "module",
+      });
     }
     const episode = episodes?.find((item) => item.id === route.episodeId);
     if (route.episodeId) {
@@ -195,7 +201,9 @@ export function ContentBreadcrumb() {
     }
     // legacy /storyboard/:sceneId 瞬态缺 episodeId，canonical 跳转毫秒级完成，不渲染 SC/SH 段。
     if (route.sceneId && !route.legacy) {
-      const sceneLabel = storyboard?.scene.scene_number ? `SC${pad2(storyboard.scene.scene_number)}` : compactId(route.sceneId);
+      const sceneLabel = storyboard?.scene.scene_number
+        ? `SC${pad2(storyboard.scene.scene_number)}`
+        : compactId(route.sceneId);
       list.push({
         key: "scene",
         label: sceneLabel,
@@ -292,20 +300,38 @@ export function ContentBreadcrumb() {
         }));
     }
     return [];
-  }, [openKey, projectId, projects, currentModuleKey, route.episodeId, route.sceneId, episodes, scenes, crumbs, navigate, clearShots]);
+  }, [
+    openKey,
+    projectId,
+    projects,
+    currentModuleKey,
+    route.episodeId,
+    route.sceneId,
+    episodes,
+    scenes,
+    crumbs,
+    navigate,
+    clearShots,
+  ]);
 
   const menuStatus =
     openKey === "project"
       ? projects
-        ? (projects.length === 0 ? "暂无项目" : null)
+        ? projects.length === 0
+          ? "暂无项目"
+          : null
         : "加载中…"
       : openKey === "episode"
         ? episodes
-          ? (episodes.length === 0 ? "该项目还没有剧集" : null)
+          ? episodes.length === 0
+            ? "该项目还没有剧集"
+            : null
           : "加载中…"
         : openKey === "scene"
           ? scenes
-            ? (scenes.length === 0 ? "该集还没有场景" : null)
+            ? scenes.length === 0
+              ? "该集还没有场景"
+              : null
             : "加载中…"
           : null;
 
@@ -329,13 +355,25 @@ export function ContentBreadcrumb() {
     <nav className="context-breadcrumb" aria-label="项目上下文" aria-live="polite" ref={navRef}>
       {overflowing && (
         <span className="crumb-item">
-          <CrumbSegment crumb={overflowCrumb} open={openKey === overflowCrumb.key} items={menuItems} status={menuStatus} onOpenChange={setOpenKey} />
+          <CrumbSegment
+            crumb={overflowCrumb}
+            open={openKey === overflowCrumb.key}
+            items={menuItems}
+            status={menuStatus}
+            onOpenChange={setOpenKey}
+          />
         </span>
       )}
       {crumbs.map((crumb, index) => (
         <span key={crumb.key} className="crumb-item">
           {index > 0 && <span className="context-separator">/</span>}
-          <CrumbSegment crumb={crumb} open={openKey === crumb.key} items={crumb.menu === openKey ? menuItems : []} status={crumb.menu === openKey ? menuStatus : null} onOpenChange={setOpenKey} />
+          <CrumbSegment
+            crumb={crumb}
+            open={openKey === crumb.key}
+            items={crumb.menu === openKey ? menuItems : []}
+            status={crumb.menu === openKey ? menuStatus : null}
+            onOpenChange={setOpenKey}
+          />
         </span>
       ))}
     </nav>

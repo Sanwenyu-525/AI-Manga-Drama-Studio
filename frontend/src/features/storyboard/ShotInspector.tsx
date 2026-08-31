@@ -14,7 +14,15 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { AssetVersionRead, Character, ContinuityShotReadCard, GenerationRead, Scene, Shot, ShotUpdatePatch } from "../../api/types";
+import type {
+  AssetVersionRead,
+  Character,
+  ContinuityShotReadCard,
+  GenerationRead,
+  Scene,
+  Shot,
+  ShotUpdatePatch,
+} from "../../api/types";
 import { SHOT_TYPES, SHOT_TYPE_LABELS } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { VersionStrip } from "../versioning/VersionStrip";
@@ -204,7 +212,6 @@ export function ShotInspector() {
 
   return (
     <div className="panel-tab-content">
-
       <div className="inspector">
         <div className="inspector-title-row">
           <div>
@@ -399,7 +406,11 @@ export function ShotInspector() {
             if (dirty) saveShot.mutate(form, { onSuccess: () => generateVideo.mutate() });
             else generateVideo.mutate();
           }}
-          title={videoPrompt ? "提交当前镜头的视频生成任务（Agnes 文生视频，约 1–2 分钟）" : "需要动作/画面描述作为视频提示词"}
+          title={
+            videoPrompt
+              ? "提交当前镜头的视频生成任务（Agnes 文生视频，约 1–2 分钟）"
+              : "需要动作/画面描述作为视频提示词"
+          }
         >
           <VideoCamera size={14} /> {generateVideo.isPending ? "视频提交中…" : "生成视频"}
         </button>
@@ -429,16 +440,27 @@ function InspectorChecks({ shot }: { shot: Shot }) {
   });
 
   const warningCount = continuity?.warnings?.length ?? 0;
-  const sceneOk = Boolean(
-    scene && (scene.time_of_day || scene.location_id || scene.mood || scene.lighting),
-  );
+  const sceneOk = Boolean(scene && (scene.time_of_day || scene.location_id || scene.mood || scene.lighting));
   const framingOk = Boolean(shot.camera_angle && shot.camera_movement);
-  const promptFields = [shot.image_prompt, shot.action, shot.camera_angle, shot.camera_movement, shot.duration, shot.emotion];
-  const promptScore = Math.round((promptFields.filter((f) => f !== null && f !== undefined && f !== "").length / promptFields.length) * 100);
+  const promptFields = [
+    shot.image_prompt,
+    shot.action,
+    shot.camera_angle,
+    shot.camera_movement,
+    shot.duration,
+    shot.emotion,
+  ];
+  const promptScore = Math.round(
+    (promptFields.filter((f) => f !== null && f !== undefined && f !== "").length / promptFields.length) * 100,
+  );
 
   const rows: Array<{ label: string; ok: boolean; note: string }> = [
     { label: "连续性", ok: warningCount === 0, note: warningCount === 0 ? "无警告" : `${warningCount} 个警告` },
-    { label: "角色一致性", ok: shot.character_ids.length > 0, note: shot.character_ids.length > 0 ? "已关联参考" : "未关联角色" },
+    {
+      label: "角色一致性",
+      ok: shot.character_ids.length > 0,
+      note: shot.character_ids.length > 0 ? "已关联参考" : "未关联角色",
+    },
     { label: "场景一致性", ok: sceneOk, note: sceneOk ? "已对齐" : "待补充场景信息" },
     { label: "构图检查", ok: framingOk, note: framingOk ? "机位与运动完整" : "1 个建议" },
   ];
@@ -521,13 +543,7 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
       </div>
       {active &&
         (active.media_type === "video" ? (
-          <video
-            className="version-preview"
-            src={`/api/v1/assets/${active.asset_id}/content`}
-            controls
-            muted
-            loop
-          />
+          <video className="version-preview" src={`/api/v1/assets/${active.asset_id}/content`} controls muted loop />
         ) : (
           <img
             className="version-preview"

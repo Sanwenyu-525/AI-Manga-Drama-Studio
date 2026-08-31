@@ -564,9 +564,7 @@ function ClipInspectorPanel({
       })
       .catch((err: unknown) => {
         setVoState("error");
-        setVoError(
-          err instanceof Error && err.message ? err.message : "配音任务创建失败，请确认已填写台词。",
-        );
+        setVoError(err instanceof Error && err.message ? err.message : "配音任务创建失败，请确认已填写台词。");
       });
   };
 
@@ -684,9 +682,7 @@ function ClipInspectorPanel({
               <button className="btn secondary compact" onClick={generateVoiceover} disabled={!text.trim()}>
                 <MagicWand size={14} /> 生成配音
               </button>
-              {voState === "queued" && (
-                <span className="muted small">已加入生成队列，完成后自动回填到本片段。</span>
-              )}
+              {voState === "queued" && <span className="muted small">已加入生成队列，完成后自动回填到本片段。</span>}
               {voState === "error" && <span className="small danger-text">{voError}</span>}
             </div>
           )}

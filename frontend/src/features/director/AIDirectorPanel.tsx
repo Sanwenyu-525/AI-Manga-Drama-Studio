@@ -76,7 +76,11 @@ export function AIDirectorPanel() {
   const busy = submitRun.isPending || ["thinking", "planning", "executing", "reviewing"].includes(agent.status);
   // P7-T019: true when the run is paused awaiting human approval (either backend casing).
   const waitingHuman = isWaitingHuman(agent.status);
-  const shotLabel = shot ? `SH${String(shot.shot_number).padStart(2, "0")}` : selectedShotId ? `SH${selectedShotId.slice(-4).toUpperCase()}` : "未选择镜头";
+  const shotLabel = shot
+    ? `SH${String(shot.shot_number).padStart(2, "0")}`
+    : selectedShotId
+      ? `SH${selectedShotId.slice(-4).toUpperCase()}`
+      : "未选择镜头";
 
   // EP/SC numbers share the ProjectContextBar cache keys → no extra fetches.
   const { data: episodes } = useQuery({
@@ -133,12 +137,7 @@ export function AIDirectorPanel() {
                 <p>加强主体动作与镜头构图之间的视觉关联。</p>
               </div>
               <div className="director-quick-actions">
-                {[
-                  "优化镜头描述",
-                  "优化生成提示词",
-                  "创建变体",
-                  "检查连续性",
-                ].map((action) => (
+                {["优化镜头描述", "优化生成提示词", "创建变体", "检查连续性"].map((action) => (
                   <button key={action} type="button" onClick={() => quickAction(action)}>
                     {action}
                   </button>

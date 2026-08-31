@@ -27,7 +27,13 @@ const TREE: ProjectTreeRead = {
       title: "第一集",
       scene_count: 2,
       scenes: [
-        { id: "sc1", scene_number: 1, name: "A", shot_count: 2, shots: [shot({ active_image_version: 3, status: "image_ready" }), shot({ status: "failed" })] },
+        {
+          id: "sc1",
+          scene_number: 1,
+          name: "A",
+          shot_count: 2,
+          shots: [shot({ active_image_version: 3, status: "image_ready" }), shot({ status: "failed" })],
+        },
         { id: "sc2", scene_number: 2, name: "B", shot_count: 1, shots: [shot({ status: "draft" })] },
       ],
     },
@@ -50,7 +56,13 @@ describe("summarizeEpisodes", () => {
   it("统计每集 场/镜/已出图/失败 与原文标记", () => {
     const r = summarizeEpisodes(TREE, EPISODES);
     expect(r.episodes).toHaveLength(2);
-    expect(r.episodes[0]).toMatchObject({ sceneCount: 2, shotCount: 3, imageReadyCount: 1, failedCount: 1, hasSourceText: true });
+    expect(r.episodes[0]).toMatchObject({
+      sceneCount: 2,
+      shotCount: 3,
+      imageReadyCount: 1,
+      failedCount: 1,
+      hasSourceText: true,
+    });
     expect(r.episodes[1]).toMatchObject({ sceneCount: 0, shotCount: 0, hasSourceText: false });
     expect(r).toMatchObject({ sceneCount: 2, shotCount: 3, imageReadyCount: 1, failedCount: 1 });
   });
@@ -90,7 +102,15 @@ describe("derivePipeline", () => {
           episode_number: 1,
           title: null,
           scene_count: 1,
-          scenes: [{ id: "sc1", scene_number: 1, name: null, shot_count: 2, shots: [shot({ status: "draft" }), shot({ status: "failed" })] }],
+          scenes: [
+            {
+              id: "sc1",
+              scene_number: 1,
+              name: null,
+              shot_count: 2,
+              shots: [shot({ status: "draft" }), shot({ status: "failed" })],
+            },
+          ],
         },
       ],
     };
@@ -121,7 +141,15 @@ describe("derivePipeline", () => {
           episode_number: 1,
           title: null,
           scene_count: 1,
-          scenes: [{ id: "sc1", scene_number: 1, name: null, shot_count: 1, shots: [shot({ active_image_version: 1, status: "approved" })] }],
+          scenes: [
+            {
+              id: "sc1",
+              scene_number: 1,
+              name: null,
+              shot_count: 1,
+              shots: [shot({ active_image_version: 1, status: "approved" })],
+            },
+          ],
         },
       ],
     };

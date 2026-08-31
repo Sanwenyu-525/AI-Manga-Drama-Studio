@@ -7,6 +7,8 @@ export function generationTypeText(type: string | null | undefined): string {
         render: "整集渲染",
         audio: "配音",
       } as Record<string, string>
-    )[type ?? "image"] ?? (type ?? "图片")
+    )[type ?? "image"] ??
+    type ??
+    "图片"
   );
 }

@@ -14,7 +14,11 @@ export function ShotThumbImage({ shot, className }: { shot: ShotThumbShot; class
     return <img loading="lazy" src={shot.thumbnail_url} alt={`Shot ${shot.shot_number}`} className={className} />;
   }
   return (
-    <span className={`shot-thumb-empty${className ? ` ${className}` : ""}`} role="img" aria-label={`Shot ${shot.shot_number} 未生成`}>
+    <span
+      className={`shot-thumb-empty${className ? ` ${className}` : ""}`}
+      role="img"
+      aria-label={`Shot ${shot.shot_number} 未生成`}
+    >
       <ImageSquare size={18} weight="regular" aria-hidden />
       <strong>SH{String(shot.shot_number).padStart(2, "0")}</strong>
       <span>暂无预览图</span>
