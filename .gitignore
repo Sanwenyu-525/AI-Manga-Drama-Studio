@@ -64,6 +64,7 @@ npm-debug.log*
 .root-smoke/
 vinput-asr-dummy.*
 *.proxy.pac
+_validate/
 
 # --- Personal machine tooling (unrelated to this repo) ---
 scripts/*-Startup*.ps1
