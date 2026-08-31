@@ -1764,21 +1764,66 @@ agent_proposals
 ```text
 id              -- PK
 run_id          -- FK → agent_runs.id
-tool            -- 'update_shot'
-target_type     -- 'shot'
-target_id       -- shot id
+tool            -- 'update_shot' | 'generate_image' | 'continuity_fix'
+target_type     -- 'shot' | 'continuity'
+target_id       -- shot id / scene id
 base_revision   -- 提案时 shot.revision（乐观并发守卫，T016）
 changes_json    -- 结构化字段变更 {field: value}
-status          -- pending|approved|rejected|conflict|applied
+status          -- pending|approved|rejected|conflict|applied|expired
 conflict_reason
 error_message
+risk_level      -- R0..R3（P2-E3-T02 风险分级，审批卡展示）
+reason          -- 分类理由（人可读）
+estimated_tasks -- 预计任务数（审批卡展示）
+estimated_cost  -- 预计费用（本地 provider 无价 → null，不伪造）
+irreversible    -- 是否不可逆（R3）
+expires_at      -- 过期时间（默认 +24h，STUDIO_AGENT_PROPOSAL_TTL_HOURS）
 created_at
 decided_at
 ```
 
-流转：pending → approved|rejected；approved 后经 ShotService 应用（base_revision
-一致 → applied，不一致 → conflict，不覆盖用户编辑）。Agent 绝不直接写 Domain；
-应用必须走 ShotService（红线 §3）。
+流转：pending → approved|rejected|**expired**（P2-E3-T02 终态：过期后不可再决策，
+approve/reject 返回 409；全部过期后 waiting run → failed，不永久悬挂）；
+approved 后经 ShotService / GenerationService 应用（base_revision 一致 → applied，
+不一致 → conflict，不覆盖用户编辑）。R2（generate_image）在 approve 前不创建任何
+Generation。Agent 绝不直接写 Domain；应用必须走 Service（红线 §3）。
+
+---
+
+# 29.2 AgentChangeSet（P2-E3-T03 已落地）
+
+每次 **已应用** 的 Agent mutation（R1 update_shot 自动应用、proposal approve 应用、
+worker 完成后 active-version 切换、Undo 本身）产生一条最小 before/after patch 记录。
+
+```sql
+agent_change_sets
+```
+
+字段：
+
+```text
+id                        -- PK
+project_id                -- FK → projects.id（项目作用域检索）
+run_id                    -- FK → agent_runs.id（可空：非 run 来源）
+source                    -- 'agent' | 'undo'
+tool                      -- update_shot | generate_image | undo:{原tool}
+entity_type               -- 'shot'
+entity_id                 -- shot id
+revision_before/after     -- 该次变更前后 shot.revision（active 切换时相等）
+before_json / after_json  -- 最小 {field: value} patch（active 切换为伪字段
+                            active_image_asset_id）
+undone                    -- 是否已被撤销（幂等终态：再 undo → 409）
+undone_at
+undone_by_change_set_id   -- 补偿 ChangeSet id（自引用）
+created_at
+```
+
+红线：Undo 是**新的补偿变更**（走 ShotService / VersionService，revision+1、
+产生新 ChangeSet），历史永不改写；媒体不可变版本只切换 active 指针、不删除。
+同字段被后续修改覆盖时 undo 返回 409（携 recovery 原值），force=true 可强制恢复。
+
+`generations.run_id`（可空，P2-E3-T03）：approved generate_image proposal 创建的
+生成任务带 run 溯源，worker 完成回填 active 版本时据此记录 ChangeSet。
 
 ---
 
@@ -1932,6 +1977,35 @@ TimelineClip.asset_id 直接绑定某个具体 Asset（即某个具体版本）�
 - `POST /timelines/{id}/render`：202 入队一个 `type=render` 的 Generation（沿用 generation 队列 = Job Queue）。
 - 输出注册为 `type=video` 的 Asset，版本组 `vg:episode:{episode_id}:FINAL_VIDEO`，version_number 单调递增（V1/V2 共存，永不覆盖）。
 - RenderProvider 抽象：`mock`（纯 Python + Pillow 写 MJPEG AVI + 帧条预览图，开发/测试默认）与 `ffmpeg`（本机 ffmpeg 可用时产出真实 H.264 MP4；缺失时该 provider 直接报错，可回退 mock）。
+
+---
+
+## 32.6 source_documents（设定文档库，2026-08 落地）
+
+项目级「源内容归档」：人物设定 / 世界观 / 大纲 / 小说原稿等自由文本设定文档。Agent 分析（analyze_episode / shot planning）与 AI Director 上下文按预算注入设定摘要，让角色识别与一致性判断有据可依。文档是结构化实体库（角色/地点/服装）的补充——结构化字段管"可用状态"，文档管"原文事实"。
+
+```text
+id                TEXT PK UUID v4
+project_id        TEXT FK → projects.id，索引
+doc_type          TEXT —— character_setting | worldview | outline | novel_draft | other
+title             TEXT 非空
+content           TEXT —— 设定原文（自由文本）
+character_id      TEXT FK → characters.id，可空（可选归属角色）
+location_id       TEXT FK → locations.id，可空（可选归属地点）
+costume_id        TEXT FK → costumes.id，可空（可选归属服装）
+source_hash       TEXT —— 内容哈希（用于 Agent 注入幂等 / 变更感知）
+revision          INTEGER 默认 1 —— 乐观锁（同 §88）
+status            TEXT 默认 'active' —— active | archived
+created_at        TEXT ISO UTC
+updated_at        TEXT ISO UTC
+deleted_at        TEXT —— 软删
+```
+
+规则：
+- 每个 project 的文档可按 `doc_type` 过滤；`character_id / location_id / costume_id` 若给定，服务层校验存在性且属同项目（404/422）。
+- update 使用 `{revision, patch}` 乐观并发（409 conflict）；软删除（contract §89）。
+- `source_hash` 由服务层对 content 计算（SHA-256 前缀，同分析幂等键风格），供 Agent 注入判断内容是否变更。
+- Agent 注入边界：ScriptService 分析时按 TokenBudget 取文档摘要（含 `doc_type` 前缀），**永不整篇注入超预算**；注入内容计入幂等键（源变化 → 需重新分析，同 P2-E1-T01 快照过期语义）。
 
 ---
 

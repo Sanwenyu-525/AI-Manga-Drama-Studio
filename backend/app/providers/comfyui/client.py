@@ -42,21 +42,72 @@ class ComfyUIClient:
         Returns (reachable, models) — never raises. trust_env=False：base_url 是
         用户显式配置的本机端点，跟随系统代理会把回环地址劫持成 502（同 llm 探测）。
         """
+        reachable, catalog = await self.get_catalog()
+        return reachable, catalog.get("checkpoints", [])
+
+    _LOADER_NODE_TO_SLOT: dict[str, str] = {
+        # Probe 时投影到的枚举槽位：设置页/API 按架构分类展示。
+        "CheckpointLoaderSimple": "checkpoints",
+        "UNETLoader": "unets",
+        "CLIPLoader": "clips",
+        "DualCLIPLoader": "clips",
+        "VAELoader": "vaes",
+    }
+
+    async def get_catalog(self) -> tuple[bool, dict[str, list[str]]]:
+        """Sprint 05 (P2-1): per-architecture model catalog from /object_info.
+
+        Queries the known loader nodes in parallel and maps each node's model-name
+        enum (the first list-of-strings item in its required input) into a catalog
+        slot. Legacy /comfyui/models stays as the checkpoints-only view; the UI can
+        consume the fuller catalog (DiT unets for Z-Image etc. — Sprint 04 evidence:
+        UNETLoader-loaded z_image_turbo.int8 never appeared in the old endpoint).
+
+        `reachable` is True when the server answered at least one probe (HTTP-level
+        response counts, preserving the legacy non-200 => reachable semantic); it is
+        False only when every probe hit a transport error. Never raises.
+        """
         try:
-            async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
-                resp = await client.get(f"{self.base_url}/object_info/CheckpointLoaderSimple")
+            async with httpx.AsyncClient(timeout=8, trust_env=False) as client:
+                async def _one(node: str) -> tuple[bool, list[str]]:
+                    try:
+                        r = await client.get(f"{self.base_url}/object_info/{node}")
+                    except Exception:  # noqa: BLE001  — transport error on this node
+                        return False, []
+                    if r.status_code != 200:
+                        return True, []
+                    try:
+                        info = r.json().get(node, {})
+                        required = (info.get("input") or {}).get("required") or {}
+                        for raw in required.values():
+                            if not isinstance(raw, list) or not raw:
+                                continue
+                            # ComfyUI 枚举两种形态：[["a","b"], {meta}] 或 ["a","b"]
+                            first = raw[0]
+                            if isinstance(first, list) and first and isinstance(first[0], str):
+                                names = first
+                            elif isinstance(raw, list) and isinstance(raw[0], str):
+                                names = raw
+                            else:
+                                continue
+                            return True, [n for n in names if isinstance(n, str)]
+                    except (ValueError, KeyError, TypeError, IndexError):
+                        pass
+                    return True, []
+
+                results = await asyncio.gather(
+                    *[asyncio.create_task(_one(n)) for n in self._LOADER_NODE_TO_SLOT]
+                )
         except Exception:  # noqa: BLE001
-            return False, []
-        if resp.status_code != 200:
-            return True, []
-        try:
-            raw = resp.json()["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"]
-            # 兼容两种形态：[[name, ...], {meta}] 与 [name, ...]
-            names = raw[0] if raw and isinstance(raw[0], list) else raw
-            models = [name for name in (names or []) if isinstance(name, str)]
-        except (ValueError, KeyError, TypeError, IndexError):
-            return True, []
-        return True, models
+            return False, {}
+
+        reachable = any(ok for ok, _ in results)
+        if not reachable:
+            return False, {}
+        catalog: dict[str, list[str]] = {slot: [] for slot in set(self._LOADER_NODE_TO_SLOT.values())}
+        for node, (_, names) in zip(self._LOADER_NODE_TO_SLOT, results, strict=True):
+            catalog[self._LOADER_NODE_TO_SLOT[node]].extend(names)
+        return True, {slot: sorted(set(v)) for slot, v in catalog.items()}
 
     # --- queue ---
 

@@ -245,11 +245,20 @@ def test_cancel_failure_is_suppressed(comfy) -> None:
     asyncio.run(client.cancel("prompt_abc"))  # must not raise
 
 
-# --- get_models (P-LocalModels: /object_info checkpoint listing) ----------------
+# --- get_models / get_catalog (P2-1: /object_info per-architecture listing) ----
+
+# A handler that answers every loader probe with valid-but-empty data: lets tests
+# exercise ANY probe set without stubbing the full /object_info fan-out.
+def _empty_catalog_handler(request: httpx.Request) -> httpx.Response:
+    node = request.url.path.rsplit("/", 1)[-1]
+    return httpx.Response(200, json={node: {"input": {}}})
+
 
 def test_get_models_parses_object_info(comfy) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/object_info/CheckpointLoaderSimple"
+        node = request.url.path.rsplit("/", 1)[-1]
+        if node != "CheckpointLoaderSimple":
+            return httpx.Response(200, json={node: {"input": {}}})
         return httpx.Response(
             200,
             json={
@@ -271,6 +280,9 @@ def test_get_models_parses_object_info(comfy) -> None:
 
 def test_get_models_flat_list_shape(comfy) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        node = request.url.path.rsplit("/", 1)[-1]
+        if node != "CheckpointLoaderSimple":
+            return httpx.Response(200, json={node: {"input": {}}})
         return httpx.Response(
             200,
             json={"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["x.ckpt"], {}]}}}},
@@ -292,20 +304,69 @@ def test_get_models_unreachable(comfy) -> None:
 
 
 def test_get_models_non_200(comfy) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500)
-
-    client, _ = comfy(handler)
+    client, _ = comfy(lambda request: httpx.Response(500))
     reachable, models = asyncio.run(client.get_models())
     assert reachable is True
     assert models == []
 
 
 def test_get_models_unexpected_shape(comfy) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"unexpected": "shape"})
-
-    client, _ = comfy(handler)
+    client, _ = comfy(lambda request: httpx.Response(200, json={"unexpected": "shape"}))
     reachable, models = asyncio.run(client.get_models())
     assert reachable is True
     assert models == []
+
+
+def test_get_catalog_groups_by_architecture(comfy) -> None:
+    """P2-1: UNETLoader (DiT) / CLIPLoader / VAELoader enums land in their slots.
+
+    Sprint 04 evidence: the Z-Image-Turbo unet was invisible to the old
+    checkpoints-only endpoint; the catalog view must surface it.
+    """
+    by_node = {
+        "CheckpointLoaderSimple": {"ckpt_name": [["sd_xl.safetensors"], {}]},
+        "UNETLoader": {"unet_name": [["z_image_turbo_int8_convrot.safetensors", "flux1.safetensors"], {}]},
+        "CLIPLoader": {"clip_name": [["qwen_3_4b_fp4_mixed.safetensors"], {}]},
+        "DualCLIPLoader": {"clip_name1": [["extra.safetensors"], {}]},
+        "VAELoader": {"vae_name": [["ae.safetensors"], {}]},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        node = request.url.path.rsplit("/", 1)[-1]
+        return httpx.Response(200, json={node: {"input": {"required": by_node.get(node, {})}}})
+
+    client, _ = comfy(handler)
+    reachable, catalog = asyncio.run(client.get_catalog())
+    assert reachable is True
+    assert "z_image_turbo_int8_convrot.safetensors" in catalog["unets"]
+    assert catalog["checkpoints"] == ["sd_xl.safetensors"]
+    assert "qwen_3_4b_fp4_mixed.safetensors" in catalog["clips"]
+    assert catalog["vaes"] == ["ae.safetensors"]
+    # Duplicate-free across DualCLIPLoader + CLIPLoader
+    assert catalog["clips"] == sorted(catalog["clips"])
+
+
+def test_get_catalog_unreachable(comfy) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    client, _ = comfy(handler)
+    reachable, catalog = asyncio.run(client.get_catalog())
+    assert reachable is False
+    assert catalog == {}
+
+
+def test_get_catalog_single_node_missing(comfy) -> None:
+    """One 404 among several probes must not drop reachability (server is alive)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        node = request.url.path.rsplit("/", 1)[-1]
+        if node == "UNETLoader":
+            return httpx.Response(200, json={node: {"input": {"required": {"unet_name": [["u.safetensors"], {}]}}}})
+        return httpx.Response(404)
+
+    client, _ = comfy(handler)
+    reachable, catalog = asyncio.run(client.get_catalog())
+    assert reachable is True
+    assert catalog["unets"] == ["u.safetensors"]
+    assert catalog["checkpoints"] == []

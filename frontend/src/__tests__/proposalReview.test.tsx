@@ -347,4 +347,151 @@ describe("EventRouter proposal/approval events", () => {
     });
     expect(useAgentStore.getState().status).toBe("waiting_human");
   });
+  it("proposal.expired invalidates run+proposals (P2-E3-T02)", () => {
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    const router = new EventRouter(qc);
+    router.handle({
+      event_id: "e4",
+      event_type: "agent.proposal.expired",
+      event_version: 1,
+      project_id: "p1",
+      entity_type: "proposal",
+      entity_id: "prop_1",
+      timestamp: "2026-01-01",
+      sequence: 6,
+      payload: { run_id: "run_9" },
+    });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["agentRun", "run_9"] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["proposals", "run_9"] });
+  });
+  it("change_set.created invalidates changeSets (+run scope) and storyboard/shots (P2-E3-T03)", () => {
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    const router = new EventRouter(qc);
+    router.handle({
+      event_id: "e5",
+      event_type: "agent.change_set.created",
+      event_version: 1,
+      project_id: "p1",
+      entity_type: "change_set",
+      entity_id: "cs_1",
+      timestamp: "2026-01-01",
+      sequence: 7,
+      payload: { run_id: "run_1", change_set_id: "cs_1" },
+    });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["changeSets"] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["changeSets", "run", "run_1"] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["storyboard"] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["shots"] });
+  });
+  it("change_set.undone without run_id still invalidates the changeSets prefix", () => {
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    const router = new EventRouter(qc);
+    router.handle({
+      event_id: "e6",
+      event_type: "agent.change_set.undone",
+      event_version: 1,
+      project_id: "p1",
+      entity_type: "change_set",
+      entity_id: "cs_2",
+      timestamp: "2026-01-01",
+      sequence: 8,
+      payload: { change_set_id: "cs_2" },
+    });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["changeSets"] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["storyboard"] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["shots"] });
+  });
+});
+
+// ---- 6. P2-E3-T02: risk metadata on the proposal card ----
+describe("ProposalReview (risk metadata, P2-E3-T02)", () => {
+  const riskyProposal: AgentProposal = {
+    ...pendingShot,
+    id: "prop_r1",
+    tool: "generate_image",
+    risk_level: "R2",
+    reason: "按新提示词重新生成分镜图",
+    estimated_tasks: 2,
+    estimated_cost: null,
+    irreversible: false,
+    expires_at: "2026-08-31T12:00:00Z",
+    changes: {},
+  };
+
+  it("renders the risk badge, reason, estimates and deadline", async () => {
+    const get = vi.fn().mockImplementation((path: string) => {
+      if (path.endsWith("/proposals")) return Promise.resolve([riskyProposal]);
+      return Promise.resolve({
+        id: "run_1",
+        status: "WAITING_HUMAN",
+        project_id: "p1",
+        plan: null,
+        approval: null,
+        change_set_id: null,
+        result: null,
+        created_at: "",
+        updated_at: "",
+      });
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get);
+    const { wrapper } = makeWrapper();
+    render(<ProposalReview runId="run_1" fallbackStatus="WAITING_HUMAN" />, { wrapper });
+    expect(await screen.findByText("昂贵操作")).toBeTruthy();
+    expect(screen.getByText(/按新提示词重新生成分镜图/)).toBeTruthy();
+    expect(screen.getByText(/预计任务：2/)).toBeTruthy();
+    expect(screen.getByText(/费用：未知/)).toBeTruthy();
+    expect(screen.getByText(/截止：\d{4}-\d{2}-\d{2} \d{2}:\d{2}/)).toBeTruthy();
+  });
+
+  it("generate_image proposals show the generation note instead of a diff table", async () => {
+    const get = vi.fn().mockImplementation((path: string) => {
+      if (path.endsWith("/proposals")) return Promise.resolve([riskyProposal]);
+      return Promise.resolve({
+        id: "run_1",
+        status: "WAITING_HUMAN",
+        project_id: "p1",
+        plan: null,
+        approval: null,
+        change_set_id: null,
+        result: null,
+        created_at: "",
+        updated_at: "",
+      });
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get);
+    const { wrapper } = makeWrapper();
+    const { container } = render(<ProposalReview runId="run_1" fallbackStatus="WAITING_HUMAN" />, { wrapper });
+    expect(await screen.findByText("将创建图片生成任务")).toBeTruthy();
+    expect(container.querySelector(".proposal-diff")).toBeNull();
+  });
+
+  it("irreversible proposals carry the red 不可逆 badge; expired ones hide actions", async () => {
+    const irreversible: AgentProposal = { ...pendingShot, irreversible: true };
+    const expired: AgentProposal = { ...pendingShot, id: "prop_x1", status: "expired" };
+    const get = vi.fn().mockImplementation((path: string) => {
+      if (path.endsWith("/proposals")) return Promise.resolve([irreversible, expired]);
+      return Promise.resolve({
+        id: "run_1",
+        status: "WAITING_HUMAN",
+        project_id: "p1",
+        plan: null,
+        approval: null,
+        change_set_id: null,
+        result: null,
+        created_at: "",
+        updated_at: "",
+      });
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get);
+    const { wrapper } = makeWrapper();
+    render(<ProposalReview runId="run_1" fallbackStatus="WAITING_HUMAN" />, { wrapper });
+    expect(await screen.findByText("不可逆")).toBeTruthy();
+    expect(screen.getByText("已过期")).toBeTruthy();
+    // expired proposal has no approve/reject; the pending (irreversible) one still does
+    expect(screen.getByText("批准")).toBeTruthy();
+    expect(screen.getByText("拒绝")).toBeTruthy();
+  });
 });

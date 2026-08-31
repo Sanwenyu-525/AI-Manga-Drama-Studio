@@ -11,6 +11,8 @@ export const queryKeys = {
   shot: (shotId: string) => ["shot", shotId] as const,
   shots: (sceneId: string) => ["shots", sceneId] as const,
   characters: (projectId: string) => ["characters", projectId] as const,
+  documents: (projectId: string) => ["documents", projectId] as const,
+  costumes: (projectId: string) => ["costumes", projectId] as const,
   projectPrompts: (projectId: string) => ["prompts", projectId] as const,
   promptVersions: (promptId: string) => ["promptVersions", promptId] as const,
   characterVersions: (characterId: string) => ["characterVersions", characterId] as const,
@@ -24,6 +26,9 @@ export const queryKeys = {
   /** P7-T019/020: agent run detail + its proposals (keyed by run). */
   agentRun: (runId: string) => ["agentRun", runId] as const,
   proposals: (runId: string) => ["proposals", runId] as const,
+  /** P2-E3-T03: applied change sets (per project + per agent run). */
+  changeSets: (projectId: string) => ["changeSets", projectId] as const,
+  changeSetsForRun: (runId: string) => ["changeSets", "run", runId] as const,
   projectAssets: (projectId: string, type?: string | null) => ["projectAssets", projectId, type ?? "all"] as const,
   asset: (assetId: string) => ["asset", assetId] as const,
   /** P8-T020: scene continuity read + per-shot continuity-state + agent warning list. */
@@ -34,6 +39,8 @@ export const queryKeys = {
   /** Phase 9 (api-event-contract §93): per-episode timeline + rendered export. */
   timeline: (episodeId: string) => ["timeline", episodeId] as const,
   finalVideo: (episodeId: string) => ["finalVideo", episodeId] as const,
+  /** C2: 一键成片 pipeline（per-episode latest run）。 */
+  pipeline: (episodeId: string) => ["pipeline", episodeId] as const,
 
   /** TASK-007: domains that previously used raw array keys — now factory-first. */
   providers: ["providers"] as const,
@@ -64,10 +71,12 @@ export const queryKeys = {
     versions: ["versions"] as const,
     timeline: ["timeline"] as const,
     finalVideo: ["finalVideo"] as const,
+    pipeline: ["pipeline"] as const,
     jobs: ["jobs"] as const,
     job: ["job"] as const,
     proposals: ["proposals"] as const,
     agentRun: ["agentRun"] as const,
+    changeSets: ["changeSets"] as const,
     sceneContinuity: ["sceneContinuity"] as const,
     continuityWarnings: ["continuityWarnings"] as const,
     shotContinuity: ["shotContinuity"] as const,

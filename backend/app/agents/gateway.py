@@ -12,7 +12,7 @@ ProposalService) — it never writes ORM directly beyond run bookkeeping.
 from __future__ import annotations
 
 from app.agents.director import runner
-from app.domain.agent import AgentRunCreate, AgentRunRead, AgentProposalRead
+from app.domain.agent import AgentRunCreate, AgentRunRead, AgentProposalRead, ChangeSetRead
 from app.services.proposal_service import ProposalService
 
 
@@ -54,13 +54,16 @@ class AgentGateway:
         from .director.runner import _session
 
         with _session() as session:
+            if run_id:
+                # P2-E3-T02: lazy TTL sweep so the list never shows stale pending.
+                ProposalService(session).expire_stale_proposals(run_id)
             proposals = ProposalService(session).list_proposals(run_id, status)
             return [_proposal_read(p) for p in proposals]
 
     def approve_proposal(self, proposal_id: str) -> AgentProposalRead:
-        """Approve a pending proposal: apply through ShotService (base_revision
-        guarded) + publish events. The parent run's graph continuation is driven by
-        resume_run — this endpoint only finalizes the proposal decision."""
+        """Approve a pending proposal: apply through ShotService / create the
+        Generation (R2) + publish events. The parent run's graph continuation is
+        driven by resume_run — this endpoint only finalizes the proposal decision."""
         from .director.runner import _session
 
         with _session() as session:
@@ -81,6 +84,41 @@ class AgentGateway:
             proposal = ProposalService(session)._get_proposal(proposal_id)
             return _proposal_read(proposal)
 
+    # ---- change sets (P2-E3-T03) ----
+
+    def list_change_sets(
+        self,
+        project_id: str | None = None,
+        run_id: str | None = None,
+        entity_id: str | None = None,
+        undone: bool | None = None,
+    ) -> list[ChangeSetRead]:
+        from .director.runner import _session
+        from app.services.change_set_service import ChangeSetService, to_read
+
+        with _session() as session:
+            rows = ChangeSetService(session).list_change_sets(
+                project_id=project_id, run_id=run_id, entity_id=entity_id, undone=undone
+            )
+            return [to_read(cs) for cs in rows]
+
+    def undo_change_set(self, change_set_id: str, *, force: bool = False) -> ChangeSetRead:
+        """Undo one change set: a NEW compensating change (history untouched)."""
+        from .director.runner import _session
+        from app.services.change_set_service import ChangeSetService, to_read
+
+        with _session() as session:
+            compensating = ChangeSetService(session).undo(change_set_id, force=force)
+            return to_read(compensating)
+
+    def undo_run_change_sets(self, run_id: str, *, force: bool = False) -> list[dict]:
+        """Undo all agent change sets of a run — per-item results, never half-silent."""
+        from .director.runner import _session
+        from app.services.change_set_service import ChangeSetService
+
+        with _session() as session:
+            return ChangeSetService(session).undo_run(run_id, force=force)
+
 
 def _proposal_read(p) -> AgentProposalRead:
     import json
@@ -98,6 +136,12 @@ def _proposal_read(p) -> AgentProposalRead:
         error_message=p.error_message,
         created_at=p.created_at,
         decided_at=p.decided_at,
+        risk_level=p.risk_level,
+        reason=p.reason,
+        estimated_tasks=p.estimated_tasks,
+        estimated_cost=p.estimated_cost,
+        irreversible=p.irreversible,
+        expires_at=p.expires_at,
     )
 
 

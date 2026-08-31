@@ -49,6 +49,11 @@ class Generation(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
+    # P2-E3-T03: agent provenance — set when the generation was created by an
+    # approved generate_image proposal; the worker records an undoable ChangeSet
+    # for the active-version switch it causes.
+    run_id: Mapped[str | None] = mapped_column(Text, index=True)
+
     # P1-E2-T02: atomic claim + lease (crash recovery) + retry backoff gate
     claim_token: Mapped[str | None] = mapped_column(Text)
     claimed_at: Mapped[str | None] = mapped_column(Text)

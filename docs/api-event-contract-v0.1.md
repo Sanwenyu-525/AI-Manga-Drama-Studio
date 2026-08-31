@@ -491,6 +491,49 @@ Response：
 }
 ```
 
+## 14.1 Analysis Snapshot（P2-E1-T01，preview → confirm 的不可变快照）
+
+Preview 落库不可变快照；Confirm 只提交快照 id，写入的**正是用户预览看到的计划**
+（零二次 LLM 调用——真实模型非确定性不再影响确认语义）。
+
+```http
+POST /api/v1/episodes/{episode_id}/analyze/preview
+```
+
+Response（原为裸 ScenePlan[]，现为信封）：
+
+```json
+{
+  "snapshot_id": "b630637c-2138-459f-8591-a306a095d4b4",
+  "episode_id": "...",
+  "source_hash": "9f86d081884c7d65",
+  "plans": [ { "scene_number": 1, "title": "...", "location": "...", "time": "...", "description": "...", "mood": "..." } ],
+  "model": "deepseek-chat",
+  "status": "pending"
+}
+```
+
+```http
+GET /api/v1/episodes/{episode_id}/analysis-snapshots/latest
+```
+
+返回该剧集最近一条快照（任意状态；从未预览过 → `null`）。字段：`id/status/plans/
+episode_revision/source_hash/model/prompt_version/schema_version/created_scene_ids/created_at`。
+前端刷新后用它水合 pending 预览（AC：刷新后可读取 preview 状态）。
+
+Confirm（`POST /episodes/{id}/analyze` 请求体新增可选字段）：
+
+```json
+{ "snapshot_id": "b630637c-..." }
+```
+
+- **带 snapshot_id**：operation 内写入快照计划，零 LLM 调用。幂等（已确认的快照重放
+  `created_scene_ids`，不重复创建）；快照过期（预览后原文或 episode revision 变化）
+  → operation failed，`error` 提示重新预览，快照状态置 `expired`。
+- **不带 snapshot_id**：遗留路径（analyze 自行调用 LLM），语义同上节，向后兼容。
+- 快照跨剧集提交 / 不存在 → operation failed（422 语义在异步任务内呈现）。
+- Provenance：快照记录 `model` / `prompt_version` / `schema_version` / `source_hash`。
+
 ---
 
 # 15. Analysis Result
@@ -514,6 +557,36 @@ Response：
   }
 }
 ```
+
+---
+
+# 15.1 Pipeline API（C2 一键成片，2026-08 落地）
+
+Episode 级流水线：`analyze(预览) → 人工确认 → shots → images → 排片 → 渲染`。长 LLM 阶段走 Operation（202 + operation_id）；`finalize` 同步（本地快操作）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/episodes/{episode_id}/pipeline/run` | 202：分析预览 → `waiting_confirm`（result 含 pipeline + plans + snapshot_id） |
+| POST | `/episodes/{episode_id}/pipeline/{pipeline_id}/confirm` | 202：确认快照 → scenes → 逐 scene 分镜 → 入队缺图 shot 的 image generation（跳过已有图）→ `running/images`（result 含 pending_shot_ids） |
+| POST | `/episodes/{episode_id}/pipeline/{pipeline_id}/finalize` | 同步：建/排 timeline（sequence-from-shots）→ 入队 render → `completed` |
+| POST | `/episodes/{episode_id}/pipeline/{pipeline_id}/resume` | 202：从第一个未完成阶段继续（断点续跑） |
+| GET | `/episodes/{episode_id}/pipeline/latest` | 最新 pipeline 状态（无则 null） |
+
+Pipeline 状态：`running / waiting_confirm / completed / failed`；`stages` 每阶段 `done|pending`（`analyze/shots/images/timeline/render`）。落库为真相——崩溃后 `resume` 从断点继续（confirm_snapshot 幂等可重放）。
+
+Read（PipelineRead）：
+
+```json
+{
+  "id": "p_001", "episode_id": "ep_01", "project_id": "p_01",
+  "status": "waiting_confirm", "current_stage": null,
+  "stages": { "analyze": "done", "shots": "pending", "images": "pending", "timeline": "pending", "render": "pending" },
+  "snapshot_id": "snap_01", "error_message": null,
+  "created_at": "...", "updated_at": "..."
+}
+```
+
+事件：`pipeline.updated`（payload: episode_id/status/current_stage/stages）。
 
 ---
 
@@ -678,6 +751,53 @@ PATCH /api/v1/shots/{shot_id}
     }
   ],
 
+  "updated_at": "..."
+}
+```
+
+---
+
+# 20.1 设定文档 API（SourceDocument，2026-08 落地）
+
+项目级源内容归档：人物设定 / 世界观 / 大纲 / 小说原稿等自由文本设定文档。Agent 分析按预算注入设定摘要（见 database §32.6）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/projects/{project_id}/documents?doc_type=` | 项目设定文档列表（可按 doc_type 过滤） |
+| POST | `/projects/{project_id}/documents` | 新建设定文档（201） |
+| GET | `/documents/{document_id}` | 单个设定文档 |
+| PATCH | `/documents/{document_id}` | 更新（`{revision, patch}`，409 conflict，§21/§88） |
+| DELETE | `/documents/{document_id}` | 软删除（§89） |
+
+Create body：
+
+```json
+{
+  "doc_type": "character_setting",
+  "title": "人物设定·沈亦",
+  "content": "……设定原文……",
+  "character_id": "character_001",
+  "location_id": null,
+  "costume_id": null
+}
+```
+
+Read（DocumentRead）：
+
+```json
+{
+  "id": "document_001",
+  "project_id": "project_001",
+  "doc_type": "character_setting",
+  "title": "人物设定·沈亦",
+  "content": "……设定原文……",
+  "character_id": "character_001",
+  "location_id": null,
+  "costume_id": null,
+  "source_hash": "a1b2c3…",
+  "status": "active",
+  "revision": 1,
+  "created_at": "...",
   "updated_at": "..."
 }
 ```
@@ -888,14 +1008,32 @@ Ownership 与歧义（P1-E3-T01）：
 
 # 27. Agent Approval API
 
-当（P7）：
+当（P7 + P2-E3-T02）：
 
 ```text
 status = waiting_human（或等待审批时的 waiting_approval）
 ```
 
-update_shot 现在只产生一个 pending 的 AgentProposal，run 进入 WAITING_HUMAN 并发出
-`agent.approval.required`（payload 含 proposal_id / changes）。人工可通过两条路径决策：
+P2-E3-T02 风险分级后只有需要审批的工具会进入此状态：
+
+- **R0**（get_shot / get_scene_shots）：只读，自动执行。
+- **R1**（update_shot）：可逆编辑，**自动执行**并记录 ChangeSet（可撤销），
+  不再为每次近景修改打断用户。
+- **R2**（generate_image）：昂贵操作，**审批前不创建任何 Generation**，
+  产生 pending AgentProposal（含 risk_level/reason/estimated_tasks/
+  estimated_cost/irreversible/expires_at），run 进入 WAITING_HUMAN 并发出
+  `agent.approval.required`。
+- **R3**（破坏性，MVP 暂无工具映射）：必须审批，分类器对未知工具一律按 R3 处理。
+
+approve 语义：R2 proposal 的 approve 才创建 Generation（base_revision 冲突则 conflict，
+不创建）；R1 审批版（如 continuity_fix）approve 经 ShotService 应用并记录 ChangeSet。
+
+proposal 具有有效期（`expires_at`，默认 24h，`STUDIO_AGENT_PROPOSAL_TTL_HOURS`）：
+过期后 approve/reject 返回 409（status=expired，终态、不可再决策），
+全部过期后 waiting run 置为 failed（不永久悬挂）。读路径（GET run / proposals list /
+resume）做懒过期扫描。
+
+人工可通过两条路径决策：
 
 - 恢复整个 run（继续 graph，如批准后运行后续 generate 步骤）：
 
@@ -909,6 +1047,30 @@ POST /api/v1/agent/runs/{run_id}/resume
 POST /api/v1/agent/proposals/{proposal_id}/approve
 POST /api/v1/agent/proposals/{proposal_id}/reject
 ```
+
+---
+
+# 27.1 ChangeSet / Undo API（P2-E3-T03）
+
+每次 Agent mutation（update_shot 自动应用 / proposal approve 应用 /
+worker 完成后的 active-version 切换）产生一条可读 ChangeSet：最小 before/after
+patch + revision_before/after + run/tool/source。Undo 是**新的补偿变更**
+（revision+1、产生新 ChangeSet、原记录仅翻 undone 标记），历史永不改写；
+媒体版本只切换 active 指针、不删除。
+
+```http
+GET  /api/v1/agent/change-sets?project_id=&run_id=&entity_id=&undone=
+POST /api/v1/agent/change-sets/{change_set_id}/undo      body {force?: bool}
+POST /api/v1/agent/runs/{run_id}/change-sets/undo         body {force?: bool}
+```
+
+- 单条 undo：409 冲突（后续编辑覆盖了同字段）时 details 携带
+  `fields: {field: {expected, current, before}}` 与 `recovery`（恢复路径=原值），
+  `force=true` 强制恢复原值（仍走 ShotService、revision+1）。
+- 批量 undo（按 run，逆序）：返回逐项结果
+  `[{id, status: undone|conflict|skipped, reason?, compensating_change_set_id?}]`，
+  绝不半静默。
+- undo 幂等终态：对已撤销的 change set 再次 undo → 409。
 
 ---
 
@@ -945,6 +1107,10 @@ Frontend 从 Event / Run API 获得：
   ]
 }
 ```
+
+P2-E3-T02：AgentProposalRead 现已携带同构字段（risk_level / reason /
+estimated_tasks / estimated_cost / irreversible / expires_at），本地 provider
+无价格时 estimated_cost 为 null（诚实显示「未知」，不伪造）。
 
 ---
 
@@ -1003,7 +1169,7 @@ POST /api/v1/agent/runs/{run_id}/cancel
 
 # 32. ChangeSet API
 
-Agent 完成修改后：
+Agent 完成修改后（P2-E3-T03 已实现，端点挂在 agent 前缀下）：
 
 ```text
 change_set_id
@@ -1012,7 +1178,7 @@ change_set_id
 例如：
 
 ```http
-GET /api/v1/change-sets/{change_set_id}
+GET /api/v1/agent/change-sets?run_id={run_id}
 ```
 
 ---
@@ -1029,23 +1195,25 @@ GET /api/v1/change-sets/{change_set_id}
 
   "run_id": "agent_run_101",
 
-  "changes": [
-    {
-      "operation": "update",
+  "tool": "update_shot",
 
-      "entity_type": "shot",
+  "entity_type": "shot",
 
-      "entity_id": "shot_005",
+  "entity_id": "shot_005",
 
-      "before": {
-        "shot_type": "medium"
-      },
+  "revision_before": 1,
 
-      "after": {
-        "shot_type": "close_up"
-      }
-    }
-  ],
+  "revision_after": 2,
+
+  "before": {
+    "shot_type": "medium"
+  },
+
+  "after": {
+    "shot_type": "close_up"
+  },
+
+  "undone": false,
 
   "created_at": "..."
 }
@@ -1056,10 +1224,10 @@ GET /api/v1/change-sets/{change_set_id}
 # 34. Undo ChangeSet
 
 ```http
-POST /api/v1/change-sets/{id}/undo
+POST /api/v1/agent/change-sets/{id}/undo
 ```
 
-Response：
+Response（返回补偿 ChangeSet 本体）：
 
 ```json
 {
@@ -1067,6 +1235,10 @@ Response：
   "status": "completed"
 }
 ```
+
+同字段结构与 §33（source="undo"，tool 为 `undo:{原tool}`）。
+批量撤销 `POST /api/v1/agent/runs/{run_id}/change-sets/undo` 返回逐项结果数组，
+见 §27.1。
 
 Undo 本身也形成新的 ChangeSet。
 
@@ -1788,14 +1960,25 @@ Response：
 {
   "connected": true,
   "base_url": "http://127.0.0.1:8188",
-  "models": ["sd_xl_base_1.0.safetensors", "flux1-dev.safetensors"]
+  "models": ["sd_xl_base_1.0.safetensors", "flux1-dev.safetensors"],
+  "catalog": {
+    "checkpoints": ["sd_xl_base_1.0.safetensors"],
+    "unets": ["z_image_turbo_int8_convrot.safetensors"],
+    "clips": ["qwen_3_4b_fp4_mixed.safetensors"],
+    "vaes": ["ae.safetensors"]
+  }
 }
 ```
 
 - `base_url` 查询参数省略时读运行时 image.json 的 `comfyui_url`（env 兜底）；
   传入时探测该未保存地址（probe-before-save）。
-- `connected=false`（服务不可达）→ `models=[]`；`connected=true` 但响应形态异常
-  → `models=[]`（旧版 ComfyUI 兼容）。
+- `connected=false`（服务不可达）→ `models=[]`、`catalog={}`；`connected=true` 但响应
+  形态异常 → 对应槽位 `[]`（旧版 ComfyUI 兼容）。
+- **`catalog`（Sprint 05 · P2-1）**：按加载器架构分组（`checkpoints` ←
+  CheckpointLoaderSimple / `unets` ← UNETLoader / `clips` ← CLIPLoader+DualCLIPLoader /
+  `vaes` ← VAELoader），并行 `GET /object_info/{node}` 宽容解析。非 SD 架构（DiT unet
+  如 Z-Image）此前在该端点不可见，现由 `unets` 暴露。`models` 字段保留为
+  `checkpoints` 的向后兼容平铺。
 
 ---
 
@@ -2419,6 +2602,27 @@ agent.run.cancelled
   }
 }
 ```
+
+P2-E3-T02 实际 payload（proposal 维度）：
+
+```json
+{
+  "proposal_id": "…",
+  "tool": "generate_image",
+  "target_type": "shot",
+  "target_id": "…",
+  "changes": {},
+  "risk_level": "R2",
+  "reason": "昂贵操作：将创建图片生成任务，占用生成资源。",
+  "estimated_tasks": 1,
+  "estimated_cost": null,
+  "irreversible": false,
+  "expires_at": "2026-08-31T12:00:00+00:00"
+}
+```
+
+配套事件：`agent.proposal.created / approved / rejected / conflict / expired`、
+`agent.change_set.created / undone`（P2-E3-T03：agent mutation 记录与撤销补偿）。
 
 Frontend：
 
@@ -3131,13 +3335,18 @@ PATCH  /timelines/{timeline_id}                    更新 duration/fps/width/hei
 POST   /timelines/{timeline_id}/tracks             新增轨道
 PATCH  /timelines/{timeline_id}/tracks/{track_id}  改 mute/lock/name/order_index
 DELETE /timelines/{timeline_id}/tracks/{track_id}  删除轨道（级联删 clip）
-POST   /timelines/{timeline_id}/clips              新增 TimelineClip（text 可选：字幕/配音文案）
+POST   /timelines/{timeline_id}/clips              新增 TimelineClip（text 可选：字幕/配音文案；transition 可选：cut/fade/dissolve）
 PATCH  /timeline-clips/{clip_id}                   编辑（移动 start_time/end_time、微调 source_in/source_out、
-                                                   换轨 track_id、order_index、enabled、text）——即拖拽/裁剪/文案的落库接口
+                                                   换轨 track_id、order_index、enabled、text、transition）——即拖拽/裁剪/文案的落库接口；
+                                                   P4-E3-T02：携带 revision 时走乐观并发（不匹配 → 409，绝不静默覆盖）
 DELETE /timeline-clips/{clip_id}                   删除 clip
 POST   /timeline-clips/{clip_id}/replace-asset     替换为另一个 Asset（版本替换）
 POST   /timeline-clips/{clip_id}/generate-voiceover 202 → 入队 type=audio 的配音 Generation（TASK-012，
                                                     仅 VOICE 轨 clip；text 取请求或 clip.text）
+POST   /timelines/{timeline_id}/generate-voiceovers 202 → C1 整轨批量配音：为所有「有台词且未绑定音频」
+                                                    （enabled）的 VOICE 轨 clip 各入队一条 type=audio Generation；
+                                                    返回 { timeline_id, submitted:[{clip_id,generation_id,text_head}],
+                                                    skipped_no_text:[clip_id], already_bound:[clip_id] }
 POST   /timelines/{timeline_id}/sequence-from-shots 一键排片：按 scene+shot 顺序建成 VIDEO 轨
                                                     （绑定 shot.active_video_asset_id，缺失则回退 active_image_asset_id）
                                                     + 按 dialogue 建 SUBTITLE 轨，片段首尾相接
@@ -3158,11 +3367,29 @@ GET    /episodes/{episode_id}/final-video           该集最近一次渲染产�
   "clips": [ { "id": "cl_01", "timeline_id": "tl_01", "track_id": "tr_01",
                "asset_id": "as_01", "shot_id": "sh_01",
                "start_time": 0.0, "end_time": 3.0, "source_in": 0.0, "source_out": null,
+               "transition": "cut", "revision": 1,
                "order_index": 0.0, "enabled": 1,
                "asset": { "id": "as_01", "type": "image", "name": "...",
                           "thumbnail_url": "/api/v1/assets/as_01/thumbnail" } } ]
 }
 ```
+
+## 93.2a TimelineClip 转场 / revision / undo（P4-E3-T02 AC-2，2026-08-31）
+
+- `transition`（`cut` 默认 | `fade` | `dissolve`）：片段头部的转场。非法值 422。
+  渲染时对 fade/dissolve 做交叉淡化（ffmpeg `xfade` 链 / mock PIL 逐帧 blend），
+  `cut` 硬切；渲染计划（generation.parameters.clips[].transition）完整透传可追溯。
+- `revision`（乐观并发）：新建 = 1，每次成功编辑 +1。`PATCH /timeline-clips/{id}`
+  的 patch 携带 `revision` 时，服务端执行原子条件更新
+  `UPDATE … WHERE id=? AND revision=?`；不匹配 → 409
+  `{ "current_revision": N }`（绝不静默覆盖）。不带 revision 保持 last-write-wins
+  兼容（仍会 +1）。
+- Timeline 编辑自动记录 ChangeSet（`source="timeline"`、`entity_type="timeline_clip"`、
+  tool=`timeline.edit` / `timeline.replace_asset`），复用既有
+  `GET /agent/change-sets?entity_id={clip_id}` 与
+  `POST /agent/change-sets/{id}/undo`（undo 为补偿变更，clip revision +1）。
+- 事件：`timeline.clip.updated` 保持不变；ChangeSet 事件沿用
+  `agent.change_set.created` / `agent.change_set.undone`。
 
 ## 93.3 渲染 DTO/事件
 
@@ -4696,6 +4923,12 @@ costume.created
 costume.updated
 
 costume.deleted
+
+document.created
+
+document.updated
+
+document.deleted
 
 provider.connected
 

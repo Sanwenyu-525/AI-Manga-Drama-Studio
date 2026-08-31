@@ -2,6 +2,9 @@
 // lists Director proposals awaiting/after human review, renders field from→to diffs,
 // approve/reject actions, conflict notice + refresh, and a resume (继续执行) button
 // once a WAITING_HUMAN run has no proposals left pending.
+// P2-E3-T02: cards also surface risk metadata (risk_level / reason / estimated
+// tasks / cost / deadline) and generate_image proposals explain the follow-up
+// generation task instead of a field diff.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, X, ArrowsClockwise, Play, WarningCircle } from "@phosphor-icons/react";
@@ -19,6 +22,8 @@ import {
   renderChangeValue,
   targetTypeLabel,
   fieldLabel,
+  riskLevelLabel,
+  formatDeadline,
 } from "../../lib/agentProposals";
 
 interface ProposalReviewProps {
@@ -118,6 +123,8 @@ export function ProposalReview({ runId, fallbackStatus }: ProposalReviewProps) {
         </button>
       )}
       {resume.isError && <ApiErrorPanel error={resume.error} className="proposal-error" />}
+      {/* P2-E3-T02: approve/reject rejected with 409 (proposal expired / base_revision conflict) */}
+      {decide.isError && <ApiErrorPanel error={decide.error} className="proposal-error" />}
     </div>
   );
 }
@@ -134,43 +141,65 @@ function ProposalCard({
   const diffs = normalizeProposalChanges(proposal.changes);
   const resolved = proposal.status === "approved" || proposal.status === "rejected";
   const conflicted = proposal.status === "conflict";
+  // P2-E3-T02: expired proposals are rejected by the backend with 409 — no actions.
+  const expired = proposal.status === "expired";
+  // P2-E3-T02: generate_image proposals create a generation task rather than a
+  // field patch — explain the follow-up instead of rendering a (possibly empty) diff.
+  const isGenerateImage = proposal.tool === "generate_image";
+  const riskClass = `r${(proposal.risk_level ?? "").toLowerCase()}`;
   return (
     <div className={`proposal-card ${proposal.status}`}>
       <div className="proposal-card-head">
         <span className="proposal-tool">{proposalToolLabel(proposal.tool)}</span>
-        <span className={`proposal-status ${proposal.status}`}>{proposalStatusLabel(proposal.status)}</span>
+        <span className="proposal-card-badges">
+          {proposal.risk_level != null && (
+            <span className={`risk-badge ${riskClass}`}>{riskLevelLabel(proposal.risk_level)}</span>
+          )}
+          {proposal.irreversible && <span className="risk-badge r3">不可逆</span>}
+          <span className={`proposal-status ${proposal.status}`}>{proposalStatusLabel(proposal.status)}</span>
+        </span>
       </div>
       <div className="proposal-meta">
         <span>目标：{proposalTarget(proposal)}</span>
         <span>类型：{targetTypeLabel(proposal.target_type)}</span>
         {proposal.base_revision != null && <span>基准版本：v{proposal.base_revision}</span>}
+        {proposal.estimated_tasks != null && <span>预计任务：{proposal.estimated_tasks}</span>}
+        <span>费用：{proposal.estimated_cost == null ? "未知" : proposal.estimated_cost}</span>
+        {proposal.expires_at && <span>截止：{formatDeadline(proposal.expires_at)}</span>}
       </div>
+      {proposal.reason && <p className="proposal-reason">{proposal.reason}</p>}
       {conflicted && (
         <div className="proposal-card-conflict" role="alert">
           <WarningCircle size={13} weight="fill" /> 此提案基于旧版本，与当前镜头不一致
         </div>
       )}
-      {diffs.length > 0 && (
-        <table className="proposal-diff">
-          <thead>
-            <tr>
-              <th>字段</th>
-              <th>当前</th>
-              <th>提案</th>
-            </tr>
-          </thead>
-          <tbody>
-            {diffs.map((d, i) => (
-              <tr key={i}>
-                <td>{fieldLabel(d.field)}</td>
-                <td className="diff-from">{renderChangeValue(d.from)}</td>
-                <td className="diff-to">{renderChangeValue(d.to)}</td>
+      {isGenerateImage ? (
+        <p className="proposal-generate-note">
+          <WarningCircle size={13} weight="fill" /> 将创建图片生成任务
+        </p>
+      ) : (
+        diffs.length > 0 && (
+          <table className="proposal-diff">
+            <thead>
+              <tr>
+                <th>字段</th>
+                <th>当前</th>
+                <th>提案</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {diffs.map((d, i) => (
+                <tr key={i}>
+                  <td>{fieldLabel(d.field)}</td>
+                  <td className="diff-from">{renderChangeValue(d.from)}</td>
+                  <td className="diff-to">{renderChangeValue(d.to)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
       )}
-      {!resolved && !conflicted && (
+      {!resolved && !conflicted && !expired && (
         <div className="proposal-actions">
           <button type="button" className="btn tiny success" disabled={deciding} onClick={() => onDecide("approve")}>
             <Check size={13} weight="bold" /> 批准

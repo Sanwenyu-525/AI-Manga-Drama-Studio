@@ -383,7 +383,9 @@ class MockRenderProvider:
         rendered = 0
         stage = "encoding"
 
-        for clip in clips:
+        prev_frame: Image.Image | None = None
+        prev_duration = 0.0
+        for clip_idx, clip in enumerate(clips):
             duration = clip.end - clip.start
             clip_frames = max(1, round(duration * fps))
             source = Path(clip.source_path)
@@ -401,8 +403,17 @@ class MockRenderProvider:
                     clip.kind, source.name,
                 )
                 frame = _placeholder_frame(width, height, source.name)
+            # P4-E3-T02 (AC-2): cross-fade the first frames of a fade/dissolve
+            # clip against the previous clip's last frame (pure PIL blend).
+            fade_frames = 0
+            if clip_idx > 0 and clip.transition in ("fade", "dissolve") and prev_frame is not None:
+                td = min(0.5, prev_duration, duration)
+                fade_frames = max(1, min(clip_frames, round(td * fps)))
             for i in range(clip_frames):
-                out_frame = frame.copy() if sub_clips else frame
+                out_frame = frame.copy() if (sub_clips or i < fade_frames) else frame
+                if i < fade_frames and prev_frame is not None:
+                    alpha = (i + 1) / fade_frames
+                    out_frame = Image.blend(prev_frame, out_frame, alpha)
                 if sub_clips:
                     _overlay_subtitle(out_frame, clip.start + i / fps, sub_clips)
                 frames.append(out_frame)
@@ -411,6 +422,8 @@ class MockRenderProvider:
                 if rendered % step == 0 or rendered == total_frames:
                     await asyncio.sleep(0.005)
                     on_progress(min(95, round(rendered / total_frames * 95) + 5), stage)
+            prev_frame = frames[-1] if frames else frame
+            prev_duration = duration
 
         pcm, sample_rate = mix_audio_bed(request.audio_clips, total_duration)
         out_path = self._output_dir / f"render_{uuid.uuid4().hex[:8]}.avi"

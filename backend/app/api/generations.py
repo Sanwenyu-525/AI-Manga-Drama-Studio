@@ -5,7 +5,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.core.errors import NotFoundError
-from app.domain.generation import AssetVersionRead, GenerationCreate, GenerationRead, VoiceoverGenerateRequest
+from app.domain.generation import (
+    AssetVersionRead,
+    GenerationCreate,
+    GenerationRead,
+    VoiceoverBatchResult,
+    VoiceoverGenerateRequest,
+)
 from app.generations.worker import cancel_running, pause_queue, queue_status, resume_queue
 from app.services import GenerationService, VersionService
 
@@ -49,6 +55,22 @@ def generate_voiceover(clip_id: str, data: VoiceoverGenerateRequest, db: Session
     from app.services.audio_service import AudioService
 
     return _to_read(AudioService(db).create_voiceover_generation(clip_id, data))
+
+
+@router.post(
+    "/timelines/{timeline_id}/generate-voiceovers",
+    response_model=VoiceoverBatchResult,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def generate_voiceovers_batch(timeline_id: str, db: Session = Depends(get_db)) -> VoiceoverBatchResult:
+    """C1 整轨批量配音: queue a voiceover for every VOICE-track clip with text.
+
+    Returns which clips were queued, skipped (no text) or already bound to an
+    AUDIO asset. Each submission is a separate type="audio" generation (202 path).
+    """
+    from app.services.audio_service import AudioService
+
+    return AudioService(db).create_voiceover_batch(timeline_id)
 
 
 @router.get("/generations/recent", response_model=list[GenerationRead])

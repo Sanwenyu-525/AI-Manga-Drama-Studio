@@ -23,6 +23,7 @@ class RenderClip:
     source_in: float = 0.0  # offset into the source media
     source_out: float | None = None
     text: str | None = None  # subtitle text (SUBTITLE clips); narration copy (metadata)
+    transition: str = "cut"  # P4-E3-T02 (AC-2): cut | fade | dissolve at the clip head
 
 
 @dataclass

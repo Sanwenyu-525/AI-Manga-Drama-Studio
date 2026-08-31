@@ -68,9 +68,57 @@ export function proposalStatusLabel(status: AgentProposal["status"] | string | u
       return "已拒绝";
     case "conflict":
       return "冲突";
+    case "expired":
+      return "已过期";
     default:
       return status ?? "未知";
   }
+}
+
+/** P2-E3-T02: Chinese label for a proposal's risk level (R0..R3). */
+export function riskLevelLabel(level: string | undefined | null): string {
+  switch (level) {
+    case "R0":
+    case "r0":
+      return "只读";
+    case "R1":
+    case "r1":
+      return "可逆编辑";
+    case "R2":
+    case "r2":
+      return "昂贵操作";
+    case "R3":
+    case "r3":
+      return "破坏性";
+    default:
+      return level ?? "未知";
+  }
+}
+
+/** P2-E3-T03: Chinese label for a change set's tool (incl. undo compensations). */
+export function changeSetToolLabel(tool: string | undefined | null): string {
+  if (tool && tool.startsWith("undo:")) return "撤销操作";
+  switch (tool) {
+    case "update_shot":
+      return "修改镜头";
+    case "generate_image":
+      return "生成图片（版本切换）";
+    case "get_shot":
+      return "读取镜头";
+    default:
+      return tool ?? "未知工具";
+  }
+}
+
+/** P2-E3-T02: format an ISO deadline as "YYYY-MM-DD HH:mm" (local, locale-free). */
+export function formatDeadline(iso: string | undefined | null): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(
+    date.getMinutes(),
+  )}`;
 }
 
 /** Chinese label for a proposal's tool. */

@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     # pure-Python mock (MJPEG AVI). Explicit "mock"/"ffmpeg" override the probe.
     render_provider: Literal["auto", "mock", "ffmpeg"] = "auto"
 
+    # Agent risk policy (P2-E3-T02): R2 (generate_image) requires approval by
+    # default — no Generation is created before a human decision. Set True only
+    # for dev/demo when you accept unattended generation costs.
+    agent_auto_approve_r2: bool = False
+    # Pending proposals expire after this many hours (lazy sweep on read/decide).
+    agent_proposal_ttl_hours: int = 24
+
     # Voiceover TTS (TASK-012): "mock" = deterministic WAV (dev/test default);
     # "edge" = online neural voices via the edge-tts package (no key/GPU needed,
     # but an undocumented Microsoft endpoint — dev/prototyping, not prod default).

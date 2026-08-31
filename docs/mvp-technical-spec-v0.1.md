@@ -2019,6 +2019,31 @@ AI Director Flow
 
 ---
 
+# 89.1 Phase 2 扩展 — 设定文档库（SourceDocument，2026-08 落地）
+
+> MVP 之后的方向（方案 A，用户已确认启动）。目标：让 Agent 分析有"设定事实"可依，而非只猜。
+
+任务拆解：
+
+```text
+DOC-001  DB：source_documents 表（doc_type/title/content/character_id/location_id/costume_id/
+        source_hash/revision/status/软删）+ Alembic 迁移
+DOC-002  Repository + DocumentService（CRUD、乐观并发 409、软删、实体关联同项目校验、
+        source_hash 计算、document.created/updated/deleted 事件）
+DOC-003  REST API（GET/POST /projects/{id}/documents、GET/PATCH/DELETE /documents/{id}）
+DOC-004  Agent 注入：ScriptService 分析时按 TokenBudget 注入项目设定文档摘要（doc_type 前缀）；
+        注入内容计入幂等键（变更 → 需重新分析）
+DOC-005  前端 libraries「设定文档」区（列表/编辑/实体关联）+ 角色页关联
+DOC-006  测试：pytest（Service 单测 + API 集成 + 注入回归）+ vitest
+```
+
+验收标准：
+- 人物设定入库后，`analyze_episode` 输出中的角色/服装/关系与设定一致（注入生效）。
+- 设定文档变更 → 分析幂等键变化 → 旧快照过期（需重新 preview/confirm）。
+- CRUD 走 `{revision, patch}` 乐观并发 + 软删；跨项目实体关联 404/422。
+
+---
+
 # 90. Error Handling
 
 必须覆盖：

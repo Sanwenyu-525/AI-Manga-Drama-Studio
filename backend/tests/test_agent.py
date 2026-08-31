@@ -1,13 +1,15 @@
-"""Stage D tests — Agent Scenario A/B/C (mvp-spec §97) with FakeLLM planner.
+"""Stage D / P2-E3 tests — Agent Scenario A/B/C (mvp-spec §97) with FakeLLM planner.
 
-P7 behavior change: update_shot NO LONGER writes directly — it emits a pending
-Proposal and the run parks in WAITING_HUMAN until a human approves/rejects it
-(agent.approval.required). Scenario A/B now require an approval step before the
-shot mutation is applied (through ShotService, base_revision guarded).
+P2-E3-T02 risk semantics (supersedes P7's approve-everything):
+- R1 update_shot AUTO-APPLIES through ShotService and records an undoable
+  ChangeSet (P2-E3-T03) — no proposal, no WAITING_HUMAN.
+- R2 generate_image REQUIRES approval: a pending Proposal (risk metadata + TTL)
+  parks the run in WAITING_HUMAN; approve creates the Generation, reject skips.
 
-Scenario A: selection=Shot05, "改成近景" → pending proposal + WAITING_HUMAN →
-approve → Shot05.shot_type = close_up (revision+1).
-Scenario B: "改成近景再生成" → approve → update applies + a Generation is created.
+Scenario A: selection=Shot05, "改成近景" → auto-applied (close_up, revision+1)
+            + agent_change_sets row (undo restores the previous value).
+Scenario B: "改成近景再生成" → update auto-applies; generate_image → R2 proposal
+            → approve → Generation created.
 Scenario C: no selection, "把这个改一下" → agent must NOT guess, asks for clarification.
 """
 
@@ -38,6 +40,10 @@ def _wait_status(client: TestClient, run_id: str, statuses: set[str], timeout: f
     raise TimeoutError(f"agent run {run_id} did not reach {statuses}")
 
 
+def _wait_pending(client: TestClient, run_id: str) -> dict:
+    return _wait_status(client, run_id, {"waiting_human", "waiting_approval"})
+
+
 def _approve_run(client: TestClient, run_id: str) -> dict:
     """Wait until WAITING_HUMAN then approve all pending proposals via resume."""
     deadline = time.monotonic() + 15
@@ -59,7 +65,9 @@ def _make_project_shot(client: TestClient) -> dict:
     episode = client.post(
         f"/api/v1/projects/{project['id']}/episodes", json={"title": "E1"}
     ).json()
-    scene = client.post(f"/api/v1/episodes/{episode['id']}/scenes", json={"name": "S1"}).json()
+    scene = client.post(
+        f"/api/v1/episodes/{episode['id']}/scenes", json={"name": "S1"}
+    ).json()
     shots = [
         client.post(
             f"/api/v1/scenes/{scene['id']}/shots",
@@ -70,168 +78,212 @@ def _make_project_shot(client: TestClient) -> dict:
     return {"project_id": project["id"], "scene_id": scene["id"], "shots": shots}
 
 
-def test_scenario_a_proposal_then_approve_updates_shot(client: TestClient) -> None:
-    ctx = _make_project_shot(client)
-    shot = ctx["shots"][1]  # "Shot 05"
-
+def _run_director(client: TestClient, ctx: dict, message: str, shot: dict) -> str:
     resp = client.post(
         "/api/v1/agent/director/runs",
         json={
             "project_id": ctx["project_id"],
-            "message": "把这个镜头改成近景。",
-            "selection": {"shot_ids": [shot["id"]], "workspace": "storyboard", "scene_id": ctx["scene_id"]},
-        },
-    )
-    assert resp.status_code == 202
-    run_id = resp.json()["id"]
-
-    # does NOT complete immediately — update_shot parks it for human approval
-    waiting = _wait_status(client, run_id, {"waiting_human", "waiting_approval"})
-    assert waiting["status"] == "waiting_human"
-    assert len(waiting["pending_proposals"]) == 1
-    proposal = waiting["pending_proposals"][0]
-    assert proposal["tool"] == "update_shot"
-    assert proposal["target_id"] == shot["id"]
-    assert proposal["base_revision"] == 1
-
-    # shot NOT yet mutated
-    assert client.get(f"/api/v1/shots/{shot['id']}").json()["revision"] == 1
-
-    _approve_run(client, run_id)
-    done = _wait_run(client, run_id)
-    assert done["status"] == "completed", done.get("result")
-
-    updated = client.get(f"/api/v1/shots/{shot['id']}").json()
-    assert updated["shot_type"] == "close_up"
-    assert updated["revision"] == 2  # revision bumped by agent mutation (via ShotService)
-
-    result = done["result"]
-    assert result["tool_count"] == 1
-    assert result["details"][0]["tool"] == "update_shot"
-
-
-def test_scenario_b_approve_then_generate(client: TestClient) -> None:
-    ctx = _make_project_shot(client)
-    shot = ctx["shots"][2]
-
-    resp = client.post(
-        "/api/v1/agent/director/runs",
-        json={
-            "project_id": ctx["project_id"],
-            "message": "改成近景然后重新生成。",
+            "message": message,
             "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
         },
     )
-    run_id = resp.json()["id"]
-    _approve_run(client, run_id)
+    assert resp.status_code == 202
+    return resp.json()["id"]
+
+
+# ---------- Scenario A: R1 auto-apply + ChangeSet ----------
+
+def test_scenario_a_auto_applies_and_records_change_set(client: TestClient) -> None:
+    """P2-E3-T02/T03: R1 update_shot applies directly (no approval fatigue) and
+    leaves an undoable ChangeSet."""
+    from app.events.bus import EVENT_AGENT_APPROVAL_REQUIRED
+
+    ctx = _make_project_shot(client)
+    shot = ctx["shots"][1]  # "Shot 05"
+
+    collected, cb = _subscribe_events({EVENT_AGENT_APPROVAL_REQUIRED})
+    run_id = _run_director(client, ctx, "把这个镜头改成近景。", shot)
+
     done = _wait_run(client, run_id)
     assert done["status"] == "completed", done.get("result")
+    _unsubscribe(cb)
+    # R1 → no approval was ever requested
+    assert collected == []
 
     updated = client.get(f"/api/v1/shots/{shot['id']}").json()
     assert updated["shot_type"] == "close_up"
+    assert updated["revision"] == 2
+
+    # no proposal was created; the mutation is recorded as an undoable change set
+    assert client.get(f"/api/v1/agent/runs/{run_id}/proposals").json() == []
+    change_sets = client.get(
+        "/api/v1/agent/change-sets", params={"run_id": run_id}
+    ).json()
+    assert len(change_sets) == 1
+    cs = change_sets[0]
+    assert cs["tool"] == "update_shot"
+    assert cs["entity_id"] == shot["id"]
+    assert cs["revision_before"] == 1
+    assert cs["revision_after"] == 2
+    assert cs["before"] == {"shot_type": "medium"}
+    assert cs["after"] == {"shot_type": "close_up"}
+    assert cs["undone"] is False
+
+
+def test_scenario_a_undo_restores_previous_value(client: TestClient) -> None:
+    """P2-E3-T03: undo applies the recorded before-values as a NEW compensating
+    change — revision+1, history untouched."""
+    ctx = _make_project_shot(client)
+    shot = ctx["shots"][0]
+    run_id = _run_director(client, ctx, "把这个镜头改成近景。", shot)
+    _wait_run(client, run_id)
+
+    cs_id = client.get("/api/v1/agent/change-sets", params={"run_id": run_id}).json()[0]["id"]
+    undone = client.post(f"/api/v1/agent/change-sets/{cs_id}/undo", json={"force": False}).json()
+
+    restored = client.get(f"/api/v1/shots/{shot['id']}").json()
+    assert restored["shot_type"] == "medium"
+    assert restored["revision"] == 3  # 1 → agent 2 → undo 3
+
+    # the compensating change set + the original's terminal undo state
+    all_cs = client.get("/api/v1/agent/change-sets", params={"run_id": run_id}).json()
+    assert undone["source"] == "undo"
+    assert undone["before"] == {"shot_type": "close_up"}
+    assert undone["after"] == {"shot_type": "medium"}
+    original = next(c for c in all_cs if c["id"] == cs_id)
+    assert original["undone"] is True
+    assert original["undone_by_change_set_id"] == undone["id"]
+
+    # undo is idempotent-terminal: second undo → 409
+    again = client.post(f"/api/v1/agent/change-sets/{cs_id}/undo", json={"force": False})
+    assert again.status_code == 409
+
+
+# ---------- Scenario B: R1 apply + R2 approval + resume ----------
+
+def test_scenario_b_approve_generation_then_complete(client: TestClient) -> None:
+    """update auto-applies; generate_image parks for approval → resume approve →
+    Generation created, run completed."""
+    ctx = _make_project_shot(client)
+    shot = ctx["shots"][2]
+    run_id = _run_director(client, ctx, "改成近景然后重新生成。", shot)
+
+    waiting = _wait_pending(client, run_id)
+    assert waiting["status"] == "waiting_human"
+    assert len(waiting["pending_proposals"]) == 1
+    proposal = waiting["pending_proposals"][0]
+    assert proposal["tool"] == "generate_image"
+
+    # R2 red line: NO generation row exists before approval (P2-E3-T02)
+    assert client.get(f"/api/v1/shots/{shot['id']}/generations").json() == []
+
+    # R1 part already applied while waiting
+    updated = client.get(f"/api/v1/shots/{shot['id']}").json()
+    assert updated["shot_type"] == "close_up"
+
+    client.post(f"/api/v1/agent/runs/{run_id}/resume", json={"decision": "approve"})
+    done = _wait_run(client, run_id)
+    assert done["status"] == "completed", done.get("result")
 
     tools = [d["tool"] for d in done["result"]["details"]]
     assert "update_shot" in tools
     assert "generate_image" in tools
     assert done["result"]["generation_submitted"] == 1
 
-    # generation actually queued in the DB (worker may have completed it already — that's fine)
     generations = client.get(f"/api/v1/shots/{shot['id']}/generations").json()
     assert len(generations) >= 1
     assert generations[0]["type"] == "image"
 
 
-def test_reject_proposal_does_not_apply(client: TestClient) -> None:
-    """Scenario A + reject: the shot is NOT modified and the proposal is marked rejected."""
+def test_reject_generation_proposal_no_generation(client: TestClient) -> None:
+    """Scenario B + reject: the generation is never created."""
     ctx = _make_project_shot(client)
     shot = ctx["shots"][1]
+    run_id = _run_director(client, ctx, "重新生成这个镜头。", shot)
 
-    resp = client.post(
-        "/api/v1/agent/director/runs",
-        json={
-            "project_id": ctx["project_id"],
-            "message": "把这个镜头改成近景。",
-            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
-        },
-    )
-    run_id = resp.json()["id"]
-    waiting = _wait_status(client, run_id, {"waiting_human", "waiting_approval"})
+    waiting = _wait_pending(client, run_id)
     assert len(waiting["pending_proposals"]) == 1
 
     client.post(f"/api/v1/agent/runs/{run_id}/resume", json={"decision": "reject"})
     done = _wait_run(client, run_id)
     assert done["status"] == "completed"
 
-    updated = client.get(f"/api/v1/shots/{shot['id']}").json()
-    assert updated["shot_type"] == "medium"  # unchanged
-    assert updated["revision"] == 1
-
+    assert client.get(f"/api/v1/shots/{shot['id']}/generations").json() == []
     proposals = client.get(f"/api/v1/agent/runs/{run_id}/proposals").json()
     assert proposals[0]["status"] == "rejected"
+    assert done["result"]["generation_submitted"] == 0
 
 
-def test_approve_proposal_endpoint_applies_shot(client: TestClient) -> None:
-    """Approve through the proposal endpoint (not resume): ShotService applies."""
+# ---------- R2 approval semantics ----------
+
+def test_generate_image_requires_approval_r2(client: TestClient) -> None:
+    """P2-E3-T02: R2 generate_image parks the run with a risk-graded proposal."""
+    from app.events.bus import EVENT_AGENT_APPROVAL_REQUIRED, EVENT_AGENT_PROPOSAL_CREATED
+
     ctx = _make_project_shot(client)
     shot = ctx["shots"][0]
+    collected, cb = _subscribe_events({EVENT_AGENT_APPROVAL_REQUIRED, EVENT_AGENT_PROPOSAL_CREATED})
+    run_id = _run_director(client, ctx, "重新生成第1镜。", shot)
 
-    resp = client.post(
-        "/api/v1/agent/director/runs",
-        json={
-            "project_id": ctx["project_id"],
-            "message": "把这个镜头改成近景。",
-            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
-        },
-    )
-    run_id = resp.json()["id"]
-    waiting = _wait_status(client, run_id, {"waiting_human", "waiting_approval"})
+    waiting = _wait_pending(client, run_id)
+    assert waiting["status"] == "waiting_human"
+    proposal = waiting["pending_proposals"][0]
+    assert proposal["tool"] == "generate_image"
+    assert proposal["base_revision"] == 1
+
+    _unsubscribe(cb)
+    prop_events = [e for e in collected if e["type"] == EVENT_AGENT_PROPOSAL_CREATED]
+    approve_events = [e for e in collected if e["type"] == EVENT_AGENT_APPROVAL_REQUIRED]
+    assert len(prop_events) == 1
+    assert len(approve_events) >= 1
+    payload = approve_events[0]["payload"]
+    # structured risk metadata surfaces to the approval card (task AC)
+    assert payload["risk_level"] == "R2"
+    assert payload["estimated_tasks"] == 1
+    assert payload["irreversible"] is False
+    assert payload["expires_at"]
+
+    # no generation created before approval
+    assert client.get(f"/api/v1/shots/{shot['id']}/generations").json() == []
+
+
+def test_approve_generation_proposal_endpoint_creates_generation(client: TestClient) -> None:
+    """Approve through the proposal endpoint (not resume): the Generation is created."""
+    ctx = _make_project_shot(client)
+    shot = ctx["shots"][0]
+    run_id = _run_director(client, ctx, "重新生成第1镜。", shot)
+    waiting = _wait_pending(client, run_id)
     proposal_id = waiting["pending_proposals"][0]["id"]
 
     approved = client.post(f"/api/v1/agent/proposals/{proposal_id}/approve").json()
     assert approved["status"] == "applied"
+    assert approved["risk_level"] == "R2"
 
-    updated = client.get(f"/api/v1/shots/{shot['id']}").json()
-    assert updated["shot_type"] == "close_up"
-    assert updated["revision"] == 2
-
-    proposals = client.get(f"/api/v1/agent/runs/{run_id}/proposals").json()
-    assert proposals[0]["status"] == "applied"
+    generations = client.get(f"/api/v1/shots/{shot['id']}/generations").json()
+    assert len(generations) == 1
+    assert generations[0]["type"] == "image"
 
 
-def test_base_revision_conflict_at_apply(client: TestClient) -> None:
-    """P7-T016: a user edit between proposal and approve → conflict, user edit NOT overwritten."""
+def test_base_revision_conflict_blocks_generation(client: TestClient) -> None:
+    """P7-T016 (R2 form): a user edit between proposal and approve → conflict, no generation."""
     ctx = _make_project_shot(client)
     shot = ctx["shots"][1]
-
-    resp = client.post(
-        "/api/v1/agent/director/runs",
-        json={
-            "project_id": ctx["project_id"],
-            "message": "把这个镜头改成近景。",
-            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
-        },
-    )
-    run_id = resp.json()["id"]
-    waiting = _wait_status(client, run_id, {"waiting_human", "waiting_approval"})
+    run_id = _run_director(client, ctx, "重新生成这个镜头。", shot)
+    waiting = _wait_pending(client, run_id)
     assert waiting["pending_proposals"][0]["base_revision"] == 1
 
     # user edits the shot while the proposal is pending (revision 1 → 2)
     client.patch(f"/api/v1/shots/{shot['id']}", json={"revision": 1, "patch": {"emotion": "tense"}})
-    current = client.get(f"/api/v1/shots/{shot['id']}").json()
-    assert current["revision"] == 2
 
     client.post(f"/api/v1/agent/runs/{run_id}/resume", json={"decision": "approve"})
-    done = _wait_run(client, run_id)
-    assert done["status"] == "completed"
+    _wait_run(client, run_id)
 
-    # the agent did NOT overwrite the user edit; proposal is conflict
-    updated = client.get(f"/api/v1/shots/{shot['id']}").json()
-    assert updated["revision"] == 2
-    assert updated["emotion"] == "tense"
-    assert updated["shot_type"] == "medium"  # agent's change NOT applied
-
+    # the agent did NOT create a generation over a changed shot
+    assert client.get(f"/api/v1/shots/{shot['id']}/generations").json() == []
     proposals = client.get(f"/api/v1/agent/runs/{run_id}/proposals").json()
     assert proposals[0]["status"] == "conflict"
+    updated = client.get(f"/api/v1/shots/{shot['id']}").json()
+    assert updated["emotion"] == "tense"  # user edit preserved
 
 
 def test_schema_invalid_proposal_rejected_422(client: TestClient) -> None:
@@ -261,6 +313,8 @@ def test_schema_invalid_proposal_rejected_422(client: TestClient) -> None:
             pytest.fail("expected 422 for illegal field")
 
 
+# ---------- Scenario C: clarification ----------
+
 def test_scenario_c_no_selection_requires_clarification(client: TestClient) -> None:
     ctx = _make_project_shot(client)
 
@@ -284,7 +338,7 @@ def test_scenario_c_no_selection_requires_clarification(client: TestClient) -> N
 
 
 def test_scenario_a_explicit_shot_number_wins_over_selection(client: TestClient) -> None:
-    """Contract §79: explicit language > selection."""
+    """Contract §79: explicit language > selection. R1 applies without approval."""
     ctx = _make_project_shot(client)
     selected = ctx["shots"][0]
     target = ctx["shots"][2]  # "第3镜"
@@ -298,7 +352,6 @@ def test_scenario_a_explicit_shot_number_wins_over_selection(client: TestClient)
         },
     )
     run_id = resp.json()["id"]
-    _approve_run(client, run_id)
     done = _wait_run(client, run_id)
     assert done["status"] == "completed"
 
@@ -409,7 +462,6 @@ def test_ambiguous_shot_number_resolved_by_selected_scene(client: TestClient) ->
         },
     )
     run_id = resp.json()["id"]
-    _approve_run(client, run_id)
     done = _wait_run(client, run_id)
     assert done["status"] == "completed", done.get("result")
 
@@ -442,8 +494,6 @@ def test_concurrent_runs_do_not_cross_selection(client: TestClient) -> None:
         },
     ).json()
 
-    _approve_run(client, r1["id"])
-    _approve_run(client, r2["id"])
     done1 = _wait_run(client, r1["id"])
     done2 = _wait_run(client, r2["id"])
     assert done1["status"] == "completed" and done2["status"] == "completed"
@@ -561,9 +611,10 @@ def test_cancel_before_graph_stops_everything(client: TestClient, monkeypatch) -
     done = _wait_run(client, run_id)
     assert done["status"] == "cancelled"
 
-    # shot untouched (revision 1), no generation rows
+    # shot untouched (revision 1), no generation rows, no change sets
     assert client.get(f"/api/v1/shots/{shot['id']}").json()["revision"] == 1
     assert client.get(f"/api/v1/shots/{shot['id']}/generations").json() == []
+    assert client.get("/api/v1/agent/change-sets", params={"run_id": run_id}).json() == []
 
     collected, cb = _subscribe_events(
         {EVENT_AGENT_RUN_CANCELLED, EVENT_AGENT_RUN_COMPLETED, EVENT_AGENT_TOOL_STARTED}
@@ -590,28 +641,6 @@ def test_cancel_before_graph_stops_everything(client: TestClient, monkeypatch) -
     assert completed_events == []
     assert tool_events == []
     _unsubscribe(cb)
-
-
-def test_generate_image_requires_no_approval(client: TestClient) -> None:
-    """P7-T013: generate_image (and get_shot) do NOT produce proposals — the run
-    completes directly and a Generation is queued."""
-    ctx = _make_project_shot(client)
-    shot = ctx["shots"][0]
-
-    resp = client.post(
-        "/api/v1/agent/director/runs",
-        json={
-            "project_id": ctx["project_id"],
-            "message": "重新生成第1镜。",
-            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
-        },
-    )
-    run_id = resp.json()["id"]
-    done = _wait_run(client, run_id)  # should complete WITHOUT waiting for approval
-    assert done["status"] == "completed", done.get("result")
-    assert done["result"]["generation_submitted"] == 1
-    proposals = client.get(f"/api/v1/agent/runs/{run_id}/proposals").json()
-    assert proposals == []
 
 
 def test_current_stage_updates_while_running(client: TestClient, monkeypatch) -> None:
@@ -651,13 +680,14 @@ def test_current_stage_updates_while_running(client: TestClient, monkeypatch) ->
             break
         time.sleep(0.02)
 
+    # the LLM-slowed understand stage is observably reported; the R1 auto-apply
+    # makes execute/review too fast to reliably catch between polls.
     assert "understand" in observed
-    assert "execute" in observed
 
 
-def test_shot_updated_event_when_agent_proposal_applied(client: TestClient) -> None:
-    """P7-T015: after approving an update proposal, shot.updated carries source=agent
-    and run_id (apply goes through ShotService, which emits the event)."""
+def test_shot_updated_event_when_agent_applies(client: TestClient) -> None:
+    """P7-T015 semantics (R1 auto-apply): the applied shot.updated carries
+    source=agent and run_id (apply goes through ShotService, which emits the event)."""
     from app.events.bus import EVENT_SHOT_UPDATED
 
     _cancel_requested.clear()
@@ -665,16 +695,7 @@ def test_shot_updated_event_when_agent_proposal_applied(client: TestClient) -> N
     shot = ctx["shots"][1]
 
     collected, cb = _subscribe_events({EVENT_SHOT_UPDATED})
-    resp = client.post(
-        "/api/v1/agent/director/runs",
-        json={
-            "project_id": ctx["project_id"],
-            "message": "把这个镜头改成近景。",
-            "selection": {"shot_ids": [shot["id"]], "scene_id": ctx["scene_id"]},
-        },
-    )
-    run_id = resp.json()["id"]
-    _approve_run(client, run_id)
+    run_id = _run_director(client, ctx, "把这个镜头改成近景。", shot)
     _wait_run(client, run_id)
     _unsubscribe(cb)
 

@@ -31,6 +31,28 @@ class VoiceoverGenerateRequest(BaseModel):
     rate: str | None = None  # e.g. "+10%" / "-5%"
 
 
+class VoiceoverBatchItem(BaseModel):
+    """One successfully queued voiceover inside a batch (C1 整轨批量配音)."""
+
+    clip_id: str
+    generation_id: str
+    text_head: str | None = None
+
+
+class VoiceoverBatchResult(BaseModel):
+    """Batch result of POST /timelines/{id}/generate-voiceovers (C1).
+
+    submitted: clips that got a new type="audio" generation queued.
+    skipped_no_text: VOICE clips without text (clip.text blank).
+    already_bound: VOICE clips already bound to an AUDIO asset (won't re-generate).
+    """
+
+    timeline_id: str
+    submitted: list[VoiceoverBatchItem] = Field(default_factory=list)
+    skipped_no_text: list[str] = Field(default_factory=list)
+    already_bound: list[str] = Field(default_factory=list)
+
+
 class GenerationRead(BaseModel):
     id: str
     project_id: str

@@ -73,7 +73,12 @@ def test_preview_analysis_returns_scene_plans(client: TestClient) -> None:
     _, episode_id = create_episode_with_source(client)
     resp = client.post(f"/api/v1/episodes/{episode_id}/analyze/preview")
     assert resp.status_code == 200
-    plans = resp.json()
+    body = resp.json()
+    # P2-E1-T01: preview returns an envelope with the persisted snapshot id.
+    assert body["snapshot_id"]
+    assert body["episode_id"] == episode_id
+    assert body["source_hash"]
+    plans = body["plans"]
     assert len(plans) >= 2
     first = plans[0]
     assert first["scene_number"] == 1

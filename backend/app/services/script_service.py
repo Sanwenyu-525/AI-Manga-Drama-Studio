@@ -3,6 +3,17 @@
 - analyze_episode: source_text → LLM ScenePlan[] → persist scenes (after user preview/confirm)
 - generate_shot_plans: scene → LLM ShotPlan[] → persist shots via ShotService
 
+P2-E1-T01 (Analysis Snapshot):
+
+- preview_analysis persists an IMMUTABLE AnalysisSnapshot (plans + source_hash +
+  episode_revision + provenance). Confirm submits the snapshot_id and writes
+  EXACTLY the reviewed plans — no second LLM call, so real-model nondeterminism
+  can never make the persisted content differ from what the user previewed
+  (Sprint 04 evidence: two independent LLM calls per preview/confirm pair).
+- Confirm is idempotent (a confirmed snapshot replays its created_scene_ids)
+  and expires (409) when the source text or episode revision changed after
+  preview — the user must re-preview.
+
 P1-E1-T01 (修复 AI 计划映射与批量写入事务):
 
 - Plans are mapped to domain creates through ONE explicit mapper
@@ -23,13 +34,23 @@ Depends on the LLMGateway protocol only — never on a concrete model (red line)
 from __future__ import annotations
 
 import hashlib
+import json
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.logging import get_logger
-from app.db.models import Episode, Scene
-from app.domain.analysis import AnalysisResult, ScenePlan, ShotPlan, ShotPlanResult
+from app.db.models import AnalysisSnapshot, Episode, Scene
+from app.db.models.analysis import ANALYSIS_PROMPT_VERSION, ANALYSIS_SCHEMA_VERSION
+from app.domain.analysis import (
+    AnalysisPreview,
+    AnalysisResult,
+    ScenePlan,
+    ShotPlan,
+    ShotPlanResult,
+    SnapshotRead,
+)
 from app.events.bus import EVENT_SCENE_CREATED, EVENT_SHOT_CREATED, StudioEvent, bus
 from app.llm.gateway import LLMGateway
 from app.repositories import EpisodeRepository, SceneRepository
@@ -62,6 +83,10 @@ SHOT_PLAN_SYSTEM_PROMPT = (
 # real models are non-deterministic). Keys are hex prefixes stored on the rows.
 _ANALYSIS_SOURCE_CAP = 6000  # hard cap for context budget (must match the prompt)
 _KEY_LENGTH = 16
+
+# Setting-document digest budget (mvp-spec DOC-004): injected BEFORE the source
+# text and included in the idempotency key, so a changed setting re-analyzes.
+_DOCUMENT_DIGEST_CAP = 2000
 
 
 class ScriptService:
@@ -133,10 +158,169 @@ class ScriptService:
             created_scene_ids=[s.id for s in scenes],
         )
 
-    async def preview_analysis(self, episode_id: str) -> list[ScenePlan]:
-        """LLM analysis WITHOUT persisting — for the Review-before-commit UX (mvp-spec §60)."""
+    async def preview_analysis(self, episode_id: str) -> AnalysisPreview:
+        """P2-E1-T01: LLM analysis persisted as an IMMUTABLE snapshot.
+
+        The plans the user reviews are exactly the plans a later confirm writes
+        (confirm reads the snapshot; it never calls the LLM again). Also lets the
+        frontend rehydrate the preview after a refresh (AC: 刷新后可读取状态).
+        """
         episode = self._require_episode_with_source(episode_id)
-        return await self._request_scene_plans(episode)
+        plans = await self._request_scene_plans(episode)
+        snapshot = AnalysisSnapshot(
+            episode_id=episode_id,
+            source_hash=self._episode_analysis_key(episode),
+            episode_revision=episode.revision,
+            plan_json=json.dumps(
+                [p.model_dump() for p in plans], ensure_ascii=False
+            ),
+            model=self._script_model_provenance(),
+            prompt_version=ANALYSIS_PROMPT_VERSION,
+            schema_version=ANALYSIS_SCHEMA_VERSION,
+            status="pending",
+        )
+        self.session.add(snapshot)
+        self.session.commit()
+        logger.info(
+            "episode %s preview snapshot %s persisted (%d plans, model=%s)",
+            episode_id, snapshot.id, len(plans), snapshot.model,
+        )
+        return AnalysisPreview(
+            snapshot_id=snapshot.id,
+            episode_id=episode_id,
+            source_hash=snapshot.source_hash,
+            plans=plans,
+            model=snapshot.model,
+        )
+
+    async def confirm_snapshot(self, episode_id: str, snapshot_id: str) -> AnalysisResult:
+        """P2-E1-T01: write the reviewed snapshot plans — ZERO LLM calls.
+
+        - Idempotent: a confirmed snapshot replays its created_scene_ids.
+        - Expired (409): source text or episode revision changed since preview
+          (the LLM input would differ from what the user reviewed).
+        - Write semantics identical to analyze_episode (replace AI scenes,
+          preserve manual ones, all-or-nothing, commit then publish).
+        """
+        snapshot = self.session.get(AnalysisSnapshot, snapshot_id)
+        if snapshot is None:
+            raise NotFoundError("Analysis snapshot does not exist.", {"snapshot_id": snapshot_id})
+        if snapshot.episode_id != episode_id:
+            raise ValidationError(
+                "Snapshot belongs to a different episode.",
+                {"snapshot_id": snapshot_id, "episode_id": episode_id},
+            )
+
+        plans = [ScenePlan.model_validate(p) for p in json.loads(snapshot.plan_json)]
+
+        if snapshot.status == "confirmed":
+            logger.info("snapshot %s confirm idempotent: replaying scene ids", snapshot_id)
+            return AnalysisResult(
+                episode_id=episode_id,
+                scene_plans=plans,
+                created_scene_ids=json.loads(snapshot.created_scene_ids_json or "[]"),
+            )
+        if snapshot.status == "expired":
+            raise ConflictError(
+                "Analysis snapshot has expired. Re-run the preview.",
+                {"snapshot_id": snapshot_id, "reason": "expired"},
+            )
+
+        episode = self._require_episode_with_source(episode_id)
+        current_hash = self._episode_analysis_key(episode)
+        if current_hash != snapshot.source_hash or episode.revision != snapshot.episode_revision:
+            snapshot.status = "expired"
+            self.session.commit()
+            raise ConflictError(
+                "Episode changed after the preview. Re-run the preview.",
+                {
+                    "snapshot_id": snapshot_id,
+                    "reason": "source_changed" if current_hash != snapshot.source_hash else "revision_changed",
+                    "preview_revision": snapshot.episode_revision,
+                    "current_revision": episode.revision,
+                },
+            )
+
+        # --- persist exactly the reviewed plans (same write path as analyze_episode)
+        try:
+            self._replace_ai_scenes(episode_id)
+            # flush 软删后统一重编号（同 analyze_episode：避免撞唯一索引）。
+            self.session.flush()
+            next_number = self.scenes.next_scene_number(episode_id)
+            creates = []
+            for offset, plan in enumerate(plans):
+                data = scene_plan_to_create(plan)
+                data.scene_number = next_number + offset
+                creates.append(data)
+            scenes = self.scene_service.create_scenes(
+                episode_id, creates, analysis_key=snapshot.source_hash
+            )
+            # flush 让 Python 侧 uuid 主键生效（json.dumps 在 commit 前需要真实 id）。
+            self.session.flush()
+            episode.analysis_key = snapshot.source_hash
+            snapshot.status = "confirmed"
+            snapshot.created_scene_ids_json = json.dumps([s.id for s in scenes])
+            from app.db.models.columns import utcnow_iso
+
+            snapshot.confirmed_at = utcnow_iso()
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+            raise
+        for scene in scenes:
+            bus.publish(
+                StudioEvent(
+                    event_type=EVENT_SCENE_CREATED,
+                    entity_type="scene",
+                    entity_id=scene.id,
+                    project_id=episode.project_id,
+                )
+            )
+        logger.info(
+            "episode %s confirmed from snapshot %s: %d scenes (no LLM call)",
+            episode_id, snapshot_id, len(scenes),
+        )
+        return AnalysisResult(
+            episode_id=episode_id,
+            scene_plans=plans,
+            created_scene_ids=[s.id for s in scenes],
+        )
+
+    def get_latest_snapshot(self, episode_id: str) -> SnapshotRead | None:
+        """Newest snapshot for an episode (refresh rehydration / audit)."""
+        stmt = (
+            select(AnalysisSnapshot)
+            .where(AnalysisSnapshot.episode_id == episode_id)
+            .order_by(AnalysisSnapshot.created_at.desc())
+            .limit(20)
+        )
+        rows = list(self.session.scalars(stmt))
+        if not rows:
+            return None
+        snap = rows[0]
+        return SnapshotRead(
+            id=snap.id,
+            episode_id=snap.episode_id,
+            source_hash=snap.source_hash,
+            episode_revision=snap.episode_revision,
+            status=snap.status,
+            plans=[ScenePlan.model_validate(p) for p in json.loads(snap.plan_json)],
+            model=snap.model,
+            prompt_version=snap.prompt_version,
+            schema_version=snap.schema_version,
+            created_scene_ids=json.loads(snap.created_scene_ids_json or "[]"),
+            created_at=snap.created_at,
+        )
+
+    @staticmethod
+    def _script_model_provenance() -> str | None:
+        """Best-effort model name for the script task (never breaks preview)."""
+        try:
+            from app.services.llm_settings_service import get_task_llm_config
+
+            return get_task_llm_config("script").get("model")
+        except Exception:  # noqa: BLE001 — provenance is advisory
+            return None
 
     def _replace_ai_scenes(self, episode_id: str) -> None:
         """Soft-delete previous AI-created scenes (analysis_key IS NOT NULL) and their
@@ -161,19 +345,33 @@ class ScriptService:
         return episode
 
     async def _request_scene_plans(self, episode: Episode) -> list[ScenePlan]:
-        source = (episode.source_text or "")[:_ANALYSIS_SOURCE_CAP]
         prompt = (
             f"剧集标题：{episode.title or episode.episode_number}\n"
-            f"小说/剧本原文：\n{source}\n\n"
+            f"{self._analysis_input(episode)}\n\n"
             "请输出场景列表。"
         )
         return await self.llm.structured_list(ScenePlan, ANALYZE_SYSTEM_PROMPT, prompt)  # type: ignore[return-value]
 
-    @staticmethod
-    def _episode_analysis_key(episode: Episode) -> str:
-        """Hash of the exact LLM input for episode analysis (truncated source text)."""
+    def _analysis_input(self, episode: Episode) -> str:
+        """The EXACT LLM input for episode analysis: setting-document digest + source.
+
+        Single source of truth shared by _request_scene_plans and the idempotency
+        key, so the key always reflects exactly what was analyzed (mvp-spec DOC-004:
+        a changed setting document changes the key → re-analysis; P2-E1-T01 snapshots
+        then expire on the old source_hash).
+        """
+        from app.services.document_service import DocumentService
+
+        digest = DocumentService(self.session).render_digest(
+            episode.project_id, max_chars=_DOCUMENT_DIGEST_CAP
+        )
         source = (episode.source_text or "")[:_ANALYSIS_SOURCE_CAP]
-        return hashlib.sha256(source.encode("utf-8")).hexdigest()[:_KEY_LENGTH]
+        head = f"设定文档（项目归档，仅供参考）：\n{digest}\n\n" if digest else ""
+        return f"{head}小说/剧本原文：\n{source}"
+
+    def _episode_analysis_key(self, episode: Episode) -> str:
+        """Hash of the exact LLM input for episode analysis (digest + truncated source)."""
+        return hashlib.sha256(self._analysis_input(episode).encode("utf-8")).hexdigest()[:_KEY_LENGTH]
 
     # --- shot planning ---
 

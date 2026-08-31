@@ -1,10 +1,11 @@
 """Episode API (api-event-contract §13-15, §18; mvp-spec §33, §59)."""
 
 from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_script_llm
-from app.domain.analysis import ScenePlan
+from app.domain.analysis import AnalysisPreview, SnapshotRead
 from app.domain.episode import (
     EpisodeCreate,
     EpisodeRead,
@@ -58,14 +59,36 @@ def delete_episode(episode_id: str, db: Session = Depends(get_db)) -> dict:
     return {"id": episode_id, "deleted": True}
 
 
-@router.post("/episodes/{episode_id}/analyze/preview", response_model=list[ScenePlan])
+@router.post("/episodes/{episode_id}/analyze/preview", response_model=AnalysisPreview)
 async def preview_analysis(
     episode_id: str,
     db: Session = Depends(get_db),
     llm: LLMGateway = Depends(get_script_llm),
-) -> list[ScenePlan]:
-    """AI analysis WITHOUT persisting — Review-before-commit UX (mvp-spec §60)."""
+) -> AnalysisPreview:
+    """P2-E1-T01: preview persists an immutable snapshot; confirm submits its id.
+
+    The response envelope carries {snapshot_id, plans, source_hash, model} — the
+    plans are EXACTLY what a later confirm writes (no second LLM call).
+    """
     return await ScriptService(db, llm).preview_analysis(episode_id)
+
+
+@router.get("/episodes/{episode_id}/analysis-snapshots/latest", response_model=SnapshotRead | None)
+def get_latest_analysis_snapshot(
+    episode_id: str,
+    db: Session = Depends(get_db),
+) -> SnapshotRead | None:
+    """P2-E1-T01: newest snapshot (any status) — refresh rehydration + audit."""
+    return ScriptService(db, None).get_latest_snapshot(episode_id)  # type: ignore[arg-type]
+
+
+class AnalyzeRequest(BaseModel):
+    """P2-E1-T01: confirm a reviewed preview snapshot (no LLM re-analysis).
+
+    Omitted snapshot_id keeps the legacy behavior (analyze calls the LLM itself).
+    """
+
+    snapshot_id: str | None = None
 
 
 @router.post(
@@ -74,11 +97,18 @@ async def preview_analysis(
 )
 async def analyze_episode(
     episode_id: str,
+    body: AnalyzeRequest | None = None,
     db: Session = Depends(get_db),
     llm: LLMGateway = Depends(get_script_llm),
 ) -> dict:
-    """202 + operation_id; the job persists scenes when finished (contract §14-15)."""
+    """202 + operation_id; the job persists scenes when finished (contract §14-15).
+
+    P2-E1-T01: with {snapshot_id} the job writes the REVIEWED snapshot plans
+    (zero LLM calls, idempotent replay, 409 when the episode changed since
+    preview). Without it, the legacy re-analysis path runs.
+    """
     episode = EpisodeService(db).get_episode(episode_id)
+    snapshot_id = (body.snapshot_id or "").strip() if body is not None else None
     op = operation_store.create("episode_analysis", project_id=episode.project_id)
 
     async def job() -> dict:
@@ -87,7 +117,11 @@ async def analyze_episode(
         async with operation_store.lock_for(f"analyze:{episode_id}"):
             factory = session_factory_provider()
             with factory() as session:
-                result = await ScriptService(session, llm).analyze_episode(episode_id)
+                service = ScriptService(session, llm)
+                if snapshot_id:
+                    result = await service.confirm_snapshot(episode_id, snapshot_id)
+                else:
+                    result = await service.analyze_episode(episode_id)
                 return result.model_dump()
 
     operation_store.start(op["id"], job)

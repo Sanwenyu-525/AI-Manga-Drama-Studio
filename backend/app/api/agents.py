@@ -5,7 +5,7 @@ internals directly. P7 additions: resume with a human decision (T017/T018),
 proposal listing + approve/reject (T012/T015).
 """
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Query, status
 
 from app.agents.gateway import gateway
 from app.agents.director.runner import get_run, resume_run
@@ -13,7 +13,10 @@ from app.domain.agent import (
     AgentProposalRead,
     AgentRunCreate,
     AgentRunRead,
+    ChangeSetRead,
     ProposalResumeRequest,
+    UndoBatchRequest,
+    UndoRequest,
 )
 from app.domain.continuity import ContinuityCheckRequest, ContinuityFixRequest
 
@@ -71,6 +74,39 @@ def approve_proposal(proposal_id: str) -> AgentProposalRead:
 def reject_proposal(proposal_id: str) -> AgentProposalRead:
     """Reject a pending proposal: never applied, marked rejected (P7-T015)."""
     return gateway.reject_proposal(proposal_id)
+
+
+# ---------- P2-E3-T03: change sets / undo ----------
+
+@router.get("/change-sets", response_model=list[ChangeSetRead])
+def list_change_sets(
+    project_id: str | None = Query(default=None),
+    run_id: str | None = Query(default=None),
+    entity_id: str | None = Query(default=None),
+    undone: bool | None = Query(default=None),
+) -> list[ChangeSetRead]:
+    """List recorded agent mutations (minimal before/after patches), newest first.
+
+    Filter by project / run / target entity; undone=true|false filters the undo state.
+    """
+    return gateway.list_change_sets(
+        project_id=project_id, run_id=run_id, entity_id=entity_id, undone=undone
+    )
+
+
+@router.post("/change-sets/{change_set_id}/undo", response_model=ChangeSetRead)
+def undo_change_set(change_set_id: str, body: UndoRequest | None = None) -> ChangeSetRead:
+    """Undo one agent mutation: applies the recorded before-values as a NEW
+    compensating change (revision+1, history untouched). 409 with recovery details
+    when a later edit overwrote the same fields — force=true restores anyway."""
+    return gateway.undo_change_set(change_set_id, force=bool(body.force) if body else False)
+
+
+@router.post("/runs/{run_id}/change-sets/undo")
+def undo_run_change_sets(run_id: str, body: UndoBatchRequest | None = None) -> list[dict]:
+    """Undo all agent change sets of a run (newest first). Returns per-item
+    results: undone | conflict | skipped — never a half-silent batch."""
+    return gateway.undo_run_change_sets(run_id, force=bool(body.force) if body else False)
 
 
 # ---------- P8-T018/T019: Continuity Agent ----------

@@ -651,6 +651,13 @@ def _persist_output(factory: Callable, generation_id: str, project_id: str, shot
                 commit=False,  # caller-owned transaction
                 staged_files=staged,
             )
+            # P2-E3-T03: capture the pre-switch pointer for the agent change set
+            # (media versions stay immutable; only the pointer flips).
+            from app.db.models import Shot as _Shot
+
+            _shot_row = session.get(_Shot, shot_id) if shot_id else None
+            _active_before = getattr(_shot_row, f"active_{media_type}_asset_id", None) if _shot_row else None
+            _agent_run_id = generation.run_id
             version = VersionService(session).assign_version(
                 shot_id=shot_id,
                 asset=asset,
@@ -686,6 +693,33 @@ def _persist_output(factory: Callable, generation_id: str, project_id: str, shot
                 _handle_cancelled(factory, generation_id, project_id, shot_id)
                 return
             session.commit()
+
+            # P2-E3-T03: an agent-originated generation flipped the shot's active
+            # pointer — record the undoable change set AFTER the completion commit
+            # (undo switches the pointer back; media versions stay immutable).
+            # Bookkeeping failure must never fail the completed generation.
+            if _agent_run_id and shot_id:
+                try:
+                    _shot_after = session.get(_Shot, shot_id)
+                    _revision_now = _shot_after.revision if _shot_after else 1
+                except Exception:  # noqa: BLE001
+                    _revision_now = 1
+                try:
+                    with factory() as cs_session:
+                        from app.services.change_set_service import ChangeSetService
+
+                        ChangeSetService(cs_session).record_active_version(
+                            project_id=project_id,
+                            run_id=_agent_run_id,
+                            tool="generate_image",
+                            shot_id=shot_id,
+                            media_type=media_type,
+                            before_asset_id=_active_before,
+                            after_asset_id=asset.id,
+                            revision=_revision_now,
+                        )
+                except Exception:  # noqa: BLE001
+                    logger.exception("change-set recording failed for generation %s", generation_id)
 
         bus.publish(
             StudioEvent(
@@ -895,6 +929,7 @@ async def _run_render_generation(
                     source_in=float(c.get("source_in") or 0),
                     source_out=c.get("source_out"),
                     text=c.get("text"),
+                    transition=c.get("transition") or "cut",
                 )
             )
         for c in params.get("audio_clips", []):  # TASK-013: VOICE/MUSIC/SFX bed

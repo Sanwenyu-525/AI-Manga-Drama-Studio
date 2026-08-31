@@ -66,6 +66,8 @@ function makeTimeline(clipShotId: string | null = null): Timeline {
         end_time: 3,
         source_in: 0,
         source_out: null,
+        transition: "cut",
+        revision: 1,
         order_index: 0,
         enabled: 1,
         text: null,
@@ -79,6 +81,48 @@ function makeTimeline(clipShotId: string | null = null): Timeline {
           thumbnail_url: null,
           mime_type: "image/png",
         },
+        created_at: "2026-08-01T00:00:00Z",
+        updated_at: "2026-08-01T00:00:00Z",
+      },
+    ],
+  };
+}
+
+function makeVoiceTimeline(): Timeline {
+  const base = makeTimeline();
+  return {
+    ...base,
+    tracks: [
+      ...base.tracks,
+      {
+        id: "tv",
+        timeline_id: "tl1",
+        track_type: "VOICE",
+        name: null,
+        order_index: 1,
+        locked: 0,
+        muted: 0,
+        created_at: "2026-08-01T00:00:00Z",
+      },
+    ],
+    clips: [
+      ...base.clips,
+      {
+        id: "cv",
+        timeline_id: "tl1",
+        track_id: "tv",
+        asset_id: "",
+        shot_id: null,
+        start_time: 0,
+        end_time: 3,
+        source_in: 0,
+        source_out: null,
+        transition: "cut",
+        revision: 1,
+        order_index: 0,
+        enabled: 1,
+        text: "最后一种打法，要么赢，要么散。",
+        asset: null,
         created_at: "2026-08-01T00:00:00Z",
         updated_at: "2026-08-01T00:00:00Z",
       },
@@ -132,5 +176,50 @@ describe("TimelineView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "渲染 / 导出" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith("/timelines/tl1/render"));
+  });
+
+  it("C1: batch voiceover is offered for VOICE clips with text and submits", async () => {
+    const timeline = makeVoiceTimeline();
+    const get = vi.fn().mockImplementation((path: string) => {
+      if (path === "/episodes/e1/timeline") return Promise.resolve(timeline);
+      if (path === "/episodes/e1/final-video") return notFound();
+      return Promise.reject(new Error("unexpected get " + path));
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get as never);
+    const post = vi.fn().mockResolvedValue({
+      timeline_id: "tl1",
+      submitted: [{ clip_id: "cv", generation_id: "g9", text_head: "最后一种打法" }],
+      skipped_no_text: [],
+      already_bound: [],
+    });
+    vi.spyOn(client.api, "post").mockImplementation(post as never);
+
+    const { wrapper } = makeWrapper();
+    render(<TimelineView projectId="p1" episodeId="e1" />, { wrapper });
+
+    const voiceBtn = await screen.findByRole("button", { name: /整轨配音（1）/ });
+    expect(voiceBtn).toBeTruthy();
+    fireEvent.click(voiceBtn);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/timelines/tl1/generate-voiceovers"),
+    );
+    expect(await screen.findByText(/已提交 1 条配音/)).toBeTruthy();
+  });
+
+  it("C1: batch voiceover is disabled when no VOICE text target exists", async () => {
+    const timeline = makeTimeline(); // VIDEO + SUBTITLE only, no VOICE clips
+    const get = vi.fn().mockImplementation((path: string) => {
+      if (path === "/episodes/e1/timeline") return Promise.resolve(timeline);
+      if (path === "/episodes/e1/final-video") return notFound();
+      return Promise.reject(new Error("unexpected get " + path));
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get as never);
+
+    const { wrapper } = makeWrapper();
+    render(<TimelineView projectId="p1" episodeId="e1" />, { wrapper });
+
+    const voiceBtn = await screen.findByRole("button", { name: /整轨配音/ });
+    expect(voiceBtn).toBeTruthy();
+    expect(voiceBtn).toHaveProperty("disabled", true);
   });
 });

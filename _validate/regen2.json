@@ -1,0 +1,128 @@
+[
+  {
+    "engine": "agnes",
+    "key": "S1_05",
+    "reason": "action semantic drift",
+    "gen_id": "54258800-b5eb-4d0b-99ef-508d91ddfb6e",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "comfyui",
+    "key": "S1_05",
+    "reason": "action semantic drift",
+    "gen_id": "2a27067c-8596-40c1-9381-51b3ce06438d",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "agnes",
+    "key": "S1_06",
+    "reason": "object hallucination",
+    "gen_id": "b93545f7-4a98-403f-8b1c-f957c3a244df",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "comfyui",
+    "key": "S1_06",
+    "reason": "object hallucination",
+    "gen_id": "c54c15fb-6e58-4033-bb54-3f55ffabc198",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "agnes",
+    "key": "S1_07",
+    "reason": "object hallucination (billiard ball)",
+    "gen_id": "e70ee93e-a4e6-407d-873a-8b3498648bf2",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "comfyui",
+    "key": "S1_07",
+    "reason": "object hallucination (billiard ball)",
+    "gen_id": "8a581a9c-8729-4716-8d37-b922d4d8ef21",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "agnes",
+    "key": "S1_08",
+    "reason": "wrong scale + age",
+    "gen_id": "c746cc31-96a6-475f-8e6a-eeb6c6679d5c",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "comfyui",
+    "key": "S1_08",
+    "reason": "wrong scale + age",
+    "gen_id": "9c6b026c-e6e1-471b-b9a7-5b524d64a35a",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "agnes",
+    "key": "S1_10",
+    "reason": "subject mismatch (two men conspiring)",
+    "gen_id": "fe6beb74-8fa6-42d7-aa11-f686a6956258",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "comfyui",
+    "key": "S1_10",
+    "reason": "subject mismatch (two men conspiring)",
+    "gen_id": "009a6ef4-e336-4cc2-a81a-50c92b2d72f9",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "agnes",
+    "key": "S1_12",
+    "reason": "floating bottle",
+    "gen_id": "b4e48bcc-74ec-464d-a11b-c5181d8739ba",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "comfyui",
+    "key": "S1_12",
+    "reason": "floating bottle",
+    "gen_id": "32bf25d9-679b-401f-a691-e38e8c27e84e",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "agnes",
+    "key": "S1_14",
+    "reason": "environment hallucination (temple)",
+    "gen_id": "a15fdebf-e71d-4f41-895d-2f96d8592f60",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  },
+  {
+    "engine": "comfyui",
+    "key": "S1_14",
+    "reason": "environment hallucination (temple)",
+    "gen_id": "28c55931-656d-4900-8362-f9bfe5e741cc",
+    "status": "completed",
+    "error": "",
+    "downloaded": true
+  }
+]

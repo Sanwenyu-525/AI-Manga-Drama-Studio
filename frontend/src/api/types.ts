@@ -220,6 +220,22 @@ export interface ProviderStatus {
   base_url?: string;
 }
 
+/** P2-4 (Sprint 05): 最小 workflow 模板目录条目（GET /workflows）。 */
+export interface WorkflowTemplateRead {
+  id: string; // == workflow_id (compat)
+  workflow_id?: string;
+  name: string | null;
+  workflow_type: string;
+  is_default: boolean;
+  file?: string | null;
+}
+
+/** P2-4 (Sprint 05): 图片生成为该镜头显式指定引擎（provider + workflow 模板）。 */
+export interface ImageEngineChoice {
+  provider?: string;
+  workflow_id?: string;
+}
+
 // --- P1: character DTOs (database-v0.1 §7, api-event-contract §20/§88) ---
 
 export interface Character {
@@ -276,6 +292,67 @@ export interface CharacterSummary {
   name: string;
   alias: string | null;
   status: string;
+}
+
+// --- 设定文档库（database-v0.1 §32.6, api-event-contract §20.1, mvp-spec DOC-*）---
+// 项目级源内容归档：人物设定/世界观/大纲/小说原稿等自由文本设定文档，
+// Agent 分析按预算注入设定摘要。
+
+export const DOCUMENT_TYPES = [
+  "character_setting",
+  "worldview",
+  "outline",
+  "novel_draft",
+  "other",
+] as const;
+
+export const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  character_setting: "人物设定",
+  worldview: "世界观",
+  outline: "大纲",
+  novel_draft: "小说原稿",
+  other: "其他",
+};
+
+export interface SourceDocument {
+  id: string;
+  project_id: string;
+  doc_type: string;
+  title: string;
+  content: string;
+  character_id: string | null;
+  location_id: string | null;
+  costume_id: string | null;
+  source_hash: string | null;
+  status: string;
+  revision: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SourceDocumentCreate {
+  doc_type: string;
+  title: string;
+  content?: string;
+  character_id?: string | null;
+  location_id?: string | null;
+  costume_id?: string | null;
+  status?: string;
+}
+
+export interface SourceDocumentUpdatePatch {
+  doc_type?: string;
+  title?: string;
+  content?: string;
+  character_id?: string | null;
+  location_id?: string | null;
+  costume_id?: string | null;
+  status?: string;
+}
+
+export interface SourceDocumentUpdateRequest {
+  revision: number;
+  patch: SourceDocumentUpdatePatch;
 }
 
 // --- bootstrap (api-event-contract §103-104) ---
@@ -448,7 +525,7 @@ export interface AgentRunRead {
 //     1. object map  { image_prompt: { from: "旧", to: "新" } }
 //     2. single item { field: "image_prompt", from: "旧", to: "新" }
 
-export type AgentProposalStatus = "pending" | "approved" | "rejected" | "conflict";
+export type AgentProposalStatus = "pending" | "approved" | "rejected" | "conflict" | "expired";
 
 /** Normalized per-field change (output of normalizeProposalChanges). */
 export interface AgentProposalFieldChange {
@@ -470,6 +547,37 @@ export interface AgentProposal {
   changes: AgentProposalChanges;
   status: AgentProposalStatus;
   created_at?: string | null;
+  /** P2-E3-T02: risk metadata surfaced on the review card (R0..R3). */
+  risk_level?: string | null;
+  /** P2-E3-T02: why the agent wants this change (Chinese, from the planner). */
+  reason?: string | null;
+  /** P2-E3-T02: estimated follow-up task count (e.g. regeneration batch size). */
+  estimated_tasks?: number | null;
+  /** P2-E3-T02: estimated cost (provider credits); null = unknown. */
+  estimated_cost?: number | null;
+  /** P2-E3-T02: true when the change cannot be undone by a compensating change set. */
+  irreversible?: boolean;
+  /** P2-E3-T02: approval deadline — expired proposals are rejected with 409. */
+  expires_at?: string | null;
+}
+
+/** P2-E3-T03: ChangeSet — one applied agent mutation (or its undo compensation). */
+export interface AgentChangeSet {
+  id: string;
+  project_id: string;
+  run_id: string | null;
+  source: "agent" | "undo";
+  tool: string;
+  entity_type: string;
+  entity_id: string;
+  revision_before: number;
+  revision_after: number;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  undone: boolean;
+  undone_at: string | null;
+  undone_by_change_set_id: string | null;
+  created_at: string;
 }
 
 export const SHOT_TYPES = ["extreme_wide", "wide", "full", "medium", "close_up", "extreme_close_up"] as const;
@@ -836,6 +944,8 @@ export interface TimelineClip {
   end_time: number;
   source_in: number;
   source_out: number | null;
+  transition: string; // cut | fade | dissolve (P4-E3-T02)
+  revision: number; // optimistic-concurrency guard (P4-E3-T02)
   order_index: number;
   enabled: number;
   text: string | null; // subtitle/voice content
@@ -878,6 +988,7 @@ export interface TimelineClipCreate {
   end_time?: number;
   source_in?: number;
   source_out?: number | null;
+  transition?: string; // cut | fade | dissolve (P4-E3-T02)
   order_index?: number | null;
   enabled?: number;
 }
@@ -888,6 +999,8 @@ export interface TimelineClipUpdatePatch {
   end_time?: number;
   source_in?: number;
   source_out?: number | null;
+  transition?: string; // cut | fade | dissolve (P4-E3-T02)
+  revision?: number; // optimistic guard; mismatch → 409 (P4-E3-T02)
   order_index?: number;
   enabled?: number;
 }
@@ -904,6 +1017,40 @@ export interface TimelineRenderRead {
   episode_id: string | null;
   status: string;
   message: string | null;
+}
+
+// --- C1 整轨批量配音（POST /timelines/{id}/generate-voiceovers）---
+export interface VoiceoverBatchItem {
+  clip_id: string;
+  generation_id: string;
+  text_head: string | null;
+}
+
+export interface VoiceoverBatchResult {
+  timeline_id: string;
+  submitted: VoiceoverBatchItem[];
+  skipped_no_text: string[];
+  already_bound: string[];
+}
+
+// --- C2 一键成片 Pipeline（api-event-contract §15.1, mvp-spec DOC-C2）---
+export interface PipelineRead {
+  id: string;
+  episode_id: string;
+  project_id: string;
+  status: string; // running | waiting_confirm | completed | failed
+  current_stage: string | null;
+  stages: Record<string, string>; // {analyze|shots|images|timeline|render: done|pending}
+  snapshot_id: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PipelineRunRead {
+  pipeline: PipelineRead;
+  plans: ScenePlan[] | null;
+  pending_shot_ids: string[];
 }
 
 /** Latest rendered episode export (FINAL_VIDEO asset) — the deliverable. */

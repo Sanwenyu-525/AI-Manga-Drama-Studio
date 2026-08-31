@@ -308,7 +308,13 @@ async def review_node(state: DirectorState) -> DirectorState:
             },
         }
     failures = [r for r in results if not r["result"].get("success")]
-    generated = [r for r in results if r["tool"] == "generate_image" and r["result"].get("success")]
+    # P2-E3-T02: count only actually-submitted generations — a step that only
+    # CREATED a proposal (or was already decided on a resume re-run) queued nothing.
+    generated = [
+        r
+        for r in results
+        if r["tool"] == "generate_image" and (r["result"].get("data") or {}).get("generation_id")
+    ]
 
     final: dict[str, Any] = {
         "summary": _summarize(results),
@@ -332,7 +338,10 @@ def _summarize(results: list[dict[str, Any]]) -> str:
                 fields = r["result"].get("changed_fields") or []
                 parts.append(f"已修改镜头 {r['arguments'].get('shot_id', '')[-4:]}（{', '.join(fields)}）" if fields else "镜头无实际变化")
         elif tool == "generate_image":
-            parts.append("已提交图片生成任务（不等待完成）")
+            if r["result"].get("proposal_created"):
+                parts.append("已提交图片生成方案待审批（R2）")
+            else:
+                parts.append("已提交图片生成任务（不等待完成）")
         elif tool == "get_shot":
             parts.append("已读取镜头信息")
     return "；".join(parts) or "没有执行任何操作。"

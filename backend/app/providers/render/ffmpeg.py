@@ -54,11 +54,35 @@ def escape_subtitles_path(path: Path) -> str:
     return f"subtitles='{escaped}'"
 
 
+# P4-E3-T02 (AC-2): basic transition at a clip's head (fade/dissolve cross-fade).
+TRANSITION_DURATION = 0.5  # seconds
+
+
+def _transition_duration(clips: list, k: int) -> float:
+    """Cross-fade length for the transition INTO clips[k] (clamped to both clips)."""
+    return min(TRANSITION_DURATION, clips[k - 1].end - clips[k - 1].start, clips[k].end - clips[k].start)
+
+
+def effective_duration(clips: list) -> float:
+    """Total visual-program length minus the overlap consumed by cross-fades."""
+    total = sum(c.end - c.start for c in clips)
+    for k in range(1, len(clips)):
+        if clips[k].transition in ("fade", "dissolve"):
+            total -= _transition_duration(clips, k)
+    return total
+
+
 def build_filter_complex(
     request: RenderRequest,
     srt_path: Path | None,
 ) -> tuple[list[str], list[str]]:
-    """Pure graph builder (unit-testable): filter parts + output stream labels."""
+    """Pure graph builder (unit-testable): filter parts + output stream labels.
+
+    The video program is split into segments — a segment is a maximal run of
+    clips joined by cross-fades (transition != "cut"). Within a segment clips are
+    chained with xfade; segments are concat'ed, so a "cut" naturally separates
+    two segments and a cross-fade never spans a cut (P4-E3-T02 AC-2).
+    """
     clips = [c for c in request.clips if c.end > c.start]
     audio_clips = [c for c in request.audio_clips if c.end > c.start]
     has_subs = srt_path is not None
@@ -73,9 +97,40 @@ def build_filter_complex(
             f"[{i}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
             f"crop={width}:{height},setsar=1,fps={fps},format=yuv420p[v{i}]"
         )
-    concat_inputs = "".join(f"[v{j}]" for j in range(len(clips)))
+
+    cross = [c.transition in ("fade", "dissolve") for c in clips]
+    segments: list[tuple[int, int]] = []
+    i = 0
+    n = len(clips)
+    while i < n:
+        j = i
+        while j + 1 < n and cross[j + 1]:
+            j += 1
+        segments.append((i, j))
+        i = j + 1
+
+    seg_labels: list[str] = []
+    for s, e in segments:
+        if s == e:
+            seg_labels.append(f"v{s}")
+            continue
+        prev = f"v{s}"
+        offset = clips[s].end - clips[s].start
+        for k in range(s + 1, e + 1):
+            td = _transition_duration(clips, k)
+            offset -= td
+            name = "fade" if clips[k].transition == "fade" else "dissolve"
+            label = f"x{s}_{k}"
+            parts.append(
+                f"[{prev}][v{k}]xfade=transition={name}:duration={td:.3f}:offset={max(0.0, offset):.3f}[{label}]"
+            )
+            prev = label
+            offset += clips[k].end - clips[k].start
+        seg_labels.append(prev)
+
+    concat_inputs = "".join(f"[{lab}]" for lab in seg_labels)
     last_v = "vout"
-    parts.append(f"{concat_inputs}concat=n={len(clips)}:v=1:a=0[{last_v}]")
+    parts.append(f"{concat_inputs}concat=n={len(seg_labels)}:v=1:a=0[{last_v}]")
     if has_subs:
         # burn captions onto the concatenated program
         sub_chain = escape_subtitles_path(srt_path)
@@ -132,7 +187,7 @@ class FFmpegRenderProvider:
         width = max(1, request.width or 720)
         height = max(1, request.height or 1280)
         fps = request.fps or 24.0
-        total = sum(c.end - c.start for c in clips)
+        total = effective_duration(clips)
 
         args = [binary, "-y", "-hide_banner", "-loglevel", "error"]
         for clip in clips:

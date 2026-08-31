@@ -1,6 +1,7 @@
 """ORM models — import all models here so Base.metadata is complete (Alembic / create_all)."""
 
-from app.db.models.agent import AgentProposal, AgentRun
+from app.db.models.agent import AgentChangeSet, AgentProposal, AgentRun
+from app.db.models.analysis import AnalysisSnapshot
 from app.db.models.asset import Asset
 from app.db.models.continuity import SceneContinuityState, ShotContinuityState
 from app.db.models.character import Character, CharacterVersion, ShotCharacter
@@ -19,10 +20,14 @@ from app.db.models.shot_visual_spec import ShotVisualSpec
 from app.db.models.job import Job, JobTask, TaskDependency
 from app.db.models.workflow import WorkflowTemplate, WorkflowVersion
 from app.db.models.timeline import Timeline, TimelineClip, TimelineTrack
+from app.db.models.source_document import SourceDocument
+from app.db.models.episode_pipeline import EpisodePipeline
 
 __all__ = [
+    "AgentChangeSet",
     "AgentProposal",
     "AgentRun",
+    "AnalysisSnapshot",
     "Asset",
     "Character",
     "SceneContinuityState",
@@ -50,6 +55,8 @@ __all__ = [
     "Timeline",
     "TimelineClip",
     "TimelineTrack",
+    "SourceDocument",
+    "EpisodePipeline",
     "Job",
     "JobTask",
     "TaskDependency",

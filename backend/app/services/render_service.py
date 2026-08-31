@@ -74,6 +74,7 @@ class RenderService:
                         "source_in": c.get("source_in", 0),
                         "source_out": c.get("source_out"),
                         "text": c.get("text"),
+                        "transition": c.get("transition", "cut"),
                     }
                     for c in plan["clips"]
                 ],
@@ -159,6 +160,7 @@ class RenderService:
                         "source_in": float(clip.source_in or 0),
                         "source_out": clip.source_out,
                         "text": clip.text,
+                        "transition": clip.transition or "cut",
                     },
                 )
             elif track.track_type in ("VOICE", "MUSIC", "SFX") and not track.muted:

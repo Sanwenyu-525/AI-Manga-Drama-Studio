@@ -1,4 +1,4 @@
-"""AgentRun / AgentProposal models (P7: persistence + proposal system).
+"""AgentRun / AgentProposal / AgentChangeSet models (P7 + P2-E3-T02/T03).
 
 P7-T001: agent_runs is the durable source of truth for AI Director runs —
 LangGraph Checkpointer (thread_id = run_id) stores the graph execution state,
@@ -9,9 +9,14 @@ P7-T012/T013: agent_proposals capture a structured, human-reviewable change
 requested by the agent (e.g. an update_shot edit). They are NEVER applied to the
 domain directly — a ProposalService applies them through ShotService after human
 approval, guarded by a base_revision optimistic-concurrency check (P7-T016).
+
+P2-E3-T02: proposals carry structured risk metadata (R0–R3 classification,
+estimated tasks/cost, irreversibility) and expire after a TTL.
+P2-E3-T03: agent_change_sets record every applied Agent mutation as a minimal
+before/after patch so it can be reviewed and undone (compensating change).
 """
 
-from sqlalchemy import ForeignKey, Index, Text
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -39,7 +44,11 @@ PROPOSAL_STATUSES = (
     "rejected",  # human rejected; never applied
     "conflict",  # base_revision mismatch at apply time; not applied
     "applied",  # successfully applied via ShotService
+    "expired",  # P2-E3-T02: TTL elapsed before a decision; never applied
 )
+
+# ChangeSet sources (P2-E3-T03; P4-E3-T02 adds "timeline" for user Timeline edits).
+CHANGE_SET_SOURCES = ("agent", "undo", "timeline")
 
 # Structured shot field changes allowed in an update_shot-style proposal.
 SHOT_CHANGE_FIELDS = (
@@ -97,7 +106,7 @@ class AgentProposal(Base):
 
     id: Mapped[str] = uuid_pk()
     run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"), nullable=False, index=True)
-    tool: Mapped[str] = mapped_column(Text, nullable=False)  # update_shot (other tools later)
+    tool: Mapped[str] = mapped_column(Text, nullable=False)  # update_shot | generate_image | continuity_fix
     target_type: Mapped[str] = mapped_column(Text, nullable=False)  # shot
     target_id: Mapped[str] = mapped_column(Text, nullable=False)  # shot id
     base_revision: Mapped[int] = mapped_column(nullable=False)  # shot revision at proposal time
@@ -105,5 +114,45 @@ class AgentProposal(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     conflict_reason: Mapped[str | None] = mapped_column(Text)
     error_message: Mapped[str | None] = mapped_column(Text)
+    # P2-E3-T02: structured risk metadata + expiry.
+    risk_level: Mapped[str | None] = mapped_column(Text)  # R0..R3
+    reason: Mapped[str | None] = mapped_column(Text)  # human-readable classification reason
+    estimated_tasks: Mapped[int | None] = mapped_column(Integer)
+    estimated_cost: Mapped[float | None] = mapped_column()
+    irreversible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    expires_at: Mapped[str | None] = mapped_column(Text)  # ISO timestamp; past → expired
     created_at: Mapped[str] = ts_created()
     decided_at: Mapped[str | None] = mapped_column(Text)
+
+
+class AgentChangeSet(Base):
+    """One applied Agent mutation, recorded as a minimal before/after patch
+    (P2-E3-T03). Undo NEVER edits history — it applies the before-values as a
+    NEW compensating change (a new AgentChangeSet with source="undo") and links
+    back to the original via undone_by_change_set_id."""
+
+    __tablename__ = "agent_change_sets"
+    __table_args__ = (
+        Index("ix_agent_change_sets_project", "project_id"),
+        Index("ix_agent_change_sets_run", "run_id"),
+        Index("ix_agent_change_sets_entity", "entity_type", "entity_id"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("agent_runs.id"))
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="agent")  # agent | undo
+    tool: Mapped[str] = mapped_column(Text, nullable=False)  # update_shot | generate_image | undo_shot_patch ...
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False)  # shot
+    entity_id: Mapped[str] = mapped_column(Text, nullable=False)  # shot id
+
+    revision_before: Mapped[int] = mapped_column(Integer, nullable=False)
+    revision_after: Mapped[int] = mapped_column(Integer, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)  # {field: value} before the mutation
+    after_json: Mapped[str | None] = mapped_column(Text)  # {field: value} after the mutation
+
+    undone: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    undone_at: Mapped[str | None] = mapped_column(Text)
+    undone_by_change_set_id: Mapped[str | None] = mapped_column(Text)  # compensating change_set id
+
+    created_at: Mapped[str] = ts_created()

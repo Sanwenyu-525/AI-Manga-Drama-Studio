@@ -563,7 +563,10 @@ def test_continuity_fix_reject_does_not_apply(client: TestClient) -> None:
 
 
 def test_target_type_extension_update_shot_unaffected(client: TestClient) -> None:
-    """Introducing continuity_fix/continuity target types must not break update_shot."""
+    """Introducing continuity_fix/continuity target types must not break update_shot.
+
+    P2-E3-T02: update_shot is R1 — it auto-applies (no proposal / WAITING_HUMAN);
+    the change is recorded as an undoable change set."""
     ctx = _make_scene(client, n=2)
     shot = ctx["shots"][1]
     resp = client.post(
@@ -575,12 +578,15 @@ def test_target_type_extension_update_shot_unaffected(client: TestClient) -> Non
         },
     )
     run_id = resp.json()["id"]
-    waiting = _wait_status(client, run_id, {"waiting_human", "waiting_approval"})
-    proposal = waiting["pending_proposals"][0]
-    assert proposal["target_type"] == "shot"
-    assert proposal["tool"] == "update_shot"
-    approved = client.post(f"/api/v1/agent/proposals/{proposal['id']}/approve").json()
-    assert approved["status"] == "applied"
+    done = _wait_status(client, run_id, {"completed", "failed", "cancelled"})
+    assert done["status"] == "completed"
+
+    # R1 applies directly and records a change set; no proposal was created
+    assert client.get(f"/api/v1/agent/runs/{run_id}/proposals").json() == []
+    change_sets = client.get("/api/v1/agent/change-sets", params={"run_id": run_id}).json()
+    assert len(change_sets) == 1
+    assert change_sets[0]["entity_type"] == "shot"
+    assert change_sets[0]["tool"] == "update_shot"
     updated = client.get(f"/api/v1/shots/{shot['id']}").json()
     assert updated["shot_type"] == "close_up"
     assert updated["revision"] == 2

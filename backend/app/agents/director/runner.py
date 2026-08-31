@@ -254,11 +254,16 @@ def _finalize(session, run: AgentRun, final: dict, *, cancelled: bool) -> None:
 
 
 def get_run(run_id: str) -> AgentRunRead:
-    """Load a run from the DB. When WAITING_HUMAN, attach pending proposal summaries."""
+    """Load a run from the DB. When WAITING_HUMAN, run the lazy TTL sweep first
+    (P2-E3-T02) so overdue proposals surface as expired and a fully-expired run
+    fails instead of hanging forever, then attach pending proposal summaries."""
     with _session() as session:
         run = session.get(AgentRun, run_id)
         if run is None:
             raise NotFoundError("Agent run does not exist.", {"run_id": run_id})
+        if run.status in (RUN_STATUS_WAITING_HUMAN, "waiting_approval"):
+            ProposalService(session).expire_stale_proposals(run_id)
+            session.refresh(run)
         return _to_read(session, run)
 
 
@@ -321,6 +326,10 @@ def resume_run(run_id: str, decision: str = "approve", proposal_ids: list[str] |
                 "Run has no pending human approval to resume.",
                 {"run_id": run_id, "status": run.status},
             )
+        # P2-E3-T02: lazily expire overdue proposals first — an expired proposal
+        # is terminal and must not be decided by this resume.
+        ProposalService(session).expire_stale_proposals(run_id)
+        session.refresh(run)
         pending = _pending_proposals(session, run_id, proposal_ids)
         if not pending:
             raise ConflictError("No pending proposals to decide.", {"run_id": run_id})
@@ -429,4 +438,11 @@ def _proposal_summary(p: AgentProposal) -> dict:
         "base_revision": p.base_revision,
         "changes": json.loads(p.changes_json) if p.changes_json else {},
         "status": p.status,
+        # P2-E3-T02: risk metadata on the approval card (matches AgentProposalRead).
+        "risk_level": p.risk_level,
+        "reason": p.reason,
+        "estimated_tasks": p.estimated_tasks,
+        "estimated_cost": p.estimated_cost,
+        "irreversible": p.irreversible,
+        "expires_at": p.expires_at,
     }
