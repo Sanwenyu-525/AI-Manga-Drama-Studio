@@ -67,4 +67,4 @@
 
 - recent/change-sets 分页（⬜） · M2 多参考图 role 化（⬜）
 - OperationStore 持久化（⬜） · 项目资产 GC（⬜）
-- 契约防回归 CI（⬜，P1） · Tauri 壳内媒体 E2E（⬜） · SettingsPage 拆分（⬜）
+- Tauri 壳内媒体 E2E（⬜） · SettingsPage 拆分（⬜）

@@ -9,7 +9,7 @@
 
 ## 本轮进行中
 
-（无——自主迭代 02 已收口至 Done；下一轮 Discover → Prioritize 后在此登记）
+（无——自主迭代 09 已收口至 Done；下一轮 Discover → Prioritize 后在此登记）
 
 ## Candidate（候选池）
 
@@ -24,7 +24,9 @@
 | Agnes 下载流式化 | 后端报告 P2-8 | 大文件下载整载内存 | `client.stream` + 大小上限 | 2 | 2 | 1 | 1 | 1 | 无 | P3 | Candidate |
 | P8-E2 连续性规则补全 | 代码扫描（placeholder 语义） | 部分规则未真实生效 | 按规则逐条落地 + 测试 | 3 | 2 | 2 | 3 | 2 | 无 | P2 | Candidate |
 | SettingsPage 1927 行拆分 | 前端优化报告 P1-8（拆分边界已定） | 设置页巨石文件 + 三卡重复 saved/touched/error 状态机，维护与测试成本高 | 按 SettingsChrome / 五卡 / TestResultView / useProviderForm 边界拆分，同步迁移 2 个测试文件 | 2 | 2 | 2 | 2 | 1 | 无 | P2 | Candidate |
-| 契约防回归 CI（调用点→OpenAPI 比对） | 全栈联调报告建议 #1 | 契约断点类 P0（本轮 3/4 个）无自动防线，靠人工联调发现 | 脚本断言前端 163 调用点全部存在于 openapi.json（或 OpenAPI 生成前端类型），纳入 CI | 3 | 3 | 2 | 2 | 1 | 无 | P1 | Candidate |
+| DTO 字段级契约检查（types.ts ↔ OpenAPI components） | 迭代 09 复盘 | 路径/method 有防线了，但手写 types.ts 与后端 DTO 字段漂移仍无自动检测（改字段名/删字段只会运行时炸） | 扩 checker：抽取 `frontend/src/api/types.ts` 接口字段集 ↔ OpenAPI `components.schemas` 字段集比对；或引入 openapi-typescript 生成类型替换手写 | 3 | 3 | 3 | 3 | 2 | 路径级契约已落地 | P1 | Candidate |
+| 未使用后端路由报告（op 从未被前端调用） | 迭代 09 扫描（175 ops ↔ 175 调用点） | 部分路由仅 Agent/脚本/调试用，无人知道哪些是死路由 | checker 增加 unused 报告（reverse 方向，只提示不门禁），供清理决策 | 2 | 1 | 1 | 1 | 1 | 无 | P3 | Candidate |
+| 契约检查接入 pre-commit / npm script | 迭代 09 复盘 | 本地提交前无快速反馈（CI 才跑） | `npm run check:contract`（调 python --app）+ pre-commit 可选 | 2 | 2 | 1 | 1 | 1 | 无 | P3 | Candidate |
 | Tauri 壳内媒体 E2E | 全栈联调报告建议 #2 | `<img>/<video>` token 401 类问题只在壳内出现，HTTP smoke 无法覆盖 | session token 启用下的壳内浏览器级 E2E 主链路一条 | 3 | 2 | 3 | 3 | 2 | 无 | P2 | Candidate |
 | 镜头级地点覆盖（多地点场景） | 自主迭代 03 复盘（shot_visual_spec.location_id 已存在） | 一场多地点时无法为单镜头指定不同地点 | ReferenceResolver 支持 shot 级 location 覆盖（shot_visual_spec.location_id 优先于 scene） | 3 | 2 | 2 | 2 | 1 | 无 | P3 | Candidate |
 | 就绪度缺口一键跳转细化 | 自主迭代 04 复盘 | 就绪度卡片跳转落点在模块首页而非具体缺口（未绑定场景列表） | readiness 返回缺口 scene_id 列表 + 前端直达分镜；或「未绑定场景」列表页 | 2 | 2 | 1 | 2 | 1 | 无 | P3 | Candidate |
@@ -40,6 +42,7 @@
 
 | Opportunity | 轮次 | 交付物 |
 |---|---|---|
+| **契约防回归 CI（前端调用点↔OpenAPI 全量比对 + 反回归实证）** | **2026-09-01（自主迭代 09）** | **见 `docs/reports/autonomous-iteration-2026-09-01-contract-anti-regression.md`** |
 | **过期镜头闭环（连续性 stale 可见 + 批量重生成）** | **2026-09-01（自主迭代 08）** | **见 `docs/reports/autonomous-iteration-2026-09-01-stale-shot-loop.md`** |
 | **AI Director update_scene 工具（R1 场景级修改 + scene ChangeSet 可撤销 + P8-T017）** | **2026-09-01（自主迭代 07）** | **见 `docs/reports/autonomous-iteration-2026-09-01-agent-update-scene.md`** |
 | **场景信息编辑（Scene Properties：时段/光照/天气/氛围/描述 → 连续性重算/stale）** | **2026-09-01（自主迭代 06）** | **见 `docs/reports/autonomous-iteration-2026-09-01-scene-properties-edit.md`** |

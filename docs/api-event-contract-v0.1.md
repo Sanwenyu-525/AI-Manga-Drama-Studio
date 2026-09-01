@@ -4829,6 +4829,13 @@ Generation 与 Agent 生命周期分离。
 
 所有长任务返回 202，而不是长期阻塞 HTTP。
 
+### 11.
+
+契约有机器防线（自主迭代 09）：`backend/tests/test_frontend_contract.py`（扫描
+`frontend/src/**/*.{ts,tsx}` 全部 `api.<method>(path)` 调用点，与 `app.openapi()`
+实时 spec 逐段比对）随 pytest 跑。改路由/换 method/删端点/前端调用指向不存在的
+路由 → CI 失败并给出 `file:line`；新增/改前端调用点必须同步存在后端路由。
+
 ---
 
 # 142. MVP 必须实现的 REST API
