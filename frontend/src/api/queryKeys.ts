@@ -27,6 +27,8 @@ export const queryKeys = {
   job: (jobId: string) => ["job", jobId] as const,
   /** P7-T019/020: agent run detail + its proposals (keyed by run). */
   agentRun: (runId: string) => ["agentRun", runId] as const,
+  /** 自主迭代 05：项目最近 director 会话列表（刷新恢复水合用，limit=1 取上次会话）。 */
+  agentRuns: (projectId: string) => ["agentRuns", projectId] as const,
   proposals: (runId: string) => ["proposals", runId] as const,
   /** P2-E3-T03: applied change sets (per project + per agent run). */
   changeSets: (projectId: string) => ["changeSets", projectId] as const,

@@ -33,6 +33,10 @@ class AgentGateway:
     def get_run(self, run_id: str) -> AgentRunRead:
         return self._runner.get_run(run_id)
 
+    def list_runs(self, project_id: str, limit: int = 10) -> list[AgentRunRead]:
+        """自主迭代 05：项目最近 director 会话（刷新恢复水合用）。"""
+        return self._runner.list_runs(project_id, limit)
+
     def cancel_run(self, run_id: str) -> AgentRunRead:
         return self._runner.cancel_run(run_id)
 

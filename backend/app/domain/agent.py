@@ -93,6 +93,9 @@ class AgentRunRead(BaseModel):
     result: dict | None = None
     # P7-T012: pending proposal summaries surfaced when the run is WAITING_HUMAN.
     pending_proposals: list[dict] = Field(default_factory=list)
+    # 自主迭代 05（刷新恢复）：会话消息转录 [{role, content}]，从 input+result+status
+    # 确定性计算——刷新/重开后前端据此水合对话流。
+    messages: list[dict] = Field(default_factory=list)
     created_at: str
     updated_at: str
 

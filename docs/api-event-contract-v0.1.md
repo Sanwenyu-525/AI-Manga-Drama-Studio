@@ -972,10 +972,28 @@ Response：
 
   "change_set_id": null,
 
+  "messages": [
+    { "role": "user", "content": "把 Shot05 改成近景再重新生成" },
+    { "role": "assistant", "content": "已修改 Shot05 并提交生成。" }
+  ],
+
   "created_at": "...",
   "updated_at": "..."
 }
 ```
+
+> **messages（自主迭代 05 刷新恢复）**：会话消息转录 `[{role, content}]`，由已持久化的
+> input（用户指令）+ result（assistant 摘要/澄清）+ status（waiting_human 审批提示 /
+> failed 错误）**确定性计算**，零新增写入。前端刷新/重开后据此水合对话流。
+
+## 25.1. 列出项目最近 Agent Run（自主迭代 05）
+
+```http
+GET /api/v1/agent/runs?project_id={id}&limit={1..50}
+```
+
+返回该项目最近 director 会话（created_at 倒序，默认 10 条），每条含 messages 转录。
+前端在导演面板挂载时取 `limit=1` 水合「上一次会话」，实现刷新恢复。
 
 ---
 

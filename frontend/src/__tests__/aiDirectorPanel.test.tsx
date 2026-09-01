@@ -95,3 +95,62 @@ describe("AIDirectorPanel (WAITING_HUMAN)", () => {
     expect(await screen.findByText("修改镜头")).toBeTruthy();
   });
 });
+
+describe("AIDirectorPanel（自主迭代 05：刷新恢复水合）", () => {
+  it("面板空闲时取项目最近会话并水合——对话流恢复", async () => {
+    const get = vi.fn().mockImplementation((p: string) => {
+      if (p === "/agent/runs?project_id=p1&limit=1")
+        return Promise.resolve([
+          {
+            id: "run_9",
+            project_id: "p1",
+            status: "completed",
+            current_stage: null,
+            plan: null,
+            approval: null,
+            change_set_id: null,
+            result: { summary: "已完成。" },
+            pending_proposals: [],
+            messages: [
+              { role: "user", content: "把这个镜头改成近景" },
+              { role: "assistant", content: "已完成。" },
+            ],
+            created_at: "",
+            updated_at: "",
+          },
+        ]);
+      return Promise.reject(new Error("unexpected " + p));
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get);
+    const { W } = wrapper();
+    render(
+      <MemoryRouter initialEntries={["/projects/p1/episodes/e1/script"]}>
+        <AIDirectorPanel />
+      </MemoryRouter>,
+      { wrapper: W },
+    );
+    // 水合后：用户指令与 assistant 摘要出现在对话流
+    expect(await screen.findByText("把这个镜头改成近景")).toBeTruthy();
+    expect(screen.getByText("已完成。")).toBeTruthy();
+    expect(useAgentStore.getState().runId).toBe("run_9");
+    expect(useAgentStore.getState().status).toBe("completed");
+  });
+
+  it("无历史会话时不水合（保持待命）", async () => {
+    const get = vi.fn().mockImplementation((p: string) => {
+      if (p === "/agent/runs?project_id=p1&limit=1") return Promise.resolve([]);
+      return Promise.reject(new Error("unexpected " + p));
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get);
+    const { W } = wrapper();
+    render(
+      <MemoryRouter initialEntries={["/projects/p1/episodes/e1/script"]}>
+        <AIDirectorPanel />
+      </MemoryRouter>,
+      { wrapper: W },
+    );
+    // 无消息、保持 idle
+    expect(useAgentStore.getState().runId).toBeNull();
+    expect(useAgentStore.getState().status).toBe("idle");
+  });
+});

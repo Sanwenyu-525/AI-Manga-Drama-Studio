@@ -41,7 +41,7 @@
 | Proposal 审批流（R0-R3 风险分级 / TTL 过期 / approve+conflict） | ✅ | R1 自动执行+ChangeSet |
 | ChangeSet / Undo（补偿变更链 / 批量撤销 / 409 恢复） | ✅ | |
 | Agent Run 持久化 + SQLite Checkpointer + resume | ✅ | |
-| AI Director 刷新恢复（对话流/工具进度） | 🔶 | agentStore 内存态，刷新丢失；提案可经 server query 恢复（候选池：消息持久化） |
+| **AI Director 刷新恢复（消息转录 + 最近会话列表 + 前端水合）** | ✅ | **2026-09-01 自主迭代 05**；`GET /agent/runs?project_id=&limit=` + `AgentRunRead.messages` + agentStore.hydrate |
 | Continuity 引擎（两表 + 8 规则 + 警告 + Agent check/fix + 前端） | 🔶 | 部分规则为 placeholder 语义（P8-E2 未全落地） |
 | 一致性相似度评分（M3） | ⬜ | 依赖样本基线（Value Gate） |
 | 多 Agent | ⬜ | Post-MVP 远期 |
@@ -59,10 +59,10 @@
 | mutation 错误反馈全覆盖（~15 处 ApiErrorPanel） | ✅ | 前端优化轮；含 operation 轮询失败上限（10 次 / 404 快速失败） |
 | LLM Profiles / 图像引擎配置 / ComfyUI 模型目录 | ✅ | |
 | live 全链路 smoke（14 步：建项目→分析→分镜→生成→配音→渲染→下载） | ✅ | backend/scripts/smoke_fullstack.py |
-| 测试基线 | ✅ | pytest 628（1 skip，1 例既有 flaky 单跑通过）/ vitest 289 |
+| 测试基线 | ✅ | pytest 633（1 skip，1 例既有 flaky 单跑通过）/ vitest 294 |
 
 ## 已知未闭环（详见 PRODUCT_OPPORTUNITY_BACKLOG）
 
 - recent/change-sets 分页（⬜） · M2 多参考图 role 化（⬜）
 - OperationStore 持久化（⬜） · 项目资产 GC（⬜）
-- 契约防回归 CI（⬜，P1） · Tauri 壳内媒体 E2E（⬜） · AI Director 刷新恢复（🔶） · SettingsPage 拆分（⬜）
+- 契约防回归 CI（⬜，P1） · Tauri 壳内媒体 E2E（⬜） · SettingsPage 拆分（⬜）

@@ -312,7 +312,7 @@ describe("生产就绪度（自主迭代 04）", () => {
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
     render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
-    const link = await screen.findByRole("link", { name: /角色参考图/, timeout: 4000 });
+    const link = await screen.findByRole("link", { name: /角色参考图/ }, { timeout: 4000 });
     expect(link.textContent).toContain("1/3");
     expect(link.textContent).toContain("缺 2");
     expect(link.getAttribute("href")).toBe("/projects/p1/characters");
@@ -335,7 +335,7 @@ describe("生产就绪度（自主迭代 04）", () => {
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
     render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
-    const link = await screen.findByRole("link", { name: /场景地点/, timeout: 4000 });
+    const link = await screen.findByRole("link", { name: /场景地点/ }, { timeout: 4000 });
     expect(link.textContent).toContain("1/4");
     expect(link.textContent).toContain("2 未绑定");
     expect(link.getAttribute("href")).toBe("/projects/p1/storyboard");
@@ -358,7 +358,7 @@ describe("生产就绪度（自主迭代 04）", () => {
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
     render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
-    const link = await screen.findByRole("link", { name: /连续性/, timeout: 4000 });
+    const link = await screen.findByRole("link", { name: /连续性/ }, { timeout: 4000 });
     expect(link.textContent).toContain("3");
     expect(link.getAttribute("href")).toBe("/projects/p1/continuity");
   });

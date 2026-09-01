@@ -29,6 +29,7 @@ from app.domain.agent import (
     RUN_STATUS_CANCELLED,
     RUN_STATUS_CANCELLING,
     RUN_STATUS_COMPLETED,
+    RUN_STATUS_FAILED,
     RUN_STATUS_RUNNING,
     RUN_STATUS_WAITING_HUMAN,
 )
@@ -267,6 +268,26 @@ def get_run(run_id: str) -> AgentRunRead:
         return _to_read(session, run)
 
 
+def list_runs(project_id: str, limit: int = 10) -> list[AgentRunRead]:
+    """自主迭代 05（刷新恢复）：列出项目最近的 director 会话，最新在前。
+
+    前端在面板挂载时取 limit=1 以水合「上一次会话」（刷新后对话流可恢复）。
+    只读、无副作用（waiting_human 的过期扫描仍由 get_run/approve 路径负责）。
+    """
+    from sqlalchemy import select
+
+    with _session() as session:
+        rows = list(
+            session.scalars(
+                select(AgentRun)
+                .where(AgentRun.project_id == project_id)
+                .order_by(AgentRun.created_at.desc())
+                .limit(max(1, min(int(limit), 50)))
+            )
+        )
+        return [_to_read(session, run) for run in rows]
+
+
 def cancel_run(run_id: str) -> AgentRunRead:
     """Cooperative cancel (P1-E3-T02): status → cancelling immediately; the graph
     observes the token at the next node/tool boundary and stops producing side
@@ -408,6 +429,37 @@ def _load_input(run: AgentRun) -> dict:
     return {"message": data.get("message", ""), "selection": data.get("selection") or {}}
 
 
+def _transcript(run: AgentRun) -> list[dict]:
+    """自主迭代 05（刷新恢复）：确定性消息转录 [{role, content}]。
+
+    从已持久化的 input（用户指令）+ result（assistant 摘要/澄清）+ status 计算——
+    零新增写入（messages_json 列保留给未来更细粒度的逐事件捕获）。对齐前端
+    agentStore 的消息语义，使刷新/重开后对话流可水合。
+    """
+    messages: list[dict] = []
+    user_message = _load_input(run)["message"]
+    if user_message:
+        messages.append({"role": "user", "content": user_message})
+    if run.result_json:
+        try:
+            result = json.loads(run.result_json)
+        except ValueError:
+            result = {}
+        clarification = result.get("clarification")
+        summary = result.get("summary")
+        if clarification:
+            messages.append({"role": "assistant", "content": clarification})
+        elif summary:
+            messages.append({"role": "assistant", "content": summary})
+    if run.status in (RUN_STATUS_WAITING_HUMAN, "waiting_approval"):
+        messages.append({"role": "assistant", "content": "AI 导演需要审批：镜头提案已生成，请审批后继续。"})
+    if run.status == RUN_STATUS_FAILED:
+        messages.append(
+            {"role": "assistant", "content": f"执行失败：{run.error_message or '未知错误'}"}
+        )
+    return messages
+
+
 def _to_read(session, run: AgentRun) -> AgentRunRead:
     pending: list[AgentProposal]
     if run.status in ("waiting_human", "waiting_approval"):
@@ -424,6 +476,7 @@ def _to_read(session, run: AgentRun) -> AgentRunRead:
         change_set_id=None,
         result=json.loads(run.result_json) if run.result_json else None,
         pending_proposals=[_proposal_summary(p) for p in pending],
+        messages=_transcript(run),
         created_at=run.created_at,
         updated_at=run.updated_at,
     )

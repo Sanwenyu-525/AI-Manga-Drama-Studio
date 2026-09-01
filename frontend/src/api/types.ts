@@ -576,6 +576,8 @@ export interface AgentRunRead {
   result: Record<string, unknown> | null;
   /** P7-T020: proposals awaiting (or in) human review, inlined on the run detail. */
   pending_proposals?: AgentProposal[];
+  /** 自主迭代 05（刷新恢复）：会话消息转录 [{role, content}]，前端据此水合对话流。 */
+  messages: { role: "user" | "assistant"; content: string }[];
   created_at: string;
   updated_at: string;
 }
