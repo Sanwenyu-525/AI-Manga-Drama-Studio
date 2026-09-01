@@ -9,6 +9,8 @@ from app.domain.generation import (
     AssetVersionRead,
     GenerationCreate,
     GenerationRead,
+    GenerationReferenceRead,
+    ShotReferenceRead,
     VoiceoverBatchResult,
     VoiceoverGenerateRequest,
 )
@@ -106,9 +108,49 @@ def generations_queue_status() -> dict:
     return queue_status()
 
 
+@router.get("/shots/{shot_id}/reference-images", response_model=list[ShotReferenceRead])
+def preview_shot_references(shot_id: str, db: Session = Depends(get_db)) -> list[ShotReferenceRead]:
+    """M1 + 自主迭代 03 前端闭环：预览该镜头生成「自动模式」将注入的角色 + 场景地点
+    MASTER 参考图。
+
+    与 create_generation 的自动解析同源（生成前可见），供 ShotInspector
+    生成面板展示缩略图；手动覆盖走 GenerationCreate.reference_asset_ids。
+    """
+    refs = GenerationService(db).preview_references(shot_id)
+    return [
+        ShotReferenceRead(
+            character_id=r.get("character_id"),
+            character_name=r.get("character_name"),
+            location_id=r.get("location_id"),
+            location_name=r.get("location_name"),
+            version_id=r.get("version_id"),
+            asset_id=r["asset_id"],
+        )
+        for r in refs
+    ]
+
+
 @router.get("/generations/{generation_id}", response_model=GenerationRead)
 def get_generation(generation_id: str, db: Session = Depends(get_db)) -> GenerationRead:
-    return _to_read(GenerationService(db).get_generation(generation_id))
+    """单条明细（含参考图溯源）：references 仅在此端点填充。
+
+    列表端点（recent / per-shot）保持 references=None，避免 N+1。
+    """
+    service = GenerationService(db)
+    read = _to_read(service.get_generation(generation_id))
+    read.references = [
+        GenerationReferenceRead(
+            character_id=r.get("character_id"),
+            character_name=r.get("character_name"),
+            location_id=r.get("location_id"),
+            location_name=r.get("location_name"),
+            version_id=r.get("version_id"),
+            asset_id=r["asset_id"],
+            source=r.get("source") or "auto",
+        )
+        for r in service.generation_references(generation_id)
+    ]
+    return read
 
 
 @router.get("/shots/{shot_id}/generations", response_model=list[GenerationRead])

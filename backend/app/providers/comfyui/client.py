@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from pathlib import Path
 
 import httpx
 
@@ -28,7 +29,10 @@ class ComfyUIClient:
 
     async def health_check(self) -> tuple[bool, float | None]:
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
+            # trust_env=False on EVERY client: base_url is an explicitly configured
+            # local endpoint — following system proxies hijacks loopback into 502s
+            # (same root cause as the llm probe; get_catalog already did this).
+            async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
                 start = asyncio.get_event_loop().time()
                 resp = await client.get(f"{self.base_url}/system_stats")
                 latency = (asyncio.get_event_loop().time() - start) * 1000
@@ -109,13 +113,42 @@ class ComfyUIClient:
             catalog[self._LOADER_NODE_TO_SLOT[node]].extend(names)
         return True, {slot: sorted(set(v)) for slot, v in catalog.items()}
 
+    async def get_object_info(self) -> dict | None:
+        """Full node-registry snapshot (GET /object_info) for live workflow diagnostics.
+
+        P2-E4-T02 检查通道：返回 {class_type: {input: {required, optional}}} 全量
+        投影；不可达/非 200 → None（诊断必须降级而非失败）。响应可达 MB 级，调用方
+        （WorkflowDiagnosticsService）负责 TTL 缓存。
+        """
+        try:
+            async with httpx.AsyncClient(timeout=20, trust_env=False) as client:
+                resp = await client.get(f"{self.base_url}/object_info")
+                if resp.status_code != 200:
+                    return None
+                return resp.json()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def get_object_info_sync(self) -> dict | None:
+        """Sync twin of get_object_info() for sync contexts (create_generation
+        fail-fast / agent tools run on threadpools or inside a running loop where
+        asyncio.run is impossible). Same never-raise contract."""
+        try:
+            with httpx.Client(timeout=20, trust_env=False) as client:
+                resp = client.get(f"{self.base_url}/object_info")
+                if resp.status_code != 200:
+                    return None
+                return resp.json()
+        except Exception:  # noqa: BLE001
+            return None
+
     # --- queue ---
 
     async def queue_prompt(self, workflow: dict) -> str:
         """Submit API-format workflow; returns prompt_id."""
         payload = {"prompt": workflow, "client_id": self._client_id}
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=30, trust_env=False) as client:
                 resp = await client.post(f"{self.base_url}/prompt", json=payload)
                 resp.raise_for_status()
                 data = resp.json()
@@ -127,7 +160,7 @@ class ComfyUIClient:
 
     async def get_history(self, prompt_id: str) -> dict | None:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
                 resp = await client.get(f"{self.base_url}/history/{prompt_id}")
                 resp.raise_for_status()
                 history = resp.json()
@@ -155,7 +188,7 @@ class ComfyUIClient:
             "type": image.get("type", "output"),
         }
         try:
-            async with httpx.AsyncClient(timeout=120) as client:
+            async with httpx.AsyncClient(timeout=120, trust_env=False) as client:
                 resp = await client.get(f"{self.base_url}/view", params=params)
                 resp.raise_for_status()
                 with open(destination, "wb") as f:  # noqa: ASYNC230 — local desktop file IO is acceptable for MVP
@@ -164,24 +197,33 @@ class ComfyUIClient:
         except httpx.TransportError as exc:
             raise ProviderUnavailableError(f"ComfyUI output download failed: {exc}") from exc
 
-    async def upload_image(self, file_path: str, subfolder: str = "") -> dict:
-        """Upload a reference image for ControlNet/IPAdapter-style workflows."""
+    async def upload_image(self, file_path: str, subfolder: str = "", filename: str | None = None) -> dict:
+        """Upload a reference image for ControlNet/IPAdapter-style workflows.
+
+        filename: optional multipart filename override (M1: the provider passes a
+        uuid-prefixed name so the ComfyUI-side reference file is collision-free).
+        HTTP errors raise ComfyUIError (same wrapping as queue_prompt) and transport
+        errors ProviderUnavailableError, so callers fail the generation honestly.
+        """
+        upload_name = filename or Path(file_path).name
         try:
-            async with httpx.AsyncClient(timeout=60) as client:
+            async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
                 with open(file_path, "rb") as f:  # noqa: ASYNC230 — local desktop file IO is acceptable for MVP
                     resp = await client.post(
                         f"{self.base_url}/upload/image",
-                        files={"image": f},
+                        files={"image": (upload_name, f)},
                         data={"overwrite": "true", "subfolder": subfolder},
                     )
                 resp.raise_for_status()
                 return resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise ComfyUIError(f"ComfyUI image upload failed: {exc.response.text[:300]}") from exc
         except httpx.TransportError as exc:
             raise ProviderUnavailableError(f"ComfyUI image upload failed: {exc}") from exc
 
     async def cancel(self, prompt_id: str) -> None:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
                 await client.post(f"{self.base_url}/interrupt", json={})
                 await client.post(f"{self.base_url}/queue", json={"delete": [prompt_id]})
         except Exception:  # noqa: BLE001

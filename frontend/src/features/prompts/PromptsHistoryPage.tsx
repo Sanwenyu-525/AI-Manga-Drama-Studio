@@ -8,6 +8,7 @@ import { CaretDown, Quotes, Star } from "@phosphor-icons/react";
 import { useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
+import { formatDateTime } from "../../lib/format";
 import type { PromptRead, PromptVersionRead } from "../../api/types";
 
 const PROMPT_TYPE_LABELS: Record<string, string> = {
@@ -120,12 +121,5 @@ function PromptRow({ prompt }: { prompt: PromptRead }) {
 }
 
 function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return formatDateTime(value);
 }

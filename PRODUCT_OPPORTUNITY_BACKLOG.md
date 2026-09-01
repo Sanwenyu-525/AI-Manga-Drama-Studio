@@ -1,0 +1,65 @@
+# PRODUCT_OPPORTUNITY_BACKLOG.md — 产品机会统一台账
+
+> 自主产品迭代 Agent 的唯一机会登记处（Post-MVP）。每轮 Discovery 后更新；
+> 开发完成后 Doing → Done，新发现进 Candidate，不做功能垃圾场——
+> 每轮只选 1 个主题，且必须记录 Why This / Why Now / Why Not Others。
+>
+> 评分 1-5（越高越好）；Dev Cost / Technical Risk 越低越好。Priority：
+> P0 = 核心流程断点 / P1 = 高频重复与高价值 / P2 = 战略增强 / P3 = 打磨。
+
+## 本轮进行中
+
+（无——自主迭代 09 已收口至 Done；下一轮 Discover → Prioritize 后在此登记）
+
+## Candidate（候选池）
+
+| Opportunity | Source | User Problem | Proposed Solution | UV | Freq | Diff | Cost | Risk | Dep | Priority | Status |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| recent / change-sets 分页 | 后端报告建议 #2 + 代码扫描（20/100 条静默截断） | 长项目生成历史与变更记录丢失 | 两端点补 limit/offset + 前端加载更多 | 3 | 3 | 2 | 1 | 1 | 无 | P1 | Candidate |
+| M2 多参考图数据模型 | P3 预研 §6 | 单张 MASTER 代表图覆盖不了多角度/服装/表情 | `character_version_assets`（role: FACE/BODY/SIDE/EXPRESSION/STYLE）+ ReferenceResolver 优先级 | 5 | 4 | 4 | 4 | 2 | M1 用户验证 | P2 | Candidate |
+| M3 相似度评分 harness | P3 预研 §6 | 生成后无法量化角色一致性回归 | 离线 DINOv2 harness + 人工基线校准 + 提示型 UI（只提示不拦截） | 4 | 2 | 4 | 4 | 3 | ≥20 问题样本 | P2 | Candidate |
+| 生成队列策略可配置 | SettingsPage.tsx:455（超时/重试暂未开放配置） | max_attempts/backoff 无法按项目调整 | 设置页生成策略区 + env 覆盖 | 2 | 2 | 1 | 2 | 1 | 无 | P3 | Candidate |
+| OperationStore 最小持久化 | 后端报告建议 #3 | 重启丢 analyze/导入进度句柄 | shot-planning/model_import 两类 operation 落库 | 2 | 1 | 1 | 2 | 2 | 无 | P3 | Candidate |
+| 项目软删资产 GC | 后端报告建议 #4 | 删项目后媒体文件残留磁盘 | 显式「删除项目文件」入口 + 确认 | 2 | 1 | 1 | 2 | 2 | 无 | P3 | Candidate |
+| Agnes 下载流式化 | 后端报告 P2-8 | 大文件下载整载内存 | `client.stream` + 大小上限 | 2 | 2 | 1 | 1 | 1 | 无 | P3 | Candidate |
+| P8-E2 连续性规则补全 | 代码扫描（placeholder 语义） | 部分规则未真实生效 | 按规则逐条落地 + 测试 | 3 | 2 | 2 | 3 | 2 | 无 | P2 | Candidate |
+| SettingsPage 1927 行拆分 | 前端优化报告 P1-8（拆分边界已定） | 设置页巨石文件 + 三卡重复 saved/touched/error 状态机，维护与测试成本高 | 按 SettingsChrome / 五卡 / TestResultView / useProviderForm 边界拆分，同步迁移 2 个测试文件 | 2 | 2 | 2 | 2 | 1 | 无 | P2 | Candidate |
+| DTO 字段级契约检查（types.ts ↔ OpenAPI components） | 迭代 09 复盘 | 路径/method 有防线了，但手写 types.ts 与后端 DTO 字段漂移仍无自动检测（改字段名/删字段只会运行时炸） | 扩 checker：抽取 `frontend/src/api/types.ts` 接口字段集 ↔ OpenAPI `components.schemas` 字段集比对；或引入 openapi-typescript 生成类型替换手写 | 3 | 3 | 3 | 3 | 2 | 路径级契约已落地 | P1 | Candidate |
+| 未使用后端路由报告（op 从未被前端调用） | 迭代 09 扫描（175 ops ↔ 175 调用点） | 部分路由仅 Agent/脚本/调试用，无人知道哪些是死路由 | checker 增加 unused 报告（reverse 方向，只提示不门禁），供清理决策 | 2 | 1 | 1 | 1 | 1 | 无 | P3 | Candidate |
+| 契约检查接入 pre-commit / npm script | 迭代 09 复盘 | 本地提交前无快速反馈（CI 才跑） | `npm run check:contract`（调 python --app）+ pre-commit 可选 | 2 | 2 | 1 | 1 | 1 | 无 | P3 | Candidate |
+| Tauri 壳内媒体 E2E | 全栈联调报告建议 #2 | `<img>/<video>` token 401 类问题只在壳内出现，HTTP smoke 无法覆盖 | session token 启用下的壳内浏览器级 E2E 主链路一条 | 3 | 2 | 3 | 3 | 2 | 无 | P2 | Candidate |
+| 镜头级地点覆盖（多地点场景） | 自主迭代 03 复盘（shot_visual_spec.location_id 已存在） | 一场多地点时无法为单镜头指定不同地点 | ReferenceResolver 支持 shot 级 location 覆盖（shot_visual_spec.location_id 优先于 scene） | 3 | 2 | 2 | 2 | 1 | 无 | P3 | Candidate |
+| 就绪度缺口一键跳转细化 | 自主迭代 04 复盘 | 就绪度卡片跳转落点在模块首页而非具体缺口（未绑定场景列表） | readiness 返回缺口 scene_id 列表 + 前端直达分镜；或「未绑定场景」列表页 | 2 | 2 | 1 | 2 | 1 | 无 | P3 | Candidate |
+| 产出覆盖纳入就绪度（视频/音频） | 自主迭代 04 复盘 | 就绪度只覆盖一致性（角色/场景/连续性），不含视频/音频产出缺口 | 扩 ReadinessRead：per-episode 视频/配音覆盖（复用 workspaceMetrics 的 imageReady 思路） | 3 | 2 | 2 | 2 | 1 | 无 | P2 | Candidate |
+| AI Director update_scene 工具 | 自主迭代 06 复盘 | 用户想「把这场戏改成夜晚」只能手动编辑，Agent 无法提案场景级修改 | Agent 新增 update_scene 工具（走既有 Proposal/风险分级/ChangeSet 流，场景字段白名单） | 3 | 2 | 3 | 3 | 2 | 场景编辑 UI | P2 | **已交付（迭代 07）** |
+| 场景批量环境应用 | 自主迭代 06 复盘 | 多场景统一改时段/光照需逐场景编辑 | 批量选择场景 → 统一 PATCH 环境字段（复用 batch 逐项结果模式） | 2 | 2 | 1 | 2 | 1 | 无 | P3 | Candidate |
+| AI Director 场景理解增强 | 迭代 07 复盘 | fake 规则只认固定环境词；自然语言（「变成雨天阴冷的氛围」）需真实 LLM | 真实 LLM 路径已由 schema 覆盖；可加场景意图微调样例到 prompt | 2 | 2 | 1 | 1 | 1 | 真实 LLM 验证 | P3 | Candidate |
+| update_scene proposal 兜底 | 迭代 07 复盘 | update_scene 恒 R1 自动应用，无 proposal 兜底分支 | 若未来风险策略升级需场景 proposal（create_scene_proposal） | 1 | 1 | 1 | 2 | 1 | 无 | P3 | Candidate |
+| 视频/音频 stale 纳入过期闭环 | 迭代 08 复盘 | 过期徽标只覆盖图片资产；视频/配音 stale 未暴露 | 扩 image_stale → media_stale（image+video）+ 配音 clip 过期态 | 3 | 2 | 2 | 2 | 1 | 无 | P2 | Candidate |
+| 就绪度纳入过期镜头计数 | 迭代 08 复盘 | readiness 不显示「X 个镜头图片过期待重生成」 | ReadinessRead 增加 stale_images 计数 + 跳转分镜 | 2 | 2 | 1 | 1 | 1 | 无 | P3 | Candidate |
+
+## Done（已完成轮次）
+
+| Opportunity | 轮次 | 交付物 |
+|---|---|---|
+| **契约防回归 CI（前端调用点↔OpenAPI 全量比对 + 反回归实证）** | **2026-09-01（自主迭代 09）** | **见 `docs/reports/autonomous-iteration-2026-09-01-contract-anti-regression.md`** |
+| **过期镜头闭环（连续性 stale 可见 + 批量重生成）** | **2026-09-01（自主迭代 08）** | **见 `docs/reports/autonomous-iteration-2026-09-01-stale-shot-loop.md`** |
+| **AI Director update_scene 工具（R1 场景级修改 + scene ChangeSet 可撤销 + P8-T017）** | **2026-09-01（自主迭代 07）** | **见 `docs/reports/autonomous-iteration-2026-09-01-agent-update-scene.md`** |
+| **场景信息编辑（Scene Properties：时段/光照/天气/氛围/描述 → 连续性重算/stale）** | **2026-09-01（自主迭代 06）** | **见 `docs/reports/autonomous-iteration-2026-09-01-scene-properties-edit.md`** |
+| **AI Director 刷新恢复（消息转录 + 最近会话列表 + 前端水合）** | **2026-09-01（自主迭代 05）** | **见 `docs/reports/autonomous-iteration-2026-09-01-agent-refresh-recovery.md`** |
+| **生产就绪度（角色 MASTER / 场景地点绑定 / 连续性警告缺口，生成前可见；含原「地点覆盖健康度」候选）** | **2026-09-01（自主迭代 04）** | **见 `docs/reports/autonomous-iteration-2026-09-01-production-readiness.md`** |
+| **场景一致性闭环（地点库 + 场景绑定 + 生成注入地点参考图）** | **2026-09-01（自主迭代 03）** | **见 `docs/reports/autonomous-iteration-2026-09-01-location-consistency.md`** |
+| 镜头多选批量操作（多选态 + BatchActionBar + 批量端点 + allSettled 聚合） | 2026-09-01（自主迭代 02） | 见 `docs/reports/autonomous-iteration-2026-09-01-batch-shot-operations.md` |
+| （M1 前端闭环） | 2026-08-31 | 见 `docs/reports/autonomous-iteration-2026-08-31-refimages.md` |
+| 后端定点优化（P0×2 + P1×8，审计轮） | 2026-08-31 | 见 `BACKEND_OPTIMIZATION_REPORT.md`（建议 #1 已并入 M1 轮；#2/#3/#4 见候选池） |
+| 前端定点优化（P0×5 + P1×9，含 Tauri 媒体 401 修复；审计轮） | 2026-08-31 | 见 `docs/reports/FRONTEND_OPTIMIZATION_REPORT.md` |
+| 全栈联调修复（4 P0 + 6 P1 + live smoke 14 步；审计轮） | 2026-08-31 | 见 `docs/reports/FULLSTACK_INTEGRATION_REPORT.md` |
+
+## Rejected（明确不做 / 降级理由）
+
+| Opportunity | 理由 |
+|---|---|
+| 社区 / Feed / IM / 插件市场 / 模板商城 / 大型协作 | 与「个人创作者低成本完成质量稳定的 AI 漫剧」核心目标无关（Feature Creep 警戒清单） |
+| IPAdapter / InstantID / PuLID-Flux 路线 | 与本项目 DiT 栈不兼容（P3 预研 §4.1 已论证） |
+| Agent 工具暴露 reference_asset_ids 参数 | Service 自动解析已覆盖；显式覆盖留 API 层调试用（P3 预研 §7 开放问题 2） |
+| AssetPicker/VersionPicker 统一抽象 | 五处业务语义不同（版本激活/素材替换/MASTER 设定），需先收敛 `deriveVersionBadges` 到单一出处再谈抽象（前端优化报告 P2，Phase 2 前置调研项） |

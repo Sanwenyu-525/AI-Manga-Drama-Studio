@@ -31,12 +31,23 @@ const CAMERA_MOVEMENT_LABELS: Record<string, string> = {
 
 type ShotCardDetail = Pick<Shot, "action" | "camera_angle" | "camera_movement" | "emotion" | "dialogue">;
 
+/** Modifier-aware selection (autonomous-iteration-02): ctrl/cmd = toggle into the
+ * multi-selection, shift = range select. Plain clicks keep single-select. */
+export interface ShotSelectMods {
+  toggle: boolean;
+  shift: boolean;
+}
+
 interface VirtualizedShotGridProps {
   shots: ShotSummary[];
   /** Full shot records keyed by id (GET /scenes/{id}/shots) — real description + camera language. */
   details?: Record<string, ShotCardDetail>;
   selectedShotId?: string;
-  onSelect: (shotId: string) => void;
+  onSelect: (shotId: string, mods?: ShotSelectMods) => void;
+  /** Multi-select checkbox state (rendered when non-empty). */
+  multiSelectedIds?: string[];
+  /** Checkbox toggle handler; omit to hide checkboxes entirely. */
+  onToggleSelect?: (shotId: string) => void;
   /** Open the shot in a center Editor Tab (double-click). */
   onOpenShot?: (shot: ShotSummary) => void;
   /** Threshold below which we render everything (no virtualization). */
@@ -48,12 +59,16 @@ export function VirtualizedShotGrid({
   details,
   selectedShotId,
   onSelect,
+  multiSelectedIds,
+  onToggleSelect,
   onOpenShot,
   pageSize = 60,
 }: VirtualizedShotGridProps) {
   const small = shots.length <= pageSize;
   const virtual = useVirtualizedGrid(shots.length, { pageSize });
   const { startIndex, endIndex, gridRef } = virtual;
+  const multiSet = new Set(multiSelectedIds ?? []);
+  const showChecks = Boolean(onToggleSelect);
 
   if (small || endIndex <= startIndex) {
     // Small scenes (≤9 shots) cap at 3 columns so a nine-shot scene reads as a
@@ -61,7 +76,9 @@ export function VirtualizedShotGrid({
     const fewClass = shots.length <= 9 ? " shot-grid--few" : "";
     return (
       <div className={`shot-grid shot-grid--plain${fewClass}`}>
-        {shots.map((shot, i) => renderCard(shot, details, selectedShotId, onSelect, onOpenShot, i))}
+        {shots.map((shot, i) =>
+          renderCard(shot, details, selectedShotId, onSelect, onOpenShot, i, showChecks, multiSet, onToggleSelect),
+        )}
       </div>
     );
   }
@@ -75,7 +92,19 @@ export function VirtualizedShotGrid({
       data-window={`${startIndex}-${endIndex}`}
     >
       <div className="shot-grid shot-grid--virtual">
-        {visible.map((shot, i) => renderCard(shot, details, selectedShotId, onSelect, onOpenShot, startIndex + i))}
+        {visible.map((shot, i) =>
+          renderCard(
+            shot,
+            details,
+            selectedShotId,
+            onSelect,
+            onOpenShot,
+            startIndex + i,
+            showChecks,
+            multiSet,
+            onToggleSelect,
+          ),
+        )}
       </div>
       {endIndex < shots.length && (
         <div className="shot-grid-sentinel" data-testid="shot-grid-sentinel">
@@ -98,11 +127,15 @@ function renderCard(
   shot: ShotSummary,
   details: Record<string, ShotCardDetail> | undefined,
   selectedShotId: string | undefined,
-  onSelect: (id: string) => void,
+  onSelect: (id: string, mods?: ShotSelectMods) => void,
   onOpenShot: ((shot: ShotSummary) => void) | undefined,
   key: number,
+  showChecks: boolean,
+  multiSet: Set<string>,
+  onToggleSelect: ((shotId: string) => void) | undefined,
 ) {
   const isSelected = selectedShotId === shot.id;
+  const isMultiSelected = multiSet.has(shot.id);
   const isGenerating = shot.active_generation && typeof shot.active_generation === "object";
   const progress =
     isGenerating && typeof shot.active_generation?.progress === "number" ? shot.active_generation.progress : null;
@@ -112,12 +145,37 @@ function renderCard(
     <button
       key={key}
       type="button"
-      className={`shot-card ${isSelected ? "selected" : ""} ${shot.status === "failed" ? "failed" : ""}`}
-      onClick={() => onSelect(shot.id)}
+      className={`shot-card ${isSelected ? "selected" : ""} ${isMultiSelected ? "multi-selected" : ""} ${
+        shot.status === "failed" ? "failed" : ""
+      }`}
+      onClick={(event) => {
+        if (event.shiftKey || event.ctrlKey || event.metaKey) {
+          onSelect(shot.id, { toggle: event.ctrlKey || event.metaKey, shift: event.shiftKey });
+        } else {
+          onSelect(shot.id);
+        }
+      }}
       onDoubleClick={() => onOpenShot?.(shot)}
     >
       <div className="shot-thumb">
         <ShotThumbImage shot={shot} />
+        {showChecks && onToggleSelect && (
+          <span
+            role="checkbox"
+            aria-checked={isMultiSelected}
+            aria-label={`选择 Shot ${String(shot.shot_number).padStart(3, "0")}`}
+            className={`shot-select-check ${isMultiSelected ? "checked" : ""}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleSelect(shot.id);
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </span>
+        )}
         {isGenerating && (
           <div className="shot-generating">
             <MagicWand size={18} /> 生成中{progress != null ? ` ${progress}%` : ""}
@@ -143,6 +201,7 @@ function renderCard(
         <div className="shot-state-row">
           <span className={`badge ${shot.status}`}>{statusText(shot.status)}</span>
           {shot.dirty_state !== "clean" && <span className="badge warn">需重生成</span>}
+          {shot.image_stale && <span className="badge stale">过期</span>}
         </div>
       </div>
     </button>

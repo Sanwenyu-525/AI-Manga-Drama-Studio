@@ -65,6 +65,20 @@ export function AIDirectorPanel() {
     return () => window.removeEventListener("studio:select-shot", onSelectShot);
   }, []);
 
+  // 自主迭代 05（刷新恢复）：面板空闲且无 run 时，取项目最近一次 director 会话并水合，
+  // 刷新/重开后对话流可恢复。水合后 runId 置位 → 该查询自动停用（不会循环）。
+  const { data: latestRuns } = useQuery({
+    queryKey: context.project_id ? queryKeys.agentRuns(context.project_id) : ["agentRuns", "none"],
+    queryFn: () => api.get<AgentRunRead[]>(`/agent/runs?project_id=${context.project_id}&limit=1`),
+    enabled: Boolean(context.project_id) && agent.status === "idle" && !agent.runId,
+    staleTime: 30_000,
+  });
+  useEffect(() => {
+    if (!latestRuns || latestRuns.length === 0) return;
+    if (useAgentStore.getState().status !== "idle" || useAgentStore.getState().runId) return;
+    useAgentStore.getState().hydrate(latestRuns[0]);
+  }, [latestRuns]);
+
   const submitRun = useMutation({
     mutationFn: (message: string) =>
       api.post<AgentRunRead>("/agent/director/runs", {

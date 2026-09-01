@@ -8,13 +8,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CaretDown, CaretRight, MagicWand } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { AgentContinuityRun, ContinuityWarning } from "../../api/types";
+import type { AgentRunRead, ContinuityWarning } from "../../api/types";
 import { categoryLabel, severityTier, severityTierLabel } from "../../lib/continuity";
 
 interface ContinuityWarningListProps {
   warnings: ContinuityWarning[];
-  /** scene_id used to trigger an AI-fix run (POST /agent/continuity/runs). */
-  sceneId: string;
   showAcknowledge?: boolean;
   showFix?: boolean;
   onFixed?: () => void;
@@ -22,7 +20,6 @@ interface ContinuityWarningListProps {
 
 export function ContinuityWarningList({
   warnings,
-  sceneId,
   showAcknowledge = true,
   showFix = true,
   onFixed,
@@ -34,7 +31,6 @@ export function ContinuityWarningList({
         <ContinuityWarningRow
           key={w.id ?? w.message}
           warning={w}
-          sceneId={sceneId}
           showAcknowledge={showAcknowledge}
           showFix={showFix}
           onFixed={onFixed}
@@ -46,13 +42,11 @@ export function ContinuityWarningList({
 
 function ContinuityWarningRow({
   warning,
-  sceneId,
   showAcknowledge,
   showFix,
   onFixed,
 }: {
   warning: ContinuityWarning;
-  sceneId: string;
   showAcknowledge: boolean;
   showFix: boolean;
   onFixed?: () => void;
@@ -74,8 +68,14 @@ function ContinuityWarningRow({
   });
 
   const fix = useMutation({
-    mutationFn: () => api.post<AgentContinuityRun>("/agent/continuity/runs", { scene_id: sceneId }),
+    // Contract (backend app/api/agents.py): POST /agent/continuity/fix with the
+    // warning id creates a continuity_fix run parked in WAITING_HUMAN — the fix
+    // itself is applied only after the user approves the proposal there.
+    mutationFn: (warningId: string) =>
+      api.post<AgentRunRead>("/agent/continuity/fix", { warning_id: warningId, patch: {} }),
     onSuccess: () => setFixNotice("已提交修复请求，请在导演面板审批。"),
+    onError: (error) =>
+      setFixNotice(error instanceof Error ? `修复请求失败：${error.message}` : "修复请求失败，请重试。"),
   });
 
   const evidence =
@@ -102,12 +102,12 @@ function ContinuityWarningRow({
             </button>
           )}
           {acknowledged && <span className="continuity-warning-ack-tag">已读</span>}
-          {showFix && (
+          {showFix && openId && (
             <button
               type="button"
               className="btn tiny"
               disabled={fix.isPending}
-              onClick={() => fix.mutate()}
+              onClick={() => fix.mutate(openId)}
               title="交给 AI 修复（需在导演面板审批）"
             >
               <MagicWand size={12} /> {fix.isPending ? "提交中…" : "AI 修复"}

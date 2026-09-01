@@ -1,8 +1,9 @@
-// P2 漫剧工作区 — 生产控制中心（目标态落地版）。
-// 回答：做到哪（管线/每集进度）、AI 在做什么（活跃任务）、哪里有风险（失败/连续性入口）、
-// 最近产出是什么（真实生成记录）。数据全部来自真实 Project State：
+// P2 漫剧工作区 — 制作控制台（信息架构重排版）。
+// 结构（自上而下）：当前生产状态区（EP + 管线合并，主按钮「继续制作」）→
+// 最近生成（缩略图流）→ 剧集工作卡 | 需要处理（异常驱动）。
+// 「快捷入口」已删除（与左侧 Rail 重复导航）；「需要关注」只出现真实异常与运行中任务，
+// 空闲时显示「当前没有需要处理的问题」。数据全部来自真实 Project State：
 // GET /projects/{id}/tree · GET /projects/{id}/bootstrap · GET /generations/recent。
-// 渲染于 Studio 画布（Agent Dock 自动可用）；无巨大营销图、无 SaaS KPI 卡。
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -11,21 +12,43 @@ import {
   CheckCircle,
   Circle,
   FilmStrip,
-  ImageSquare,
-  ListChecks,
-  MagnifyingGlass,
+  MapPin,
+  MusicNote,
   Play,
-  Quotes,
   Scroll,
   ShieldCheck,
+  UsersThree,
   Warning,
 } from "@phosphor-icons/react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { Episode, GenerationRead, ProjectBootstrap, ProjectTreeRead } from "../../api/types";
-import { percent, derivePipeline, summarizeEpisodes } from "../../lib/workspaceMetrics";
-import { canonicalScriptPath } from "../studio/studioRoute";
+import { assetUrl } from "../../lib/mediaUrl";
+import type {
+  Episode,
+  GenerationRead,
+  ProjectBootstrap,
+  ProjectReadiness,
+  ProjectTreeRead,
+} from "../../api/types";
+import {
+  percent,
+  derivePipeline,
+  episodeAction,
+  pickCurrentEpisode,
+  primaryStageKey,
+  summarizeEpisodes,
+  type EpisodeAction,
+  type EpisodeProgress,
+} from "../../lib/workspaceMetrics";
+import { generationTypeText } from "../generation/generationTypeText";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import {
+  canonicalScriptPath,
+  canonicalShotPath,
+  canonicalStoryboardPath,
+  canonicalTimelinePath,
+} from "../studio/studioRoute";
 
 interface RecentOutput {
   assetId: string;
@@ -36,9 +59,30 @@ interface RecentOutput {
   type: string;
 }
 
+/** 单集卡片状态短语（比裸百分比更接近「下一步该干什么」）。 */
+function episodeStatusText(ep: EpisodeProgress, action: EpisodeAction): string {
+  switch (action.kind) {
+    case "start":
+      return "尚未开始";
+    case "produce":
+      return `图片 ${ep.imageReadyCount}/${ep.shotCount}`;
+    case "timeline":
+      return "出图完成 · 待排片";
+    case "render":
+      return "已排片 · 待渲染";
+    case "review":
+      return "已导出成片";
+  }
+}
+
 export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
   const params = useParams();
   const pid = projectId ?? params.projectId ?? "";
+
+  const setBottomDockExpanded = useWorkspaceStore((s) => s.setBottomDockExpanded);
+  const setBottomDockTab = useWorkspaceStore((s) => s.setBottomDockTab);
+  const setRightPanelCollapsed = useWorkspaceStore((s) => s.setRightPanelCollapsed);
+  const setRightPanelTab = useWorkspaceStore((s) => s.setRightPanelTab);
 
   const { data: tree } = useQuery({
     queryKey: queryKeys.projectTree(pid),
@@ -62,15 +106,51 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
     refetchInterval: 15_000,
     enabled: Boolean(pid),
   });
+  // 自主迭代 04：生产就绪度（角色/场景绑定/连续性缺口，前瞻式 vs 需要处理=反应式）。
+  const { data: readiness } = useQuery({
+    queryKey: queryKeys.readiness(pid),
+    queryFn: () => api.get<ProjectReadiness>(`/projects/${pid}/readiness`),
+    enabled: Boolean(pid),
+    staleTime: 10_000,
+  });
 
   const progress = useMemo(() => summarizeEpisodes(tree, episodes), [tree, episodes]);
 
-  // 管线探针（contract §103）：bootstrap 每集携带 has_timeline / has_final_video，
-  // 任一集为真即该阶段已达成 —— 替代逐集 404 探测。
+  // 管线探针（contract §103）：bootstrap 每集携带 has_timeline / has_final_video。
+  const bootstrapById = useMemo(
+    () => new Map((bootstrap?.episodes ?? []).map((b) => [b.id, b])),
+    [bootstrap],
+  );
   const stageFlags = {
     timeline: (bootstrap?.episodes ?? []).some((ep) => ep.has_timeline),
     finalVideo: (bootstrap?.episodes ?? []).some((ep) => ep.has_final_video),
   };
+
+  // shot → 所属场景/剧集（缩略图点击直达镜头详情；不在树中的 shot 退回资产库）。
+  const shotLocation = useMemo(() => {
+    const map = new Map<string, { episodeId: string; sceneId: string }>();
+    for (const ep of tree?.episodes ?? []) {
+      for (const sc of ep.scenes) {
+        for (const sh of sc.shots) map.set(sh.id, { episodeId: ep.id, sceneId: sc.id });
+      }
+    }
+    return map;
+  }, [tree]);
+
+  // 场景级定位：首个没分镜的场景 / 首个有镜头未出图的场景（继续制作落点）。
+  const sceneIndex = useMemo(
+    () =>
+      (tree?.episodes ?? []).flatMap((ep) =>
+        ep.scenes.map((sc) => ({
+          episodeId: ep.id,
+          sceneId: sc.id,
+          hasShots: sc.shots.length > 0,
+          allReady: sc.shots.length > 0 && sc.shots.every((sh) => sh.active_image_version != null || sh.status === "image_ready" || sh.status === "approved"),
+          firstFailedShotId: sc.shots.find((sh) => sh.status === "failed")?.id ?? null,
+        })),
+      ),
+    [tree],
+  );
 
   const outputs = useMemo<RecentOutput[]>(() => {
     const seen = new Set<string>();
@@ -86,7 +166,7 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
         createdAt: g.created_at,
         type: g.type,
       });
-      if (items.length >= 6) break;
+      if (items.length >= 8) break;
     }
     return items;
   }, [recent, pid]);
@@ -94,8 +174,145 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
   const failedRecent = (recent ?? []).filter((g) => g.project_id === pid && g.status === "failed").length;
   const activeGens = bootstrap?.active_generations ?? 0;
   const activeRuns = bootstrap?.active_agent_runs ?? 0;
+
   const pipeline = derivePipeline(progress, stageFlags.timeline, stageFlags.finalVideo);
+  const runningStage = pipeline.find((stage) => stage.state === "running");
+  const current = pickCurrentEpisode(progress, bootstrap?.episodes);
+  const currentFlags = current ? bootstrapById.get(current.episodeId) : undefined;
+  const currentAction = current
+    ? episodeAction(current, currentFlags && { hasTimeline: currentFlags.has_timeline, hasFinalVideo: currentFlags.has_final_video })
+    : null;
   const imagePct = percent(progress.imageReadyCount, progress.shotCount);
+
+  /** 集级动作跳转：开始→剧本视图；继续→首个未出图场景的分镜板；收尾→时间线。 */
+  const episodeTarget = (ep: EpisodeProgress, action: EpisodeAction): string => {
+    if (action.kind === "start") return canonicalScriptPath(pid, ep.episodeId);
+    if (action.kind === "produce") {
+      const scene = sceneIndex.find((s) => s.episodeId === ep.episodeId && !s.allReady && s.hasShots);
+      const fallback = sceneIndex.find((s) => s.episodeId === ep.episodeId);
+      const target = scene ?? fallback;
+      return target
+        ? canonicalStoryboardPath(pid, target.episodeId, target.sceneId)
+        : canonicalScriptPath(pid, ep.episodeId);
+    }
+    return canonicalTimelinePath(pid, ep.episodeId);
+  };
+
+  /** 管线阶段跳转（状态区阶段条可点）。 */
+  const stageTarget = (key: string): string => {
+    const eps = progress.episodes;
+    switch (key) {
+      case "source":
+        return eps.length > 0
+          ? canonicalScriptPath(pid, (eps.find((e) => !e.hasSourceText) ?? eps[0]).episodeId)
+          : `/projects/${pid}/script`;
+      case "scenes": {
+        const ep = eps.find((e) => e.sceneCount === 0 && e.hasSourceText) ?? current;
+        return ep ? canonicalScriptPath(pid, ep.episodeId) : `/projects/${pid}/script`;
+      }
+      case "shots": {
+        const scene = sceneIndex.find((s) => !s.hasShots);
+        if (scene) return canonicalStoryboardPath(pid, scene.episodeId, scene.sceneId);
+        return eps.length > 0 ? canonicalScriptPath(pid, eps[0].episodeId) : `/projects/${pid}/script`;
+      }
+      case "image": {
+        const scene = sceneIndex.find((s) => !s.allReady);
+        if (scene) return canonicalStoryboardPath(pid, scene.episodeId, scene.sceneId);
+        return eps.length > 0
+          ? canonicalTimelinePath(pid, (current ?? eps[0]).episodeId)
+          : `/projects/${pid}/script`;
+      }
+      default: {
+        const needTimeline = key === "timeline";
+        const ep =
+          eps.find((e) => {
+            const flags = bootstrapById.get(e.episodeId);
+            return needTimeline ? !flags?.has_timeline : !flags?.has_final_video;
+          }) ?? current ?? eps[0];
+        return ep ? canonicalTimelinePath(pid, ep.episodeId) : `/projects/${pid}/script`;
+      }
+    }
+  };
+
+  const primaryKind = progress.episodes.length === 0 ? "start" : primaryStageKey(pipeline);
+  const primaryTarget = primaryKind === "start" ? `/projects/${pid}/script` : stageTarget(primaryKind);
+  const primaryLabel = primaryKind === "start" ? "开始制作" : "继续制作";
+
+  // 异常驱动「需要处理」：只列真实失败/进行中，常态入口一律不进。
+  const attention = useMemo(() => {
+    const items: {
+      key: string;
+      tone: "bad" | "info";
+      text: string;
+      action: { label: string; to?: string; onClick?: () => void };
+    }[] = [];
+    if (failedRecent > 0) {
+      items.push({
+        key: "failed-generations",
+        tone: "bad",
+        text: `${failedRecent} 条生成失败`,
+        action: { label: "查看日志", to: `/projects/${pid}/production-log` },
+      });
+    }
+    if (progress.failedCount > 0) {
+      const failedScene = sceneIndex.find((s) => s.firstFailedShotId);
+      const target = failedScene
+        ? canonicalStoryboardPath(pid, failedScene.episodeId, failedScene.sceneId)
+        : `/projects/${pid}/production-log`;
+      items.push({
+        key: "failed-shots",
+        tone: "bad",
+        text: `${progress.failedCount} 个镜头出图失败`,
+        action: { label: "去修复", to: target },
+      });
+    }
+    if (activeGens > 0) {
+      items.push({
+        key: "running-generations",
+        tone: "info",
+        text: `${activeGens} 个生成任务运行中`,
+        action: {
+          label: "展开队列",
+          onClick: () => {
+            setBottomDockTab("queue");
+            setBottomDockExpanded(true);
+          },
+        },
+      });
+    }
+    if (activeRuns > 0) {
+      items.push({
+        key: "running-agent",
+        tone: "info",
+        text: `${activeRuns} 个 AI 导演任务运行中`,
+        action: {
+          label: "查看",
+          onClick: () => {
+            setRightPanelTab("director");
+            setRightPanelCollapsed(false);
+          },
+        },
+      });
+    }
+    return items;
+  }, [activeGens, activeRuns, failedRecent, pid, progress.failedCount, sceneIndex, setBottomDockExpanded, setBottomDockTab, setRightPanelCollapsed, setRightPanelTab]);
+
+  // 生产就绪度（自主迭代 04）：三指标确定性聚合 → 卡片 + 点击补齐。
+  const readinessReady = useMemo(() => {
+    if (!readiness) return null;
+    const chars = readiness.characters;
+    const sb = readiness.scene_binding;
+    const charReady = chars.total === 0 || chars.missing === 0;
+    const sceneReady = sb.scenes_total === 0 || (sb.bound_with_master === sb.scenes_total && sb.unbound === 0);
+    const contReady = readiness.continuity_open === 0;
+    return {
+      charReady,
+      sceneReady,
+      contReady,
+      allReady: charReady && sceneReady && contReady,
+      missingAny: chars.missing + sb.unbound + Math.max(0, sb.bound - sb.bound_with_master) + readiness.continuity_open,
+    };
+  }, [readiness]);
 
   if (!pid) return <div className="workspace-loading">未打开项目</div>;
 
@@ -103,7 +320,7 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
     <div className="ws-overview">
       <div className="panel-head">
         <h1>漫剧工作区</h1>
-        <span className="muted small">生产控制中心 · 真实 Project State 聚合</span>
+        <span className="muted small">制作控制台</span>
         <span className="grow" />
         <Link className="btn secondary compact" to={`/projects/${pid}/source`}>
           <Scroll size={14} /> 源内容工作区
@@ -111,162 +328,263 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
       </div>
 
       <div className="ws-grid">
-        {/* ---- 剧集进度（P2 Episode rows） ---- */}
-        <section className="ws-panel ws-panel-episodes" aria-label="剧集进度">
-          <h2 className="ws-panel-title">剧集进度</h2>
-          {progress.episodes.length === 0 && (
-            <div className="ws-empty">
-              <p>还没有剧集。</p>
-              <Link className="btn secondary compact" to={`/projects/${pid}/script`}>
-                <Scroll size={14} /> 去剧本视图创建
-              </Link>
+        {/* ---- 当前生产状态区（剧集进度 + 生产管线合并，主行动按钮） ---- */}
+        <section className="ws-panel ws-panel-status" aria-label="当前生产状态">
+          <div className="ws-status-top">
+            <div className="ws-status-id">
+              <h2>
+                {current
+                  ? `EP${String(current.episodeNumber).padStart(2, "0")} · ${current.title || "未命名"}`
+                  : "还没有剧集"}
+              </h2>
+              <span className="muted small">
+                {runningStage ? `当前阶段：${runningStage.label}` : "等待开始"}
+                {current && currentAction && (
+                  <>
+                    {" · "}
+                    {episodeStatusText(current, currentAction)}
+                  </>
+                )}
+              </span>
             </div>
-          )}
-          <ul className="ws-episode-list">
-            {progress.episodes.map((ep) => (
-              <li key={ep.episodeId} className="ws-episode-row">
-                <span className="ws-ep-name">
-                  EP{String(ep.episodeNumber).padStart(2, "0")} · {ep.title || "未命名"}
-                </span>
-                <span className="muted small">
-                  {ep.sceneCount} 场 · {ep.shotCount} 镜头
-                </span>
-                <span className="ws-ep-images mono small">
-                  图片 {ep.imageReadyCount}/{ep.shotCount}
-                </span>
-                <span
-                  className={`ws-progress ${ep.failedCount > 0 ? "has-failed" : ""}`}
-                  aria-label={`出图进度 ${percent(ep.imageReadyCount, ep.shotCount)}%`}
-                >
-                  <i style={{ width: `${percent(ep.imageReadyCount, ep.shotCount)}%` }} />
-                </span>
-                <Link
-                  className="icon-button ws-ep-open"
-                  to={canonicalScriptPath(pid, ep.episodeId)}
-                  title="打开该集剧本"
-                >
-                  <ArrowRight size={14} />
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <div className="ws-total-line muted small">
-            合计：{progress.sceneCount} 场 · {progress.shotCount} 镜头 · 已出图 {progress.imageReadyCount}（{imagePct}
-            %）
+            <Link className="btn primary ws-continue" to={primaryTarget}>
+              {primaryLabel} <ArrowRight size={14} weight="bold" />
+            </Link>
           </div>
-        </section>
-
-        {/* ---- 生产管线（P2 PRODUCTION PIPELINE） ---- */}
-        <section className="ws-panel ws-panel-pipeline" aria-label="生产管线">
-          <h2 className="ws-panel-title">生产管线</h2>
-          <ol className="ws-pipeline">
+          <div className="ws-status-progress">
+            <span className="mono small">
+              {progress.imageReadyCount} / {progress.shotCount} 镜头
+            </span>
+            <span
+              className={`ws-progress ${progress.failedCount > 0 ? "has-failed" : ""}`}
+              aria-label={`项目出图进度 ${imagePct}%`}
+            >
+              <i style={{ width: `${imagePct}%` }} />
+            </span>
+            <span className="mono small ws-status-pct">{imagePct}%</span>
+          </div>
+          <ol className="ws-stage-strip">
             {pipeline.map((stage) => (
-              <li key={stage.key} className={`ws-stage ${stage.state}`}>
-                <span className="ws-stage-icon">
-                  {stage.state === "done" ? (
-                    <CheckCircle size={15} weight="fill" />
-                  ) : stage.state === "running" ? (
-                    <Circle size={13} weight="fill" />
-                  ) : (
-                    <Circle size={13} weight="regular" />
-                  )}
-                </span>
-                <span className="ws-stage-label">{stage.label}</span>
-                {stage.detail && <span className="muted tiny mono">{stage.detail}</span>}
-                <span className="ws-stage-state">
-                  {stage.state === "done" ? "已完成" : stage.state === "running" ? "进行中" : "等待"}
-                </span>
+              <li key={stage.key} className={`ws-stage-chip ${stage.state}`}>
+                <Link to={stageTarget(stage.key)} title={`打开「${stage.label}」`}>
+                  <span className="ws-stage-icon">
+                    {stage.state === "done" ? (
+                      <CheckCircle size={13} weight="fill" />
+                    ) : stage.state === "running" ? (
+                      <Circle size={11} weight="fill" />
+                    ) : (
+                      <Circle size={11} weight="regular" />
+                    )}
+                  </span>
+                  {stage.label}
+                  {stage.detail && <span className="ws-stage-detail mono">{stage.detail}</span>}
+                </Link>
               </li>
             ))}
           </ol>
         </section>
 
-        {/* ---- 最近输出（P2 RECENT OUTPUT，缩略图非宣传图） ---- */}
-        <section className="ws-panel ws-panel-outputs" aria-label="最近输出">
-          <h2 className="ws-panel-title">最近输出</h2>
+        {/* ---- 最近生成（视觉产出缩略图流，点击直达镜头/资产） ---- */}
+        <section className="ws-panel ws-panel-outputs" aria-label="最近生成">
+          <div className="ws-panel-head">
+            <h2 className="ws-panel-title">最近生成</h2>
+            <Link className="text-link small" to={`/projects/${pid}/assets`}>
+              查看全部资产
+            </Link>
+          </div>
           {outputs.length === 0 ? (
             <p className="muted small ws-pad">
               还没有生成产出 —— 在分镜板选择镜头并执行「生成图片」，产出会出现在这里。
             </p>
           ) : (
             <ul className="ws-output-grid">
-              {outputs.map((o) => (
-                <li key={o.assetId} className="ws-output-card">
-                  <img
-                    loading="lazy"
-                    src={`/api/v1/assets/${o.assetId}/thumbnail`}
-                    alt={`产出 ${o.assetId.slice(0, 6)}`}
-                  />
-                  <span className="ws-output-meta">
-                    <span className="mono tiny">
-                      {o.shotId ? `Shot ${o.shotId.slice(-4).toUpperCase()}` : "项目任务"}
-                    </span>
-                    <span className="muted tiny ellipsis">
-                      {o.provider}
-                      {o.model ? ` · ${o.model}` : ""}
-                    </span>
-                  </span>
-                </li>
-              ))}
+              {outputs.map((o) => {
+                const loc = o.shotId ? shotLocation.get(o.shotId) : undefined;
+                const to = loc && o.shotId ? canonicalShotPath(pid, loc.episodeId, loc.sceneId, o.shotId) : `/projects/${pid}/assets`;
+                const label = o.shotId ? `SHOT ${o.shotId.slice(-4).toUpperCase()}` : generationTypeText(o.type);
+                return (
+                  <li key={o.assetId} className="ws-output-card">
+                    <Link to={to} title={`打开 ${label}`}>
+                      {o.type === "image" ? (
+                        <img loading="lazy" src={assetUrl(o.assetId, "thumbnail")} alt={`镜头 ${label} 的生成图片`} />
+                      ) : (
+                        <span className={`ws-output-thumb type-${o.type}`}>
+                          {o.type === "audio" ? <MusicNote size={22} /> : <FilmStrip size={22} />}
+                        </span>
+                      )}
+                      <span className="ws-output-meta">
+                        <span className="mono tiny">{label}</span>
+                        <span className="muted tiny ellipsis">
+                          {generationTypeText(o.type)}
+                          {o.provider ? ` · ${o.provider}` : ""}
+                        </span>
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
 
-        {/* ---- 注意力（P2 ATTENTION：风险与待办，带入口） ---- */}
-        <section className="ws-panel ws-panel-attention" aria-label="需要关注">
-          <h2 className="ws-panel-title">需要关注</h2>
-          <ul className="ws-attention-list">
-            <li className={failedRecent > 0 ? "attn bad" : "attn"}>
-              <Warning size={14} weight={failedRecent > 0 ? "fill" : "regular"} />
-              <span>{failedRecent > 0 ? `${failedRecent} 条生成失败` : "暂无失败生成"}</span>
-              <Link to={`/projects/${pid}/production-log`} className="text-link">
-                生产日志
-              </Link>
-            </li>
-            <li className={activeGens > 0 ? "attn running" : "attn"}>
-              <Play size={13} weight={activeGens > 0 ? "fill" : "regular"} />
-              <span>{activeGens > 0 ? `${activeGens} 个生成任务进行中` : "生成队列空闲"}</span>
-              <span className="muted tiny">底部队列</span>
-            </li>
-            <li className={activeRuns > 0 ? "attn running" : "attn"}>
-              <ListChecks size={14} />
-              <span>{activeRuns > 0 ? `${activeRuns} 个 AI 导演任务运行中` : "AI 导演空闲"}</span>
-              <span className="muted tiny">右侧面板</span>
-            </li>
-            <li className="attn">
-              <ShieldCheck size={14} />
-              <span>连续性检查</span>
-              <Link to={`/projects/${pid}/continuity`} className="text-link">
-                打开检查页
-              </Link>
-            </li>
-            <li className="attn">
-              <Quotes size={14} />
-              <span>提示词版本库</span>
-              <Link to={`/projects/${pid}/prompts`} className="text-link">
-                查看
-              </Link>
-            </li>
-          </ul>
-        </section>
-
-        {/* ---- 快捷入口（P2 快捷入口建议） ---- */}
-        <section className="ws-panel ws-panel-shortcuts" aria-label="快捷入口">
-          <h2 className="ws-panel-title">快捷入口</h2>
-          <div className="ws-shortcut-row">
-            <Link className="btn secondary compact" to={`/projects/${pid}/script`}>
-              <Scroll size={14} /> 剧本 / 生成分镜
-            </Link>
-            <Link className="btn secondary compact" to={`/projects/${pid}/timeline`}>
-              <FilmStrip size={14} /> 时间线装配
-            </Link>
-            <Link className="btn secondary compact" to={`/projects/${pid}/assets`}>
-              <ImageSquare size={14} /> 项目素材库
-            </Link>
-            <Link className="btn secondary compact" to={`/workflows`}>
-              <MagnifyingGlass size={14} /> 工作流目录
+        {/* ---- 剧集工作卡（整卡可点 = 下一步动作） ---- */}
+        <section className="ws-panel ws-panel-episodes" aria-label="剧集">
+          <div className="ws-panel-head">
+            <h2 className="ws-panel-title">剧集</h2>
+            <Link className="text-link small" to={`/projects/${pid}/script`}>
+              + 新建剧集
             </Link>
           </div>
+          {progress.episodes.length === 0 ? (
+            <div className="ws-empty">
+              <p>还没有剧集。</p>
+              <Link className="btn secondary compact" to={`/projects/${pid}/script`}>
+                <Scroll size={14} /> 去剧本视图创建
+              </Link>
+            </div>
+          ) : (
+            <ul className="ws-ep-cards">
+              {progress.episodes.map((ep) => {
+                const flags = bootstrapById.get(ep.episodeId);
+                const action = episodeAction(ep, flags && { hasTimeline: flags.has_timeline, hasFinalVideo: flags.has_final_video });
+                const target = episodeTarget(ep, action);
+                const isCurrent = current?.episodeId === ep.episodeId;
+                return (
+                  <li key={ep.episodeId}>
+                    <Link
+                      to={target}
+                      className={`ws-ep-card ${isCurrent ? "is-current" : ""}`}
+                      aria-label={`${action.label}：EP${String(ep.episodeNumber).padStart(2, "0")}`}
+                    >
+                      <span className="ws-ep-row">
+                        <span className="ws-ep-name">
+                          EP{String(ep.episodeNumber).padStart(2, "0")} · {ep.title || "未命名"}
+                        </span>
+                        <span className={`btn tiny ${isCurrent ? "primary" : "secondary"}`}>{action.label}</span>
+                      </span>
+                      <span className="ws-ep-row muted small">
+                        <span>
+                          {ep.sceneCount} 场 · {ep.shotCount} 镜头
+                          {ep.failedCount > 0 && <span className="ws-ep-failed"> · {ep.failedCount} 失败</span>}
+                        </span>
+                        <span>{episodeStatusText(ep, action)}</span>
+                      </span>
+                      {ep.shotCount > 0 && (
+                        <span
+                          className={`ws-progress ${ep.failedCount > 0 ? "has-failed" : ""}`}
+                          aria-label={`出图进度 ${percent(ep.imageReadyCount, ep.shotCount)}%`}
+                        >
+                          <i style={{ width: `${percent(ep.imageReadyCount, ep.shotCount)}%` }} />
+                        </span>
+                      )}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        {/* ---- 生产就绪度（自主迭代 04：一致性缺口在生成前可见，前瞻式） ---- */}
+        <section className="ws-panel ws-panel-readiness" aria-label="生产就绪度">
+          <div className="ws-panel-head">
+            <h2 className="ws-panel-title">生产就绪度</h2>
+            <span className="muted small">一致性缺口 · 生成前补齐</span>
+          </div>
+          {!readinessReady ? (
+            <p className="muted small ws-pad">正在读取就绪度…</p>
+          ) : readinessReady.allReady ? (
+            <div className="ws-attn-clean">
+              <CheckCircle size={15} weight="fill" />
+              <span>一致性资产就绪 — 角色与地点参考图齐备，无开放连续性警告。</span>
+            </div>
+          ) : (
+            <ul className="ws-readiness-grid">
+              {!readinessReady.charReady && readiness && (
+                <li className={`ws-ready-card ${readiness.characters.missing > 0 ? "bad" : "ok"}`}>
+                  <Link to={`/projects/${pid}/characters`} className="ws-ready-row">
+                    <UsersThree size={15} />
+                    <span className="ws-ready-text">
+                      角色参考图 <strong>{readiness.characters.ready}/{readiness.characters.total}</strong> 有 MASTER
+                      {readiness.characters.missing > 0 && (
+                        <em> · 缺 {readiness.characters.missing}</em>
+                      )}
+                    </span>
+                    <span className="text-link">去补齐</span>
+                  </Link>
+                </li>
+              )}
+              {!readinessReady.sceneReady && readiness && (
+                <li className={`ws-ready-card ${readiness.scene_binding.unbound > 0 || readiness.scene_binding.bound_with_master < readiness.scene_binding.bound ? "bad" : "ok"}`}>
+                  <Link to={`/projects/${pid}/storyboard`} className="ws-ready-row">
+                    <MapPin size={15} />
+                    <span className="ws-ready-text">
+                      场景地点 <strong>{readiness.scene_binding.bound_with_master}/{readiness.scene_binding.scenes_total}</strong> 可注入参考
+                      {readiness.scene_binding.unbound > 0 && <em> · {readiness.scene_binding.unbound} 未绑定</em>}
+                      {readiness.scene_binding.bound - readiness.scene_binding.bound_with_master > 0 && (
+                        <em> · {readiness.scene_binding.bound - readiness.scene_binding.bound_with_master} 地点无 MASTER</em>
+                      )}
+                    </span>
+                    <span className="text-link">去绑定</span>
+                  </Link>
+                </li>
+              )}
+              {!readinessReady.contReady && (
+                <li className="ws-ready-card bad">
+                  <Link to={`/projects/${pid}/continuity`} className="ws-ready-row">
+                    <ShieldCheck size={15} />
+                    <span className="ws-ready-text">
+                      连续性 <strong>{readiness!.continuity_open}</strong> 条开放警告
+                    </span>
+                    <span className="text-link">去检查</span>
+                  </Link>
+                </li>
+              )}
+            </ul>
+          )}
+        </section>
+
+        {/* ---- 需要处理（异常驱动：失败/进行中，空闲=干净态） ---- */}
+        <section className="ws-panel ws-panel-attention" aria-label="需要处理">
+          <div className="ws-panel-head">
+            <h2 className="ws-panel-title">需要处理</h2>
+            {attention.length > 0 && <span className="ws-attn-count">{attention.length}</span>}
+          </div>
+          {attention.length === 0 ? (
+            <div className="ws-attn-clean">
+              <CheckCircle size={15} weight="fill" />
+              <span>当前没有需要处理的问题</span>
+            </div>
+          ) : (
+            <ul className="ws-attention-list">
+              {attention.map((item) => {
+                const body = (
+                  <>
+                    {item.tone === "bad" ? (
+                      <Warning size={14} weight="fill" />
+                    ) : (
+                      <Play size={12} weight="fill" />
+                    )}
+                    <span className="ws-attn-text">{item.text}</span>
+                    <span className="text-link">{item.action.label}</span>
+                  </>
+                );
+                return (
+                  <li key={item.key} className={`attn ${item.tone}`}>
+                    {item.action.to ? (
+                      <Link to={item.action.to} className="ws-attn-row">
+                        {body}
+                      </Link>
+                    ) : (
+                      <button type="button" className="ws-attn-row" onClick={item.action.onClick}>
+                        {body}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </section>
       </div>
     </div>

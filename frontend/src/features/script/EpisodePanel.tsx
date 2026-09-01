@@ -580,6 +580,7 @@ export function EpisodePanel({
       </div>
 
       {previewError && <ApiErrorPanel error={previewError} />}
+      {createEpisode.error && <ApiErrorPanel error={createEpisode.error} />}
 
       <footer className="analysis-footer">
         <div className="row gap">

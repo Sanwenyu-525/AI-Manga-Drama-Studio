@@ -1,9 +1,10 @@
-// P2 漫剧工作区 — WorkspaceOverviewPage 回归：
-//   1. 每集进度行的「打开该集剧本」必须直达该集 canonical 剧本 URL
-//      （回归：曾指向 legacy /script 重定向，多集项目永远落到第一集）
-//   2. 「连续性检查」注意力行入口指向连续性工作区页面
-//   3. 管线阶段由 bootstrap 的 has_timeline / has_final_video 推导
-//      （contract §103；回归：曾逐集 404 探测，2N 请求且误报「等待」）
+// P2 漫剧工作区（制作控制台重排版）回归：
+//   1. 「当前生产状态区」= 剧集进度 + 生产管线合并；主按钮「继续制作」指向当前行动点
+//   2. 管线阶段条由 bootstrap 的 has_timeline / has_final_video 推导（contract §103；
+//      回归：曾逐集 404 探测，2N 请求且误报「等待」）
+//   3. EP 工作卡整卡可点 = 该集下一步动作（开始/继续/排片/渲染/查看）
+//   4. 「需要处理」异常驱动：只列真实失败与进行中任务，空闲=干净态
+//   5. 最近生成缩略图直达镜头详情
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -15,6 +16,7 @@ import type {
   EpisodeTreeItem,
   GenerationRead,
   ProjectBootstrap,
+  ProjectReadiness,
   ProjectTreeRead,
   ShotTreeItem,
 } from "../api/types";
@@ -114,60 +116,250 @@ const bootstrap: ProjectBootstrap = {
 
 const recent: GenerationRead[] = [];
 
+// 自主迭代 04：生产就绪度（默认全就绪 → 干净态）。
+const readyReadiness: ProjectReadiness = {
+  characters: { total: 2, ready: 2, missing: 0 },
+  scene_binding: { scenes_total: 1, bound: 1, bound_with_master: 1, unbound: 0 },
+  continuity_open: 0,
+};
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
 
 describe("workspace overview", () => {
-  const stubApi = () => {
+  const stubApi = (overrides?: {
+    bootstrap?: ProjectBootstrap;
+    recent?: GenerationRead[];
+    readiness?: ProjectReadiness;
+  }) => {
     // 未匹配的路径按契约拒绝（失败要响，静默降级会掩盖契约漂移）
     const get = vi.fn().mockImplementation((path: string) => {
       if (path === "/projects/p1/tree") return Promise.resolve(tree);
       if (path === "/projects/p1/episodes") return Promise.resolve(episodes);
-      if (path === "/projects/p1/bootstrap") return Promise.resolve(bootstrap);
-      if (path === "/generations/recent") return Promise.resolve(recent);
+      if (path === "/projects/p1/bootstrap") return Promise.resolve(overrides?.bootstrap ?? bootstrap);
+      if (path === "/generations/recent") return Promise.resolve(overrides?.recent ?? recent);
+      if (path === "/projects/p1/readiness") return Promise.resolve(overrides?.readiness ?? readyReadiness);
       return Promise.reject(new Error("unexpected " + path));
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
   };
 
-  it("links each episode row to its own canonical script URL", async () => {
+  it("状态区合并 EP+管线：主按钮「继续制作」指向当前行动点（导出 → ep1 时间线）", async () => {
     stubApi();
     const { wrapper } = makeWrapper();
     render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
 
-    const links = await screen.findAllByTitle("打开该集剧本");
-    expect(links).toHaveLength(2);
-    expect(links[0].getAttribute("href")).toBe("/projects/p1/episodes/ep1/script");
-    expect(links[1].getAttribute("href")).toBe("/projects/p1/episodes/ep2/script");
+    // ep1 已出图且有时间线、无成片 → 全项目当前阶段=导出 → 落点=ep1 时间线
+    // （主按钮 href 在 bootstrap 到达前后会变：timeline→export，必须等 flags 落地）
+    const primary = await screen.findByRole("link", { name: /继续制作/ }, { timeout: 4000 });
+    await waitFor(
+      () => {
+        expect(primary.getAttribute("href")).toBe("/projects/p1/episodes/ep1/timeline");
+      },
+      { timeout: 4000 },
+    );
+    expect(screen.getByText("EP01 · 第一集")).toBeTruthy();
+    expect(screen.getByText(/当前阶段：导出/)).toBeTruthy();
   });
 
-  it("points the continuity attention row at the continuity workspace page", async () => {
+  it("管线阶段条由 bootstrap flags 推导，而非逐集探测端点", async () => {
     stubApi();
     const { wrapper } = makeWrapper();
     render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
 
-    const continuity = await screen.findByRole("link", { name: "打开检查页" });
-    expect(continuity.getAttribute("href")).toBe("/projects/p1/continuity");
-  });
-
-  it("derives pipeline stages from bootstrap flags instead of probing endpoints", async () => {
-    stubApi();
-    const { wrapper } = makeWrapper();
-    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
-
-    // ep1 has_timeline=true → 时间线阶段已完成；export 未产出 → 首个未完成阶段 = 当前行动点「进行中」
-    // （管线区块先于 bootstrap 返回渲染，需等 flags 到位后的重渲染）
-    await screen.findByText("生产管线");
-    await waitFor(() => {
-      const stage = screen.getByText("时间线").closest("li");
-      expect(stage?.textContent).toContain("已完成");
-    });
+    // ep1 has_timeline=true → 时间线已完成；export 未产出 → 当前行动点
+    await waitFor(
+      () => {
+        const stage = screen.getByText("时间线").closest("li");
+        expect(stage?.className).toContain("done");
+      },
+      { timeout: 4000 },
+    );
     const exportStage = screen.getByText("导出").closest("li");
-    expect(exportStage?.textContent).toContain("进行中");
+    expect(exportStage?.className).toContain("running");
     // 不应再向每集端点发探测请求
     expect(client.api.get).not.toHaveBeenCalledWith("/episodes/ep1/timeline");
     expect(client.api.get).not.toHaveBeenCalledWith("/episodes/ep1/final-video");
+  });
+
+  it("EP 工作卡整卡可点：ep1 渲染导出→时间线；ep2 开始制作→剧本", async () => {
+    stubApi();
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+
+    const ep1Card = await screen.findByRole("link", { name: "渲染导出：EP01" }, { timeout: 4000 });
+    expect(ep1Card.getAttribute("href")).toBe("/projects/p1/episodes/ep1/timeline");
+
+    const ep2Card = screen.getByRole("link", { name: "开始制作：EP02" });
+    expect(ep2Card.getAttribute("href")).toBe("/projects/p1/episodes/ep2/script");
+    expect(ep2Card.textContent).toContain("尚未开始");
+  });
+
+  it("无异常时「需要处理」显示干净态，不塞普通导航入口", async () => {
+    stubApi();
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+
+    expect(await screen.findByText("当前没有需要处理的问题", {}, { timeout: 4000 })).toBeTruthy();
+    // 已删除的重复入口不再出现
+    expect(screen.queryByText("提示词版本库")).toBeNull();
+    expect(screen.queryByText("连续性检查")).toBeNull();
+    expect(screen.queryByText("快捷入口")).toBeNull();
+  });
+
+  it("有失败/运行中任务时逐条列出，附动作", async () => {
+    const failedGen: GenerationRead = {
+      id: "g1",
+      project_id: "p1",
+      shot_id: "sh1",
+      type: "image",
+      provider: "mock",
+      model: null,
+      workflow_id: null,
+      prompt_version_id: null,
+      status: "failed",
+      progress: 0,
+      stage: null,
+      output_asset_id: null,
+      error_message: "boom",
+      retry_of: null,
+      created_at: "",
+      started_at: null,
+      completed_at: null,
+    };
+    const busyBootstrap: ProjectBootstrap = { ...bootstrap, active_generations: 2, active_agent_runs: 1 };
+    stubApi({ bootstrap: busyBootstrap, recent: [failedGen] });
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+
+    const failedLink = await screen.findByRole("link", { name: /1 条生成失败/ }, { timeout: 4000 });
+    expect(failedLink.getAttribute("href")).toBe("/projects/p1/production-log");
+    expect(screen.getByRole("button", { name: /2 个生成任务运行中/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /1 个 AI 导演任务运行中/ })).toBeTruthy();
+    expect(screen.queryByText("当前没有需要处理的问题")).toBeNull();
+  });
+
+  it("最近生成缩略图直达镜头详情", async () => {
+    const doneGen: GenerationRead = {
+      id: "g2",
+      project_id: "p1",
+      shot_id: "sh1",
+      type: "image",
+      provider: "agnes",
+      model: "agnes-image-2.1-flash",
+      workflow_id: null,
+      prompt_version_id: null,
+      status: "completed",
+      progress: 100,
+      stage: null,
+      output_asset_id: "asset9",
+      error_message: null,
+      retry_of: null,
+      created_at: "",
+      started_at: null,
+      completed_at: null,
+    };
+    stubApi({ recent: [doneGen] });
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+
+    const img = await screen.findByRole("img", { name: /SHOT SH1/ }, { timeout: 4000 });
+    expect(img.getAttribute("src")).toBe("/api/v1/assets/asset9/thumbnail");
+    const card = img.closest("a");
+    expect(card?.getAttribute("href")).toBe("/projects/p1/episodes/ep1/scenes/sc1/shots/sh1");
+    expect(screen.getByRole("link", { name: "查看全部资产" })).toBeTruthy();
+  });
+});
+
+describe("生产就绪度（自主迭代 04）", () => {
+  it("全部就绪 → 干净态，不显示缺口卡片", async () => {
+    const stubApi = (readiness: ProjectReadiness) => {
+      const get = vi.fn().mockImplementation((path: string) => {
+        if (path === "/projects/p1/tree") return Promise.resolve(tree);
+        if (path === "/projects/p1/episodes") return Promise.resolve(episodes);
+        if (path === "/projects/p1/bootstrap") return Promise.resolve(bootstrap);
+        if (path === "/generations/recent") return Promise.resolve(recent);
+        if (path === "/projects/p1/readiness") return Promise.resolve(readiness);
+        return Promise.reject(new Error("unexpected " + path));
+      });
+      vi.spyOn(client.api, "get").mockImplementation(get);
+    };
+    stubApi(readyReadiness);
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+    expect(await screen.findByText(/一致性资产就绪/, {}, { timeout: 4000 })).toBeTruthy();
+    expect(screen.queryByText("去补齐")).toBeNull();
+    expect(screen.queryByText("去绑定")).toBeNull();
+    expect(screen.queryByText("去检查")).toBeNull();
+  });
+
+  it("角色缺 MASTER → 卡片显示缺口并跳转角色页", async () => {
+    const readiness: ProjectReadiness = {
+      characters: { total: 3, ready: 1, missing: 2 },
+      scene_binding: { scenes_total: 1, bound: 1, bound_with_master: 1, unbound: 0 },
+      continuity_open: 0,
+    };
+    const get = vi.fn().mockImplementation((path: string) => {
+      if (path === "/projects/p1/tree") return Promise.resolve(tree);
+      if (path === "/projects/p1/episodes") return Promise.resolve(episodes);
+      if (path === "/projects/p1/bootstrap") return Promise.resolve(bootstrap);
+      if (path === "/generations/recent") return Promise.resolve(recent);
+      if (path === "/projects/p1/readiness") return Promise.resolve(readiness);
+      return Promise.reject(new Error("unexpected " + path));
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get);
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+    const link = await screen.findByRole("link", { name: /角色参考图/ }, { timeout: 4000 });
+    expect(link.textContent).toContain("1/3");
+    expect(link.textContent).toContain("缺 2");
+    expect(link.getAttribute("href")).toBe("/projects/p1/characters");
+  });
+
+  it("场景未绑定地点 → 卡片显示缺口并跳转分镜", async () => {
+    const readiness: ProjectReadiness = {
+      characters: { total: 2, ready: 2, missing: 0 },
+      scene_binding: { scenes_total: 4, bound: 2, bound_with_master: 1, unbound: 2 },
+      continuity_open: 0,
+    };
+    const get = vi.fn().mockImplementation((path: string) => {
+      if (path === "/projects/p1/tree") return Promise.resolve(tree);
+      if (path === "/projects/p1/episodes") return Promise.resolve(episodes);
+      if (path === "/projects/p1/bootstrap") return Promise.resolve(bootstrap);
+      if (path === "/generations/recent") return Promise.resolve(recent);
+      if (path === "/projects/p1/readiness") return Promise.resolve(readiness);
+      return Promise.reject(new Error("unexpected " + path));
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get);
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+    const link = await screen.findByRole("link", { name: /场景地点/ }, { timeout: 4000 });
+    expect(link.textContent).toContain("1/4");
+    expect(link.textContent).toContain("2 未绑定");
+    expect(link.getAttribute("href")).toBe("/projects/p1/storyboard");
+  });
+
+  it("开放连续性警告 → 卡片显示计数并跳转连续性检查", async () => {
+    const readiness: ProjectReadiness = {
+      characters: { total: 2, ready: 2, missing: 0 },
+      scene_binding: { scenes_total: 1, bound: 1, bound_with_master: 1, unbound: 0 },
+      continuity_open: 3,
+    };
+    const get = vi.fn().mockImplementation((path: string) => {
+      if (path === "/projects/p1/tree") return Promise.resolve(tree);
+      if (path === "/projects/p1/episodes") return Promise.resolve(episodes);
+      if (path === "/projects/p1/bootstrap") return Promise.resolve(bootstrap);
+      if (path === "/generations/recent") return Promise.resolve(recent);
+      if (path === "/projects/p1/readiness") return Promise.resolve(readiness);
+      return Promise.reject(new Error("unexpected " + path));
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get);
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+    const link = await screen.findByRole("link", { name: /连续性/ }, { timeout: 4000 });
+    expect(link.textContent).toContain("3");
+    expect(link.getAttribute("href")).toBe("/projects/p1/continuity");
   });
 });

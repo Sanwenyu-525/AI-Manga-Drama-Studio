@@ -4,6 +4,8 @@ export const queryKeys = {
   projects: ["projects"] as const,
   project: (id: string) => ["project", id] as const,
   bootstrap: (projectId: string) => ["bootstrap", projectId] as const,
+  /** 自主迭代 04：生产就绪度（角色/场景绑定/连续性缺口聚合）。 */
+  readiness: (projectId: string) => ["readiness", projectId] as const,
   episodes: (projectId: string) => ["episodes", projectId] as const,
   scene: (sceneId: string) => ["scene", sceneId] as const,
   scenes: (episodeId: string) => ["scenes", episodeId] as const,
@@ -25,6 +27,8 @@ export const queryKeys = {
   job: (jobId: string) => ["job", jobId] as const,
   /** P7-T019/020: agent run detail + its proposals (keyed by run). */
   agentRun: (runId: string) => ["agentRun", runId] as const,
+  /** 自主迭代 05：项目最近 director 会话列表（刷新恢复水合用，limit=1 取上次会话）。 */
+  agentRuns: (projectId: string) => ["agentRuns", projectId] as const,
   proposals: (runId: string) => ["proposals", runId] as const,
   /** P2-E3-T03: applied change sets (per project + per agent run). */
   changeSets: (projectId: string) => ["changeSets", projectId] as const,
@@ -52,10 +56,15 @@ export const queryKeys = {
   videoModels: ["video-models"] as const,
   /** P-LocalModels: ComfyUI checkpoint 列表（GET /providers/comfyui/models）。 */
   comfyuiModels: ["comfyui-models"] as const,
+  /** P2-E4-T02: ComfyUI workflow 模板目录（GET /providers/comfyui/workflows）。 */
+  comfyuiWorkflows: ["comfyui-workflows"] as const,
   workflows: ["workflows"] as const,
   recentGenerations: ["generations", "recent"] as const,
   shotGenerations: (shotId: string) => ["generations", shotId] as const,
   shotVersions: (shotId: string) => ["versions", shotId] as const,
+  /** M1 前端闭环：镜头自动参考图预览 + 单条生成明细（含参考图溯源）。 */
+  shotReferences: (shotId: string) => ["shotReferences", shotId] as const,
+  generation: (generationId: string) => ["generation", generationId] as const,
   /** Timeline clip detail shape: ["shot","versions",shotId] (TimelineView clip inspector). */
   shotVersionEntries: (shotId: string) => ["shot", "versions", shotId] as const,
 

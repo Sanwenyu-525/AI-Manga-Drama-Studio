@@ -4,6 +4,7 @@ export function generationTypeText(type: string | null | undefined): string {
     (
       {
         image: "图片",
+        video: "视频",
         render: "整集渲染",
         audio: "配音",
       } as Record<string, string>

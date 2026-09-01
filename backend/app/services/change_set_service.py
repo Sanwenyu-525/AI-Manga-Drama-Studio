@@ -106,6 +106,51 @@ class ChangeSetService:
         )
         return change_set
 
+    def record_scene_patch(
+        self,
+        *,
+        project_id: str,
+        run_id: str | None,
+        tool: str,
+        scene_id: str,
+        before: dict,
+        after: dict,
+        revision_before: int,
+        revision_after: int,
+    ) -> AgentChangeSet:
+        """Record one applied scene-patch mutation (自主迭代 07, update_scene).
+
+        Same minimal before/after contract as shot patches; entity_type="scene"
+        so the shared undo machinery compensates via SceneService (which re-triggers
+        P8-T017 continuity recompute).
+        """
+        if set(before) != set(after) or not before:
+            raise ValidationError(
+                "ChangeSet before/after must cover the same non-empty field set.",
+                {"before_fields": sorted(before), "after_fields": sorted(after)},
+            )
+        change_set = AgentChangeSet(
+            project_id=project_id,
+            run_id=run_id,
+            source="agent",
+            tool=tool,
+            entity_type="scene",
+            entity_id=scene_id,
+            revision_before=revision_before,
+            revision_after=revision_after,
+            before_json=json.dumps(before, ensure_ascii=False),
+            after_json=json.dumps(after, ensure_ascii=False),
+            created_at=_now(),
+        )
+        self.session.add(change_set)
+        self.session.commit()
+        self._publish_created(change_set)
+        logger.info(
+            "change_set %s recorded (scene %s, tool %s, fields %s, rev %d→%d)",
+            change_set.id, scene_id, tool, sorted(before), revision_before, revision_after,
+        )
+        return change_set
+
     def record_active_version(
         self,
         *,
@@ -212,6 +257,8 @@ class ChangeSetService:
 
         if original.entity_type == "timeline_clip":
             return self._undo_timeline_clip(original, before, after, force=force)
+        if original.entity_type == "scene":
+            return self._undo_scene_patch(original, before, after, force=force)
         if any(f in ACTIVE_FIELDS for f in before):
             return self._undo_active_version(original, before, after, force=force)
         return self._undo_shot_patch(original, before, after, force=force)
@@ -270,6 +317,60 @@ class ChangeSetService:
         self._publish_undone(original, compensating)
         logger.info("change_set %s undone by %s (shot %s, rev %d→%d)",
                     original.id, compensating.id, shot.id, revision_before, updated.revision)
+        return compensating
+
+    def _undo_scene_patch(self, original: AgentChangeSet, before: dict, after: dict, *, force: bool) -> AgentChangeSet:
+        """Undo a scene patch (自主迭代 07): apply the recorded before-values as a
+        NEW compensating change via SceneService (which re-triggers P8-T017)."""
+        from app.domain.scene import SceneUpdate
+        from app.services.scene_service import SceneService
+
+        scene = self.session.get(Scene, original.entity_id)
+        if scene is None or scene.deleted_at:
+            raise ConflictError(
+                "Target scene no longer exists — cannot undo.",
+                {"change_set_id": original.id, "scene_id": original.entity_id, "recovery": before},
+            )
+        if not force:
+            current = {f: getattr(scene, f, None) for f in after}
+            overwritten = {
+                f: {"expected": after[f], "current": current[f], "before": before[f]}
+                for f in after
+                if current.get(f) != after[f]
+            }
+            if overwritten:
+                raise ConflictError(
+                    "Scene was edited after this change — undo would overwrite it. "
+                    "Retry with force=true to restore the recorded before-values anyway.",
+                    {"change_set_id": original.id, "fields": overwritten, "recovery": before},
+                )
+        patch = SceneUpdate.model_validate(before)
+        revision_before = scene.revision
+        updated = SceneService(self.session).update_scene(scene.id, scene.revision, patch)
+        compensating = AgentChangeSet(
+            project_id=original.project_id,
+            run_id=original.run_id,
+            source="undo",
+            tool=f"undo:{original.tool}",
+            entity_type="scene",
+            entity_id=original.entity_id,
+            revision_before=revision_before,
+            revision_after=updated.revision,
+            before_json=json.dumps(after, ensure_ascii=False),
+            after_json=json.dumps(before, ensure_ascii=False),
+            created_at=_now(),
+        )
+        self.session.add(compensating)
+        original.undone = True
+        original.undone_at = _now()
+        self.session.flush()
+        original.undone_by_change_set_id = compensating.id
+        self.session.commit()
+
+        self._publish_created(compensating)
+        self._publish_undone(original, compensating)
+        logger.info("change_set %s undone by %s (scene %s, rev %d→%d)",
+                    original.id, compensating.id, scene.id, revision_before, updated.revision)
         return compensating
 
     def _undo_active_version(self, original: AgentChangeSet, before: dict, after: dict, *, force: bool) -> AgentChangeSet:

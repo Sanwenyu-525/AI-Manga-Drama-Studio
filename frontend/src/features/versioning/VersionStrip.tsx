@@ -6,6 +6,7 @@
 // (grouped by media_type / purpose, ADR-001 §2.2) the highest version_number is
 // treated as the newest candidate. is_active / status come straight from the DTO.
 import type { AssetVersionRead } from "../../api/types";
+import { assetUrl } from "../../lib/mediaUrl";
 
 export interface VersionBadge {
   /** stable key used for styling and tests */
@@ -91,7 +92,8 @@ export function VersionStrip({ versions, selectedId, onSelect, title = "版本" 
               >
                 <img
                   className="version-thumb"
-                  src={`/api/v1/assets/${version.asset_id}/thumbnail`}
+                  loading="lazy"
+                  src={assetUrl(version.asset_id, "thumbnail")}
                   alt={`V${version.version_number} thumbnail`}
                 />
                 <span className="version-label">V{version.version_number}</span>

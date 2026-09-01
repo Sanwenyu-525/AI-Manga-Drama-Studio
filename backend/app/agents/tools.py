@@ -38,6 +38,20 @@ class UpdateShotArgs(BaseModel):
     )
 
 
+class UpdateSceneArgs(BaseModel):
+    """自主迭代 07：场景级修改（时段/光照/天气/氛围/描述/名称）。
+
+    scene_id 由 planner 从 selection.scene_id 解析；patch 白名单与
+    SceneUpdate 一致（后端 update_scene 触发 P8-T017 连续性重算 + stale 标记）。
+    """
+
+    scene_id: str
+    patch: dict = Field(
+        ...,
+        description="Valid keys: name, time_of_day, lighting, weather, mood, description",
+    )
+
+
 class GenerateImageArgs(BaseModel):
     shot_id: str
     prompt: str | None = None
@@ -56,6 +70,19 @@ class ContinuityFixArgs(BaseModel):
         default_factory=dict,
         description="Valid keys: shot_type, camera_angle, camera_movement, duration, action, emotion, dialogue, image_prompt, status, dirty_state",
     )
+
+
+class CheckWorkflowArgs(BaseModel):
+    """P2-E4-T02 检查通道: live-validate a workflow template against the connected
+    ComfyUI (missing nodes / missing models / broken links). workflow_id omitted →
+    the system default template."""
+
+    workflow_id: str | None = None
+
+
+class InspectComfyArgs(BaseModel):
+    """P2-E4-T02 检查通道: read-only ComfyUI environment summary (reachability,
+    node count, workflow list, introspection source). No arguments."""
 
 
 class ToolResult(BaseModel):
@@ -78,8 +105,11 @@ TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
     "get_shot": GetShotArgs,
     "get_scene_shots": GetSceneShotsArgs,
     "update_shot": UpdateShotArgs,
+    "update_scene": UpdateSceneArgs,
     "generate_image": GenerateImageArgs,
     "continuity_fix": ContinuityFixArgs,
+    "check_workflow": CheckWorkflowArgs,
+    "inspect_comfy": InspectComfyArgs,
 }
 
 
@@ -335,6 +365,86 @@ class ToolExecutor:
             .limit(1)
         )
 
+    def _update_scene(self, args: dict) -> ToolResult:
+        """自主迭代 07：R1 可逆编辑——场景环境/名称修改自动应用（走 SceneService，
+        触发 P8-T017 连续性重算 + stale 标记），并记录 scene ChangeSet（可撤销）。
+
+        scene_id 由 planner 从 selection.scene_id 解析；ownership 由 _require_scene
+        复核。幂等：resume 重跑 execute_node 时，相同 (run, scene, tool) 的 agent
+        change set 已存在且 after 一致 → 跳过。
+        """
+        from app.agents.risk import approval_needed, classify_tool_operation
+
+        schema = UpdateSceneArgs.model_validate(args)
+        scene = self._require_scene(schema.scene_id)
+        requested = {key: value for key, value in schema.patch.items() if value is not None}
+        if not requested:
+            return ToolResult(
+                success=True,
+                entity_id=scene.id,
+                changed_fields=[],
+                data={"applied": False, "message": "no change requested"},
+            )
+        run = self.session.get(AgentRun, self.run_id) if self.run_id else None
+        if run is None:
+            return ToolResult(
+                success=False,
+                error="update_scene requires a persisted agent run.",
+                data={"code": "AGENT_RUN_REQUIRED"},
+            )
+        assessment = classify_tool_operation("update_scene", args)
+        if approval_needed("update_scene", args):
+            # update_scene 恒 R1（自动应用）；此分支仅防未来风险策略升级——未知
+            # 风险宁可拒绝也不猜测（红线：不静默写库）。
+            return ToolResult(
+                success=False,
+                error="update_scene risk escalated; manual approval not implemented.",
+                data={"code": "RISK_ESCALATED", "risk_level": assessment.risk_level},
+            )
+
+        existing = self._existing_agent_change_set(run.id, scene.id, "update_scene")
+        if existing is not None:
+            after = json.loads(existing.after_json) if existing.after_json else {}
+            if after == requested:
+                return ToolResult(
+                    success=True,
+                    entity_id=scene.id,
+                    changed_fields=list(requested),
+                    data={"message": "already applied", "change_set_id": existing.id, "revision": existing.revision_after},
+                )
+        from app.domain.scene import SceneUpdate
+        from app.services.change_set_service import ChangeSetService
+        from app.services.scene_service import SceneService
+
+        patch = SceneUpdate.model_validate(requested)
+        scenes = SceneService(self.session)
+        before = scenes.get_scene(scene.id)
+        try:
+            updated = scenes.update_scene(scene.id, scene.revision, patch)
+        except ConflictError as exc:
+            return ToolResult(success=False, error=exc.message, data={"code": exc.code})
+        change_set = ChangeSetService(self.session).record_scene_patch(
+            project_id=run.project_id,
+            run_id=run.id,
+            tool="update_scene",
+            scene_id=scene.id,
+            before={f: getattr(before, f, None) for f in requested},
+            after={f: getattr(updated, f, None) for f in requested},
+            revision_before=before.revision,
+            revision_after=updated.revision,
+        )
+        return ToolResult(
+            success=True,
+            entity_id=scene.id,
+            changed_fields=list(requested),
+            data={
+                "applied": True,
+                "change_set_id": change_set.id,
+                "revision": updated.revision,
+                "risk_level": assessment.risk_level,
+            },
+        )
+
     def _generate_image(self, args: dict) -> ToolResult:
         """R2 (P2-E3-T02): generation is expensive — by default NO Generation row is
         created before a human approves a pending proposal carrying the risk
@@ -482,5 +592,66 @@ class ToolExecutor:
                 "target_type": proposal.target_type,
                 "target_id": proposal.target_id,
                 "warning_id": schema.warning_id,
+            },
+        )
+
+    # --- 检查通道工具（P2-E4-T02，R0 只读；经 WorkflowDiagnosticsService 红线合规） ---
+
+    def _check_workflow(self, args: dict) -> ToolResult:
+        """Live-validate a workflow template against the connected ComfyUI."""
+        schema = CheckWorkflowArgs.model_validate(args)
+        from app.services.workflow_diagnostics_service import get_workflow_diagnostics_service
+
+        diagnostics = get_workflow_diagnostics_service().validate_workflow_sync(schema.workflow_id)
+        data = diagnostics.to_dict()
+        if diagnostics.status == "invalid":
+            summary = "workflow 不可运行：" + "；".join(
+                filter(None, [
+                    f"缺节点 {', '.join(diagnostics.missing_nodes)}" if diagnostics.missing_nodes else "",
+                    f"缺模型 {', '.join(diagnostics.missing_models[:5])}" if diagnostics.missing_models else "",
+                    f"断链 {', '.join(diagnostics.broken_links[:5])}" if diagnostics.broken_links else "",
+                ])
+            )
+        elif diagnostics.status == "ok":
+            summary = "workflow 与当前 ComfyUI 环境完全兼容。"
+        elif diagnostics.status == "unreachable":
+            summary = f"无法完成 live 校验：{diagnostics.error}"
+        else:
+            summary = f"模板静态缺陷：{diagnostics.static_error}"
+        data["summary"] = summary
+        return ToolResult(success=True, entity_id=diagnostics.workflow_id, warnings=[summary], data=data)
+
+    def _inspect_comfy(self, args: dict) -> ToolResult:
+        """Read-only ComfyUI environment summary (reachability / node count / workflows)."""
+        from app.core.config import settings
+        from app.providers.comfyui.client import ComfyUIClient
+        from app.services.workflow_diagnostics_service import get_workflow_diagnostics_service
+
+        service = get_workflow_diagnostics_service()
+        client = ComfyUIClient()
+        info = service._cached(service._sync_cache, client.base_url, client.get_object_info_sync)
+        from app.providers.comfyui.workflow_mapper import _resolve_catalog
+
+        workflows = sorted(_resolve_catalog())
+        if info is None:
+            return ToolResult(
+                success=True,
+                warnings=["ComfyUI 不可达。"],
+                data={
+                    "reachable": False,
+                    "base_url": client.base_url,
+                    "workflows": workflows,
+                    "introspection_mode": settings.comfy_introspection,
+                },
+            )
+        return ToolResult(
+            success=True,
+            data={
+                "reachable": True,
+                "base_url": client.base_url,
+                "node_count": len(info),
+                "workflows": workflows,
+                "introspection_mode": settings.comfy_introspection,
+                "summary": f"ComfyUI 可达，已安装 {len(info)} 个节点类。",
             },
         )

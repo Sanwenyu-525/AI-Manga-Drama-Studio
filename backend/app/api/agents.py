@@ -32,6 +32,19 @@ async def create_director_run(data: AgentRunCreate) -> AgentRunRead:
     return gateway.create_run(data)
 
 
+@router.get("/runs", response_model=list[AgentRunRead])
+def list_agent_runs(
+    project_id: str = Query(...),
+    limit: int = Query(default=10, ge=1, le=50),
+) -> list[AgentRunRead]:
+    """自主迭代 05（刷新恢复）：项目最近 director 会话，最新在前。
+
+    前端在面板挂载时取 limit=1 水合「上一次会话」，刷新后对话流可恢复；
+    每条含确定性计算的消息转录（messages）。
+    """
+    return gateway.list_runs(project_id, limit)
+
+
 @router.get("/runs/{run_id}", response_model=AgentRunRead)
 def get_agent_run(run_id: str) -> AgentRunRead:
     return get_run(run_id)
@@ -143,10 +156,7 @@ def continuity_fix(body: ContinuityFixRequest) -> AgentRunRead:
     frontend first runs a check, then issues a fix per warning.
     """
     from app.agents.continuity.runner import create_fix_run
-    from app.agents.director.runner import _to_read, _session
-    from app.db.models import AgentRun
+    from app.agents.director.runner import get_run
 
-    with _session() as session:
-        run = create_fix_run(body.warning_id, body.patch)
-        persisted = session.get(AgentRun, run.id)
-        return _to_read(session, persisted)
+    run = create_fix_run(body.warning_id, body.patch)
+    return get_run(run.id)

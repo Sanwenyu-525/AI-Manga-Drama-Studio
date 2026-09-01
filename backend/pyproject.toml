@@ -16,6 +16,7 @@ dependencies = [
     "uvicorn[standard]>=0.52.3",
     "websockets>=15.0",  # ComfyUI WS monitor (P1-E2-T01: explicit runtime dep)
     "edge-tts>=7.0.0",  # TTS voiceover provider (TASK-012: high-star LGPL pkg, online voices)
+    "mcp>=1.2.0",
 ]
 
 [dependency-groups]

@@ -84,6 +84,8 @@ export interface ShotSummary {
   thumbnail_url: string | null;
   character_names: string[];
   active_generation: Record<string, unknown> | null;
+  /** 自主迭代 08：活跃图片资产被连续性标记为 stale（场景/环境变更后待重生成）。 */
+  image_stale?: boolean;
 }
 
 export interface Storyboard {
@@ -94,6 +96,23 @@ export interface Storyboard {
 export interface ShotUpdateRequest {
   revision: number;
   patch: Partial<ShotUpdatePatch>;
+}
+
+// --- Batch shot operations (autonomous-iteration-02, contract §19 batch) ---
+
+export interface ShotBatchItemResult {
+  shot_id: string;
+  status: string; // "updated" | "deleted" | "failed"
+  error_code: string | null;
+  message: string | null;
+}
+
+export interface ShotBatchResult {
+  scene_id: string;
+  requested: number;
+  succeeded: number;
+  failed: number;
+  results: ShotBatchItemResult[];
 }
 
 export interface ShotUpdatePatch {
@@ -376,6 +395,27 @@ export interface ProjectBootstrap {
   active_agent_runs: number;
 }
 
+// --- 自主迭代 04: 生产就绪度（GET /projects/{id}/readiness，契约 §103.1）---
+// 一致性缺口在生成前可见：角色 MASTER 覆盖 / 场景地点绑定覆盖 / 开放连续性警告。
+export interface ReadinessMetric {
+  total: number;
+  ready: number;
+  missing: number;
+}
+
+export interface SceneBindingReadiness {
+  scenes_total: number;
+  bound: number;
+  bound_with_master: number;
+  unbound: number;
+}
+
+export interface ProjectReadiness {
+  characters: ReadinessMetric;
+  scene_binding: SceneBindingReadiness;
+  continuity_open: number;
+}
+
 // --- Stage B: AI planning DTOs (mvp-spec §55-57) ---
 
 export interface ScenePlan {
@@ -464,6 +504,29 @@ export interface GenerationRead {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+  /** M1 前端闭环：仅 GET /generations/{id} 明细填充（列表端点为 null，防 N+1）。 */
+  references?: GenerationReferenceRead[] | null;
+}
+
+/** M1 + 自主迭代 03：GET /shots/{id}/reference-images — 自动模式将注入的角色 MASTER + 场景地点 MASTER 参考图预览。 */
+export interface ShotReferenceRead {
+  character_id: string | null;
+  character_name: string | null;
+  location_id: string | null;
+  location_name: string | null;
+  version_id: string | null;
+  asset_id: string;
+}
+
+/** M1 + 自主迭代 03：单条生成的参考图溯源（auto=角色/地点 MASTER 解析 / explicit=调用方显式指定）。 */
+export interface GenerationReferenceRead {
+  character_id: string | null;
+  character_name: string | null;
+  location_id: string | null;
+  location_name: string | null;
+  version_id: string | null;
+  asset_id: string;
+  source: "auto" | "explicit";
 }
 
 export interface AssetVersionRead {
@@ -515,6 +578,8 @@ export interface AgentRunRead {
   result: Record<string, unknown> | null;
   /** P7-T020: proposals awaiting (or in) human review, inlined on the run detail. */
   pending_proposals?: AgentProposal[];
+  /** 自主迭代 05（刷新恢复）：会话消息转录 [{role, content}]，前端据此水合对话流。 */
+  messages: { role: "user" | "assistant"; content: string }[];
   created_at: string;
   updated_at: string;
 }
@@ -699,6 +764,18 @@ export interface LocationCreate {
   description?: string | null;
   visual_prompt?: string | null;
   status?: string;
+}
+
+export interface LocationUpdatePatch {
+  name?: string;
+  description?: string | null;
+  visual_prompt?: string | null;
+  status?: string;
+}
+
+export interface LocationUpdateRequest {
+  revision: number;
+  patch: LocationUpdatePatch;
 }
 
 export interface LocationVersionCreate {

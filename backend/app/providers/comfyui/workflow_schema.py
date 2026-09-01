@@ -80,8 +80,18 @@ IMAGE_PARAMETERS: tuple[WorkflowParam, ...] = (
     WorkflowParam("height", "$HEIGHT", "int", required=True, default=DEFAULT_IMAGE_HEIGHT,
                   min=IMAGE_MIN_DIMENSION, max=IMAGE_MAX_DIMENSION,
                   description="Image height."),
-    WorkflowParam("reference_images", "$REFERENCE_IMAGE", "list[str]", default=[],
-                  description="Optional reference image (absolute paths); first used."),
+    # M1 参考图三槽位：reference_images[0..2] 依序注入 $REFERENCE_IMAGE_1..3；
+    # 缺失/越界槽注入空字符串（provider 侧会裁掉未填充的 LoadImage 节点，
+    # 避免 ComfyUI 空文件名校验失败——见 providers/image/comfyui.py）。
+    WorkflowParam("reference_image_1", "$REFERENCE_IMAGE_1", "str", default="",
+                  description="Reference image slot 1 (primary)."),
+    WorkflowParam("reference_image_2", "$REFERENCE_IMAGE_2", "str", default="",
+                  description="Reference image slot 2."),
+    WorkflowParam("reference_image_3", "$REFERENCE_IMAGE_3", "str", default="",
+                  description="Reference image slot 3."),
+    # 旧单槽 token = 槽 1 别名（向后兼容：既有模板/测试可继续用 $REFERENCE_IMAGE）。
+    WorkflowParam("reference_images", "$REFERENCE_IMAGE", "list[str]", default="",
+                  description="Legacy single-slot alias of $REFERENCE_IMAGE_1 (first reference wins)."),
     # checkpoint 由 image.json 运行时配置解析（providers/image/comfyui.py 注入），
     # 业务层（Generation/Shot Service）永远不感知具体模型名（红线 #5）。
     WorkflowParam("checkpoint", "$CHECKPOINT", "str", default=DEFAULT_CHECKPOINT,
@@ -185,12 +195,16 @@ class WorkflowSchema:
         injectable map (defaults applied, random seed resolved). Raises ValidationError
         (422) for type/range errors."""
         values: dict[str, Any] = {}
+        refs = reference_images or []
         req: dict[str, Any] = {
             "prompt": prompt,
             "negative_prompt": negative_prompt,
             "seed": seed,
             "width": width,
             "height": height,
+            "reference_image_1": refs[0] if refs else None,
+            "reference_image_2": refs[1] if len(refs) > 1 else None,
+            "reference_image_3": refs[2] if len(refs) > 2 else None,
             "reference_images": reference_images,
             "checkpoint": checkpoint,
         }
@@ -242,7 +256,8 @@ class WorkflowSchema:
                     f"Workflow parameter '{param.name}' must be a list of strings.",
                     {"parameter": param.name, "placeholder": param.placeholder},
                 )
-            # the mapper consumes one reference image (first wins)
+            # legacy single-slot token: alias of slot 1 (first reference wins,
+            # empty string when no reference — same value as $REFERENCE_IMAGE_1)
             return raw[0] if raw else param.default
 
         return param.default

@@ -42,11 +42,68 @@ _EMOTION_KEYWORDS = {
     "温柔": "gentle",
 }
 
+# 自主迭代 07：场景级指令识别（目标词 + 环境值词 → update_scene）。
+_SCENE_TARGET_KEYWORDS = ("场景", "这场戏", "这一场", "这场")
+_TIME_OF_DAY_VALUES = ("夜晚", "深夜", "傍晚", "黄昏", "清晨", "白天")
+_LIGHTING_VALUES = ("明亮", "昏暗", "柔和", "月光", "霓虹")
+_WEATHER_VALUES = ("下雨", "雨天", "下雪", "雪天", "晴天", "阴天")
+_SCENE_MOOD_WORDS = ("紧张", "温馨", "压抑", "轻松", "欢快", "肃杀")
 
-def parse_director_plan(message: str, selection_shot_id: str | None) -> DirectorPlan:
+
+def _scene_env_patch(text: str) -> dict:
+    """从场景指令提取环境字段 patch（确定性；每字段取首个命中值）。"""
+    patch: dict = {}
+    for value in _TIME_OF_DAY_VALUES:
+        if value in text:
+            patch["time_of_day"] = value
+            break
+    for value in _LIGHTING_VALUES:
+        if value in text:
+            patch["lighting"] = value
+            break
+    if any(k in text for k in ("下雨", "雨天")):
+        patch["weather"] = "雨"
+    elif any(k in text for k in ("下雪", "雪天")):
+        patch["weather"] = "雪"
+    elif "晴天" in text:
+        patch["weather"] = "晴"
+    elif "阴天" in text:
+        patch["weather"] = "阴"
+    if "氛围" in text or "基调" in text:
+        for value in _SCENE_MOOD_WORDS:
+            if value in text:
+                patch["mood"] = value
+                break
+    return patch
+
+
+def parse_director_plan(message: str, selection_shot_id: str | None, selection_scene_id: str | None = None) -> DirectorPlan:
     """Rule-based planner mirroring the LLM prompt behavior (used by FakeLLMGateway)."""
     text = message.strip().lower()
     operations: list[ToolOperation] = []
+
+    # --- 场景级指令优先（自主迭代 07）：目标指向场景 + 有环境值 → update_scene ---
+    is_scene_target = any(k in text for k in _SCENE_TARGET_KEYWORDS)
+    scene_patch = _scene_env_patch(text) if is_scene_target else {}
+    if is_scene_target:
+        if not scene_patch:
+            return DirectorPlan(
+                objective="修改场景",
+                steps=[],
+                requires_clarification=True,
+                clarification_message="你希望怎么改场景？例如：把这场戏改成夜晚、氛围改紧张、光照改昏暗。",
+            )
+        if not selection_scene_id:
+            return DirectorPlan(
+                objective="修改场景",
+                steps=[],
+                requires_clarification=True,
+                clarification_message="请先选中一个场景（在分镜板选择该场景）。",
+            )
+        operations.append(
+            ToolOperation(tool="update_scene", arguments={"scene_id": selection_scene_id, "patch": scene_patch})
+        )
+        return DirectorPlan(objective=text[:80] or "执行用户指令", steps=operations)
 
     # --- resolve target ---
     target_ref: str | None = None
@@ -114,15 +171,15 @@ def parse_director_plan(message: str, selection_shot_id: str | None) -> Director
     return DirectorPlan(objective=text[:80] or "执行用户指令", steps=operations)
 
 
-def parse_production_intent(message: str, selection_shot_id: str | None) -> ProductionIntent:
-    plan = parse_director_plan(message, selection_shot_id)
-    intent_type = "modify" if any(op.tool == "update_shot" for op in plan.steps) else "generate"
+def parse_production_intent(message: str, selection_shot_id: str | None, selection_scene_id: str | None = None) -> ProductionIntent:
+    plan = parse_director_plan(message, selection_shot_id, selection_scene_id)
+    intent_type = "modify" if any(op.tool in ("update_shot", "update_scene") for op in plan.steps) else "generate"
     if any(op.tool == "get_shot" for op in plan.steps):
         intent_type = "query"
     return ProductionIntent(
         intent_type=intent_type,
-        target_type="shot",
-        target_reference=plan.steps[0].arguments.get("shot_id") if plan.steps else None,
+        target_type="scene" if any(op.tool == "update_scene" for op in plan.steps) else "shot",
+        target_reference=plan.steps[0].arguments.get("shot_id") or plan.steps[0].arguments.get("scene_id") if plan.steps else None,
         instruction=message,
         batch=False,
         destructive=False,

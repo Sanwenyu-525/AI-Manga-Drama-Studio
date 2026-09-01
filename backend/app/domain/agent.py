@@ -40,7 +40,7 @@ RISK_LEVELS = (RISK_R0, RISK_R1, RISK_R2, RISK_R3)
 class ToolOperation(BaseModel):
     """One deterministic tool call planned by the LLM (agent-director §28-31)."""
 
-    tool: Literal["get_shot", "update_shot", "generate_image", "get_scene_shots"]
+    tool: Literal["get_shot", "update_shot", "update_scene", "generate_image", "get_scene_shots"]
     arguments: dict = Field(default_factory=dict)  # strictly typed per tool (schema in tools.py)
 
 
@@ -93,6 +93,9 @@ class AgentRunRead(BaseModel):
     result: dict | None = None
     # P7-T012: pending proposal summaries surfaced when the run is WAITING_HUMAN.
     pending_proposals: list[dict] = Field(default_factory=list)
+    # 自主迭代 05（刷新恢复）：会话消息转录 [{role, content}]，从 input+result+status
+    # 确定性计算——刷新/重开后前端据此水合对话流。
+    messages: list[dict] = Field(default_factory=list)
     created_at: str
     updated_at: str
 

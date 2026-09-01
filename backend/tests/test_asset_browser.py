@@ -76,10 +76,14 @@ def test_list_project_assets_paginated_shape(client: TestClient) -> None:
     # each item carries the P6-B field set
     item = body["items"][0]
     for key in (
-        "id", "type", "status", "version_group_id", "version_number",
+        "id", "type", "status", "name", "source_type", "version_group_id", "version_number",
         "checksum", "file_size", "width", "height", "created_at", "file_path", "thumbnail_url",
     ):
         assert key in item, f"missing list field {key}"
+    # name/source_type back the browser's source grouping (storyboard/character/
+    # location tabs) — imported assets surface their filename + import source.
+    assert item["name"]
+    assert item["source_type"] == "imported"
 
 
 def test_list_pagination_offset_limit(client: TestClient) -> None:

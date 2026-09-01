@@ -52,6 +52,9 @@ class RenderResult:
 
 class RenderProviderProtocol(Protocol):
     name: str
+    # File extension the encoder writes (e.g. ".mp4" / ".avi"). Declared by the
+    # provider so the worker never branches on concrete engine names.
+    output_extension: str
 
     async def render(self, request: RenderRequest, on_progress) -> RenderResult:
         """Render the clips into output_path; on_progress(percent, stage)."""

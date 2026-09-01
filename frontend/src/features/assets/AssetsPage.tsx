@@ -5,10 +5,14 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router-dom";
-import { ArrowLeft, ImageSquare, X } from "@phosphor-icons/react";
+import { ArrowLeft, ImageSquare } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { lastProjectId } from "../../lib/lastProject";
+import { assetUrl } from "../../lib/mediaUrl";
+import { formatDateTime } from "../../lib/format";
+import { DownloadButton } from "../../components/DownloadButton";
+import { Lightbox } from "../../components/Lightbox";
 import type { GenerationRead, Project } from "../../api/types";
 
 interface AssetItem {
@@ -102,13 +106,13 @@ export function AssetsPage() {
               <button key={item.assetId} className="asset-card" onClick={() => setPreview(item)} title="点击查看大图">
                 <img
                   loading="lazy"
-                  src={`/api/v1/assets/${item.assetId}/thumbnail`}
+                  src={assetUrl(item.assetId, "thumbnail")}
                   alt={`素材 ${item.assetId.slice(0, 8)}`}
                 />
                 <span className="asset-index">{shotLabel(item.shotId)}</span>
                 <span className="asset-card-meta">
                   <strong>{projectNames.get(item.projectId) ?? "未知项目"}</strong>
-                  <small>{formatDate(item.createdAt)}</small>
+                  <small>{formatDateTime(item.createdAt)}</small>
                 </span>
               </button>
             ))}
@@ -116,46 +120,38 @@ export function AssetsPage() {
         )}
       </main>
 
-      {preview && (
-        <div
-          className="lightbox"
-          role="dialog"
-          aria-modal="true"
-          aria-label="素材大图预览"
-          onClick={() => setPreview(null)}
-        >
-          <div className="lightbox-inner" onClick={(e) => e.stopPropagation()}>
-            <button className="icon-button lightbox-close" aria-label="关闭预览" onClick={() => setPreview(null)}>
-              <X size={18} />
-            </button>
-            <img src={`/api/v1/assets/${preview.assetId}/content`} alt="素材大图" />
-            <div className="lightbox-meta">
+      <Lightbox
+        open={preview !== null}
+        onClose={() => setPreview(null)}
+        src={preview ? assetUrl(preview.assetId, "content") : null}
+        alt="素材大图预览"
+        actions={
+          preview && (
+            <DownloadButton
+              assetId={preview.assetId}
+              label={shotLabel(preview.shotId)}
+              mediaType="image"
+            />
+          )
+        }
+        caption={
+          preview && (
+            <>
               <strong>
                 {projectNames.get(preview.projectId) ?? "项目"} · {shotLabel(preview.shotId)}
               </strong>
               <span>
                 {preview.provider}
-                {preview.model ? ` · ${preview.model}` : ""} · {formatDate(preview.createdAt)}
+                {preview.model ? ` · ${preview.model}` : ""} · {formatDateTime(preview.createdAt)}
               </span>
-            </div>
-          </div>
-        </div>
-      )}
+            </>
+          )
+        }
+      />
     </div>
   );
 }
 
 function shotLabel(shotId: string | null): string {
   return shotId ? `Shot ${shotId.slice(-4).toUpperCase()}` : "Project Task";
-}
-
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
 }

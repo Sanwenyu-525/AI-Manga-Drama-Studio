@@ -40,6 +40,14 @@ def selection_from_prompt(prompt: str) -> str | None:
     ids = [part.strip().strip("'\"") for part in m.group(1).split(",") if part.strip()]
     return ids[0] if ids else None
 
+
+def scene_id_from_prompt(prompt: str) -> str | None:
+    """自主迭代 07：从 understand prompt 提取当前选中的 scene_id（scene=...）。"""
+    import re
+
+    m = re.search(r"scene=([^\s,}\]]+)", prompt)
+    return m.group(1).strip("'\"") if m else None
+
 _MOODS = ["tense", "calm", "warm", "melancholic", "excited"]
 _SHOT_TYPES = ["wide", "medium", "close_up", "extreme_close_up", "full", "medium"]
 _CAMERA_ANGLES = ["eye_level", "low_angle", "high_angle", "eye_level", "eye_level", "low_angle"]
@@ -90,9 +98,9 @@ class FakeLLMGateway:
         if schema is ShotPlan:
             return self._shot_plans(prompt)[0]  # type: ignore[return-value]
         if schema is DirectorPlan:
-            return parse_director_plan(prompt, selection_from_prompt(prompt))  # type: ignore[return-value]
+            return parse_director_plan(prompt, selection_from_prompt(prompt), scene_id_from_prompt(prompt))  # type: ignore[return-value]
         if schema is ProductionIntent:
-            return parse_production_intent(prompt, selection_from_prompt(prompt))  # type: ignore[return-value]
+            return parse_production_intent(prompt, selection_from_prompt(prompt), scene_id_from_prompt(prompt))  # type: ignore[return-value]
         raise NotImplementedError(f"FakeLLMGateway.structured unsupported schema: {schema}")
 
     async def structured_list(self, schema: type[T], system: str, prompt: str) -> list[T]:

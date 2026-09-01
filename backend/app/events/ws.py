@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -247,7 +248,13 @@ async def events_endpoint(websocket: WebSocket) -> None:
         logger.info("ws: rejecting connection from non-allowed origin %r", origin)
         await websocket.close(code=1008)
         return
-    if settings.session_token is not None and websocket.query_params.get("token") != settings.session_token:
+    provided_token = websocket.query_params.get("token")
+    if settings.session_token is not None and (
+        provided_token is None
+        or not secrets.compare_digest(
+            provided_token.encode("utf-8"), settings.session_token.encode("utf-8")
+        )
+    ):
         logger.info("ws: rejecting connection without a valid session token")
         await websocket.close(code=1008)
         return

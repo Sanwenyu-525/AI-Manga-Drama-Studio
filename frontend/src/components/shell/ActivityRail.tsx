@@ -16,6 +16,7 @@ import {
   ListChecks,
   LockSimple,
   MagicWand,
+  MapPin,
   Quotes,
   Scroll,
   ShieldCheck,
@@ -99,6 +100,14 @@ export const RAIL_GROUPS: RailGroup[] = [
         to: ({ projectId }) => (projectId ? `/projects/${projectId}/characters` : null),
         hint: ({ projectId }) => (projectId ? "角色设定、视觉版本与 MASTER 管理" : NO_PROJECT_HINT),
         activePattern: /\/characters$/,
+      },
+      {
+        id: "locations",
+        label: "地点",
+        icon: <MapPin size={17} />,
+        to: ({ projectId }) => (projectId ? `/projects/${projectId}/locations` : null),
+        hint: ({ projectId }) => (projectId ? "场景地点设定、视觉版本与 MASTER 管理" : NO_PROJECT_HINT),
+        activePattern: /\/locations$/,
       },
       {
         id: "storyboard",

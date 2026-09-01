@@ -3,6 +3,7 @@
 // mistaken for a generated frame (DESIGN.md honesty rule / P12 中文化).
 
 import { ImageSquare } from "@phosphor-icons/react";
+import { mediaUrl } from "../../lib/mediaUrl";
 
 interface ShotThumbShot {
   thumbnail_url?: string | null;
@@ -11,7 +12,14 @@ interface ShotThumbShot {
 
 export function ShotThumbImage({ shot, className }: { shot: ShotThumbShot; className?: string }) {
   if (shot.thumbnail_url) {
-    return <img loading="lazy" src={shot.thumbnail_url} alt={`Shot ${shot.shot_number}`} className={className} />;
+    return (
+      <img
+        loading="lazy"
+        src={mediaUrl(shot.thumbnail_url)}
+        alt={`Shot ${shot.shot_number}`}
+        className={className}
+      />
+    );
   }
   return (
     <span

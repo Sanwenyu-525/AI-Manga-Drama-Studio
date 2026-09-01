@@ -266,6 +266,16 @@ _CAPABILITIES: dict[str, dict[str, bool]] = {
 }
 
 
+def image_provider_supports_reference(provider_id: str | None) -> bool:
+    """Capability probe: does this canonical image provider accept reference images?
+
+    Mechanical lookup for the worker's row→request conversion (generations/worker.py);
+    no business semantics here (red line: providers/worker never know character/shot logic).
+    Unknown ids → False (honest degradation, same table as provider_status()).
+    """
+    return bool(_CAPABILITIES.get(f"image.{provider_id}", {}).get("reference_image", False))
+
+
 def provider_status() -> list[dict]:
     """Provider status DTO for every registered type (contract §47).
 

@@ -44,6 +44,10 @@ class AssetListItemRead(BaseModel):
     id: str
     type: str
     status: str
+    # name/source_type back the browser's grouping (storyboard/character/location
+    # tabs) and MASTER badges — the frontend list row consumes both (P6-B contract).
+    name: str | None = None
+    source_type: str = "generated"
     version_group_id: str | None = None
     version_number: int | None = None
     checksum: str | None = None

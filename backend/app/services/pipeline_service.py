@@ -19,7 +19,7 @@ import json
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.errors import NotFoundError, ValidationError
+from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.logging import get_logger
 from app.db.models import Episode, EpisodePipeline, Scene, Shot
 from app.domain.generation import GenerationCreate
@@ -186,10 +186,16 @@ class PipelineService:
         pending: list[str] = []
         for shot in self._shots_of(pipeline.episode_id):
             if shot.active_image_asset_id is None:
-                GenerationService(self.session).create_generation(
-                    shot.id, GenerationCreate(type="image")
-                )
-                pending.append(shot.id)
+                try:
+                    GenerationService(self.session).create_generation(
+                        shot.id, GenerationCreate(type="image")
+                    )
+                except ConflictError:
+                    # A generation for this shot is already queued/running (e.g.
+                    # resume raced an in-flight queue) — it counts as covered.
+                    pass
+                else:
+                    pending.append(shot.id)
         self._set_stage(pipeline, "images", "done")
         pipeline.current_stage = "images"
         pipeline.status = "running"

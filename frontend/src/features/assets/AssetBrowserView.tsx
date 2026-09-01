@@ -20,6 +20,8 @@ import {
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { queryKeys } from "../../api/queryKeys";
+import { assetUrl } from "../../lib/mediaUrl";
+import { DownloadButton } from "../../components/DownloadButton";
 import { ProvenancePanel } from "../provenance/ProvenancePanel";
 import type { AssetRead } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
@@ -123,7 +125,7 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
               }}
               title={item.label + (item.versionNumber ? " · V" + item.versionNumber : "")}
             >
-              <img loading="lazy" src={`/api/v1/assets/${item.id}/thumbnail`} alt={`资产 ${item.label}`} />
+              <img loading="lazy" src={assetUrl(item.id, "thumbnail")} alt={`资产 ${item.label}`} />
               {item.isMaster && (
                 <span className="master-badge asset-master-flag">
                   <Star size={11} weight="fill" /> MASTER
@@ -197,7 +199,7 @@ function AssetInspector({
       </header>
 
       <div className="asset-inspector-preview">
-        <img src={`/api/v1/assets/${entry.id}/content`} alt={`资产 ${entry.label}`} />
+        <img src={assetUrl(entry.id, "content")} alt={`资产 ${entry.label}`} />
       </div>
 
       {isLoading && <p className="muted">正在读取资产信息…</p>}
@@ -227,6 +229,7 @@ function AssetInspector({
       )}
 
       <div className="asset-inspector-actions">
+        <DownloadButton assetId={entry.id} label={entry.label} mediaType={entry.mediaType} />
         <button type="button" className="btn secondary compact" onClick={onToggleProvenance} aria-expanded={open}>
           <TreeStructure size={15} /> {open ? "收起溯源" : "查看溯源"}
         </button>

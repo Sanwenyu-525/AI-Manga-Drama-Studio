@@ -75,6 +75,18 @@ export function StudioPage() {
     if (projectId) rememberProject(projectId);
   }, [projectId]);
 
+  // Context Panel 行为：Agent Dock 跟随镜头选中——无选中保持窄态（不占常驻空间），
+  // 选中镜头即展开。手动展开/收起不会被覆盖（本 effect 只在选中变化时运行）。
+  const selectedShotId = useSelectionStore((s) => s.selection.shotIds[0] ?? null);
+  useEffect(() => {
+    if (selectedShotId) {
+      setRightPanelCollapsed(false);
+      if (compactLayout) setCompactPanel("right");
+    } else {
+      setRightPanelCollapsed(true);
+    }
+  }, [selectedShotId, compactLayout, setRightPanelCollapsed]);
+
   useEffect(() => {
     void startEventSocket();
     setEventRouter(new EventRouter(queryClient));

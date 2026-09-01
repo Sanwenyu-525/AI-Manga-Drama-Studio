@@ -163,6 +163,7 @@ class FFmpegRenderProvider:
     """RenderProviderProtocol implementation - real H.264 MP4 (+ audio/subtitles) via ffmpeg."""
 
     name = "ffmpeg"
+    output_extension = ".mp4"
 
     def __init__(self) -> None:
         self._output_dir = settings.data_dir / "render_output"

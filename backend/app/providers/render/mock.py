@@ -362,6 +362,7 @@ class MockRenderProvider:
     """RenderProviderProtocol implementation — deterministic PIL/AVI assembly."""
 
     name = "mock"
+    output_extension = ".avi"
 
     def __init__(self) -> None:
         self._output_dir = settings.data_dir / "render_output"

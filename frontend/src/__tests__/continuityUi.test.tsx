@@ -167,21 +167,23 @@ describe("ContinuityWarningList actions", () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith(expect.stringMatching(/^\/continuity-warnings\/w_/)));
   });
 
-  it("AI 修复 posts to /agent/continuity/runs and shows approval hint", async () => {
+  it("AI 修复 posts to /agent/continuity/fix with the warning id and shows approval hint", async () => {
     const get = vi.fn().mockImplementation((path: string) => {
       if (path === "/scenes/scene_1/continuity") return Promise.resolve(sceneRead);
       if (path === "/scenes/scene_1/continuity-warnings") return Promise.resolve([] as ContinuityWarning[]);
       return Promise.reject(new Error("unexpected " + path));
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
-    const post = vi.fn().mockResolvedValue({ run_id: "run_x" });
+    const post = vi.fn().mockResolvedValue({ id: "run_x", status: "waiting_human" });
     vi.spyOn(client.api, "post").mockImplementation(post);
     const { wrapper } = makeWrapper();
     render(<SceneWarningBadge sceneId="scene_1" />, { wrapper });
     fireEvent.click(await screen.findByRole("button", { name: /2/ }));
     const fixButtons = await screen.findAllByText("AI 修复");
     fireEvent.click(fixButtons[0]);
-    await waitFor(() => expect(post).toHaveBeenCalledWith("/agent/continuity/runs", { scene_id: "scene_1" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/agent/continuity/fix", { warning_id: "w_warn", patch: {} }),
+    );
     expect(await screen.findByText(/请在导演面板审批/)).toBeTruthy();
   });
 

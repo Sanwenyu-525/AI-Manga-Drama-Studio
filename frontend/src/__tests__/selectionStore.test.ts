@@ -1,24 +1,36 @@
-// P1-E6-T01: key state store — selection derives cleanly (frontend-ux §44-46).
+// selectionStore multi-select semantics (autonomous-iteration-02).
 import { beforeEach, describe, expect, it } from "vitest";
 import { useSelectionStore } from "../stores/selectionStore";
 
-beforeEach(() => useSelectionStore.setState({ selection: { shotIds: [], assetIds: [] } }));
-
-describe("selectionStore", () => {
-  it("selecting an asset and shot keeps only transient ids", () => {
-    useSelectionStore.getState().selectShot("shot_1");
-    expect(useSelectionStore.getState().selection.shotIds).toEqual(["shot_1"]);
-    useSelectionStore.getState().selectAsset("asset_1");
-    expect(useSelectionStore.getState().selection.assetIds).toEqual(["asset_1"]);
+describe("selectionStore multi-select", () => {
+  beforeEach(() => {
+    useSelectionStore.getState().clearShots();
   });
 
-  it("clears shot and asset selection independently", () => {
-    useSelectionStore.getState().selectShot("s1");
-    useSelectionStore.getState().selectAsset("a1");
+  it("selectShot keeps single-select replace semantics", () => {
+    const store = useSelectionStore.getState();
+    store.selectShot("a");
+    store.selectShot("b");
+    expect(useSelectionStore.getState().selection.shotIds).toEqual(["b"]);
+  });
+
+  it("toggleShot adds and removes without clearing the rest", () => {
+    const store = useSelectionStore.getState();
+    store.toggleShot("a");
+    store.toggleShot("b");
+    expect(useSelectionStore.getState().selection.shotIds).toEqual(["a", "b"]);
+    store.toggleShot("a");
+    expect(useSelectionStore.getState().selection.shotIds).toEqual(["b"]);
+  });
+
+  it("setShotIds bulk-sets (shift range selection)", () => {
+    useSelectionStore.getState().setShotIds(["s1", "s2", "s3"]);
+    expect(useSelectionStore.getState().selection.shotIds).toEqual(["s1", "s2", "s3"]);
+  });
+
+  it("clearShots empties the multi-selection", () => {
+    useSelectionStore.getState().setShotIds(["s1", "s2"]);
     useSelectionStore.getState().clearShots();
     expect(useSelectionStore.getState().selection.shotIds).toEqual([]);
-    expect(useSelectionStore.getState().selection.assetIds).toEqual(["a1"]);
-    useSelectionStore.getState().clearAssets();
-    expect(useSelectionStore.getState().selection.assetIds).toEqual([]);
   });
 });

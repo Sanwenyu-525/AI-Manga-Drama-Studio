@@ -12,16 +12,18 @@ from app.db.models.columns import ts_created, uuid_pk
 
 GENERATION_TYPES = ("image", "video", "audio", "text", "vision_review")
 
+# Documentation mirror of app/generations/state.py (the enforced state machine).
+# waiting_provider / processing_output remain contract-only concepts, not rows.
 GENERATION_STATUSES = (
     "created",
     "queued",
     "running",
-    "waiting_provider",
-    "processing_output",
     "completed",
     "failed",
     "cancelled",
     "retrying",
+    "interrupted",
+    "cancelling",
 )
 
 

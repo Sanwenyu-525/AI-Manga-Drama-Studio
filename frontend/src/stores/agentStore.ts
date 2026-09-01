@@ -1,6 +1,8 @@
 // Agent UI state (frontend-ux §84): mirrors AgentRun lifecycle; driven by WS events.
+// 自主迭代 05：新增 hydrate —— 刷新后从 GET /agent/runs 水合上一次会话（恢复对话流）。
 
 import { create } from "zustand";
+import type { AgentRunRead } from "../api/types";
 
 export interface AgentToolState {
   tool: string;
@@ -51,6 +53,8 @@ interface AgentState {
   setRunStatus: (status: AgentStatus) => void;
   /** P7-T018: user resumed the run after review. */
   resumeRun: () => void;
+  /** 自主迭代 05：刷新后从服务器 run 水合上一次会话。 */
+  hydrate: (run: AgentRunRead) => void;
   reset: () => void;
 }
 
@@ -139,5 +143,28 @@ export const useAgentStore = create<AgentState>((set) => ({
       messages: [...s.messages, { role: "assistant", content: "已继续执行…" }],
     })),
 
+  /** 自主迭代 05（刷新恢复）：从服务器 run 水合上一次会话（runId/status/messages/plan/result）。 */
+  hydrate: (run) =>
+    set({
+      runId: run.id,
+      status: normalizeRunStatus(run.status),
+      objective: run.plan?.objective ?? null,
+      steps: (run.plan?.steps ?? []).map((s) => ({ tool: s.tool, args: s.arguments })),
+      tools: (run.plan?.steps ?? []).map((s) => ({ tool: s.tool, status: "pending" as const })),
+      messages: run.messages ?? [],
+      result: run.result ?? null,
+    }),
+
   reset: () => set({ runId: null, status: "idle", objective: null, steps: [], tools: [], result: null }),
 }));
+
+/** 后端 run.status → 前端 store 状态归一（created/running → executing；等待审批统一 waiting_human）。 */
+function normalizeRunStatus(status: string): AgentStatus {
+  if (status === "completed" || status === "failed" || status === "cancelled" || status === "cancelling") {
+    return status;
+  }
+  if (status === "waiting_human" || status === "waiting_approval" || status === "WAITING_HUMAN") {
+    return "waiting_human";
+  }
+  return "executing"; // created / running / 其他瞬时态
+}

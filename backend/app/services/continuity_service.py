@@ -1080,6 +1080,44 @@ class ContinuityService:
         )
         return [_read(w) for w in self.session.scalars(stmt)]
 
+    def merge_open_warnings_into_shots(self, scene_id: str, shots: list[dict]) -> list[dict]:
+        """Merge OPEN continuity_warnings-table entries into each shot's warnings dict
+        (P8-B). shot_continuity_states.warnings_json stays authoritative for rule
+        snapshots; the parallel table adds rule + agent semantic rows. Any schema
+        drift degrades to the snapshot, never to a 500."""
+        try:
+            rows = self.session.scalars(
+                select(ContinuityWarning).where(
+                    ContinuityWarning.scene_id == scene_id,
+                    ContinuityWarning.status == WARNING_STATUS_OPEN,
+                )
+            ).all()
+        except Exception:  # noqa: BLE001 — table not present yet or schema drift
+            return shots
+        if not rows:
+            return shots
+        by_shot: dict[str, list[dict]] = {}
+        for w in rows:
+            by_shot.setdefault(w.shot_id, []).append(
+                {
+                    "code": w.category or "RULE",
+                    "category": w.category or "RULE",
+                    "severity": w.severity or "warning",
+                    "message": w.message,
+                    "shot_id": w.shot_id,
+                    "id": w.id,
+                }
+            )
+        for shot in shots:
+            extra = by_shot.get(shot["shot_id"], [])
+            if not extra:
+                continue
+            existing_ids = {w.get("id") for w in shot.get("warnings", [])}
+            for w in extra:
+                if w["id"] not in existing_ids:
+                    shot["warnings"].append(w)
+        return shots
+
     def list_warnings(self, scene_id: str, status: str | None = None) -> list[ContinuityWarningRead]:
         stmt = select(ContinuityWarning).where(ContinuityWarning.scene_id == scene_id)
         if status:

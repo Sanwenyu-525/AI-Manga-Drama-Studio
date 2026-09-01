@@ -681,6 +681,23 @@ Response：
 重排（P1-E1-T02）：`PATCH /api/v1/scenes/{scene_id}/shots/reorder` 必须提交该场景
 完整且无重复的镜头 ID 集合；部分/重复/跨场景集合返回 422，数据保持不变。
 
+批量操作（自主迭代 02，additive）：
+
+```http
+POST /api/v1/scenes/{scene_id}/shots/batch-update   # {shot_ids, patch} → ShotBatchResult
+POST /api/v1/scenes/{scene_id}/shots/batch-delete   # {shot_ids}          → ShotBatchResult
+```
+
+- **批量覆盖语义**：batch-update 不携带 per-shot revision——批量意图是「把所选
+  镜头改成一致状态」，服务端取每个镜头当前 revision 应用（逐镜头走 update_shot，
+  revision+1 / dirty_state / PromptVersion / `shot.updated` 事件 / continuity 重算
+  与单镜头编辑完全一致）。
+- **逐项结果**：返回 `{scene_id, requested, succeeded, failed, results:[{shot_id,
+  status: updated|deleted|failed, error_code?, message?}]}`——部分失败仍 200
+  （对齐 ChangeSet undo 逐项结果模式）；重复 id / 空 patch → 422，场景不存在 →
+  404；跨场景或未知 id 计入该项 failed。
+- batch-delete 逐镜头软删除并发 `shot.deleted` 事件。
+
 Scene 乐观并发：本阶段**不纳入**（决策见 roadmap P1-E1-T02 Design Decision）；
 Scene 编辑保持无条件更新，Phase 2 随 ChangeSet/Undo 一并引入。
 
@@ -955,10 +972,28 @@ Response：
 
   "change_set_id": null,
 
+  "messages": [
+    { "role": "user", "content": "把 Shot05 改成近景再重新生成" },
+    { "role": "assistant", "content": "已修改 Shot05 并提交生成。" }
+  ],
+
   "created_at": "...",
   "updated_at": "..."
 }
 ```
+
+> **messages（自主迭代 05 刷新恢复）**：会话消息转录 `[{role, content}]`，由已持久化的
+> input（用户指令）+ result（assistant 摘要/澄清）+ status（waiting_human 审批提示 /
+> failed 错误）**确定性计算**，零新增写入。前端刷新/重开后据此水合对话流。
+
+## 25.1. 列出项目最近 Agent Run（自主迭代 05）
+
+```http
+GET /api/v1/agent/runs?project_id={id}&limit={1..50}
+```
+
+返回该项目最近 director 会话（created_at 倒序，默认 10 条），每条含 messages 转录。
+前端在导演面板挂载时取 `limit=1` 水合「上一次会话」，实现刷新恢复。
 
 ---
 
@@ -1016,9 +1051,11 @@ status = waiting_human（或等待审批时的 waiting_approval）
 
 P2-E3-T02 风险分级后只有需要审批的工具会进入此状态：
 
-- **R0**（get_shot / get_scene_shots）：只读，自动执行。
-- **R1**（update_shot）：可逆编辑，**自动执行**并记录 ChangeSet（可撤销），
-  不再为每次近景修改打断用户。
+- **R0**（get_shot / get_scene_shots / check_workflow / inspect_comfy）：只读，自动执行。
+- **R1**（update_shot / update_scene）：可逆编辑，**自动执行**并记录 ChangeSet（可撤销），
+  不再为每次近景修改打断用户。update_scene 修改场景环境（时段/光照/天气/氛围/描述），
+  走 SceneService（触发 P8-T017 连续性重算 + 活跃资产 stale 标记），scene_id 由
+  selection.scene_id 解析（自主迭代 07）。
 - **R2**（generate_image）：昂贵操作，**审批前不创建任何 Generation**，
   产生 pending AgentProposal（含 risk_level/reason/estimated_tasks/
   estimated_cost/irreversible/expires_at），run 进入 WAITING_HUMAN 并发出
@@ -1259,7 +1296,8 @@ Request：
   "type": "image",
   "provider": "comfyui",
   "workflow_id": "wf_image_001",
-  "parameters": {}
+  "parameters": {},
+  "reference_asset_ids": null
 }
 ```
 
@@ -1268,6 +1306,16 @@ Request：
 > （project default 取 `project_settings.default_image_workflow_id` / `default_video_workflow_id`，
 > 按 `type` 选择；system default = `default_image_api`）。显式传入保持原有 422 前检；
 > 未知的解析结果一律 422（绝不静默回退）。
+>
+> **reference_asset_ids（M1 参考图显式覆盖，P3 一致性预研 §5.1；自主迭代 03 扩展场景地点）**：
+> `null`（缺省）= 自动解析：① 角色（ShotCharacter → 角色 MASTER CharacterVersion → 代表资产，
+> 每角色一张）+ ② **场景地点**（Scene.location_id → Location MASTER LocationVersion → 代表资产，
+> 一张，`role=location_reference`，排在角色之后）。非空数组 = **替代**全部自动解析（资产须存在
+> 404 / 同项目 422 / 图片类型 422，顺序即注入槽位顺序，worker 侧截断至 3 张 = Z-Image Omni 上限，
+> 角色优先、地点兜底）；空数组 = 显式不注入任何参考图。溯源写入 `generation_inputs`
+> （角色 `role=character_reference` / 地点 `role=location_reference`，metadata 带
+> asset_id/character_id|location_id/source），由 `GET /generations/{id}` 明细读回（§39）。
+> provider 无 `reference_image` 能力（§47）时 worker 诚实降级为不注入（debug 日志），不报错。
 >
 > **逻辑参数 schema（P4-T005）**：每个 workflow 的占位符注入由声明式逻辑参数表驱动
 > （`providers/comfyui/workflow_schema.py`，逻辑参数名 → `$PLACEHOLDER` token）：
@@ -1344,6 +1392,9 @@ retrying
 GET /api/v1/generations/{generation_id}
 ```
 
+单条明细**独有** `references` 字段（参考图溯源，见 §39）；列表端点
+（recent / per-shot）不填充该字段（`null`，避免 N+1）。
+
 最近生成（底部队列历史）：
 
 ```http
@@ -1353,6 +1404,29 @@ GET /api/v1/generations/recent
 返回 `Generation[]`（按 created_at 倒序，最多 20 条）。
 静态路由 `/generations/recent` 必须先于 `/generations/{generation_id}`
 注册，避免被参数路由吞掉（P1-E4-T01 路由冲突回归）。
+
+镜头自动参考图预览（M1 前端闭环——生成前可见）：
+
+```http
+GET /api/v1/shots/{shot_id}/reference-images
+```
+
+返回 `ShotReference[]`（与 `POST .../generations` 缺省自动解析完全同源）：
+
+```json
+[
+  {
+    "character_id": "char_001",
+    "character_name": "沈亦",
+    "version_id": "cver_003",
+    "asset_id": "asset_0102"
+  }
+]
+```
+
+无出场角色 / 角色无 MASTER 版本 → `[]`；镜头不存在 → 404。返回**全部**
+解析结果（>3 张时前端提示「仅前 3 张会被注入」）；`asset_id` 直接用于
+`/assets/{id}/thumbnail` 缩略图展示。
 
 ---
 
@@ -1378,9 +1452,23 @@ GET /api/v1/generations/recent
 
   "output_asset_id": null,
 
-  "error": null
+  "error": null,
+
+  "references": [
+    {
+      "character_id": "char_001",
+      "character_name": "沈亦",
+      "version_id": "cver_003",
+      "asset_id": "asset_0102",
+      "source": "auto"
+    }
+  ]
 }
 ```
+
+`references` 仅单条明细端点填充：生成时实际记录的参考图溯源
+（`source`：`auto` = 角色 MASTER 自动解析 / `explicit` = 调用方显式指定；
+无参考图 → `[]`；列表端点 → `null`）。
 
 ---
 
@@ -1982,6 +2070,69 @@ Response：
 
 ---
 
+# 48.2b Workflow live 诊断（P2-E4-T02 检查通道）
+
+双通道架构的"理解/诊断层"：静态 preflight + 对当前连接的 ComfyUI 做逐节点
+live 校验（缺节点 / 缺模型枚举越界 / 断链）。introspection 实现由
+`STUDIO_COMFY_INTROSPECTION` 选择（`native` 直连 `/object_info` 或 `mcp`
+经用户自装 comfy-mcp；MCP 失败自动回落 native）。**只读通道**——永不下发
+queue/interrupt；生产执行通道（GenerationService → ImageProvider）不受影响。
+
+```http
+GET /api/v1/providers/comfyui/workflows
+```
+
+Response（自动发现的模板清单，文件名 stem 即 id）：
+
+```json
+{ "workflows": [ { "id": "default_image_api", "filename": "default_image_api.json", "is_default": true } ] }
+```
+
+```http
+POST /api/v1/providers/comfyui/workflows/{workflow_id}/validate
+```
+
+Request（可选）：`{ "base_url": "http://127.0.0.1:8189" }`（probe-before-save 覆盖）。
+
+Response（**永 200**——诊断降级不报错；未知 workflow_id 才 422）：
+
+```json
+{
+  "workflow_id": "zimage_turbo_ref",
+  "status": "invalid",
+  "source": "native",
+  "ok": false,
+  "nodes": [
+    { "node_id": "1", "class_type": "UNETLoader", "status": "missing_model",
+      "detail": "Input unet_name: 'z_image_turbo_int8.safetensors' is not available on the server.",
+      "missing_choices": ["z_image_turbo_int8.safetensors"] },
+    { "node_id": "7", "class_type": "WanVideoSampler", "status": "missing_node", "detail": "...", "missing_choices": [] }
+  ],
+  "missing_nodes": ["WanVideoSampler"],
+  "missing_models": ["z_image_turbo_int8.safetensors (UNETLoader.unet_name)"],
+  "broken_links": [],
+  "static_error": null,
+  "error": null
+}
+```
+
+- `status`：`ok`（静态+live 全过）/ `invalid`（发现确定性问题，可安全 fail-fast）/
+  `unreachable`（无法完成 live 校验，**不阻断排队**，worker 运行时诚实失败）/
+  `static_error`（模板静态缺陷：JSON 损坏 / 缺 SaveImage / 占位符契约违约）。
+- **排队前 fail-fast**：image 生成且 provider=comfyui 时，`invalid` 诊断 →
+  `POST /shots/{id}/generations` 直接 422（details 含 missing_nodes/missing_models/
+  broken_links）；unreachable → 照常 202。
+- `$PROMPT` 等 schema 占位符（含 LoadImage 参考图槽位）不参与 live 校验（build 时注入）。
+- object_info 快照按 base_url 做 60s TTL 缓存（`WorkflowDiagnosticsService.invalidate()` 清空）。
+- Agent 侧：R0 工具 `check_workflow`（workflow_id 可省略=默认模板）与
+  `inspect_comfy`（可达性/节点数/模板清单/检查通道模式）经
+  `WorkflowDiagnosticsService` 走同一检查通道（红线：Agent 不直调 ComfyUI/MCP）。
+- **许可说明**：mcp 模式依赖用户自装的官方 comfy-mcp（AGPL-3.0-or-later OR
+  Comfy commercial license 双许可，beta）。Studio 不打包不分发该组件；
+  mcp 缺失/能力不足时自动回落 native，无硬依赖。
+
+---
+
 # 48.3 本地模型扫描（P-LocalModels）
 
 两种互斥形态：`path` 给定 → 递归扫描该目录收集模型文件（限深 4 层、上限 500 个、
@@ -2243,6 +2394,7 @@ ws://localhost:{port}/api/v1/events
 **本地控制面认证**：Tauri 壳每次启动生成高熵会话 token（`STUDIO_SESSION_TOKEN`）注入后端，并经由 `get_session_token` 命令交给前端。**设置了 token 后**：
 
 - REST：请求头 `X-Session-Token: <token>`；缺失/错误 → 401 统一 Envelope。
+- 媒体标签（`<img>`/`<video>`/`<audio>`/`<a download>`）无法携带自定义请求头，允许以 `?token=` query 参数提交同一 token（与 WS 同模式，2026-08-31 前端审计 P0 修复引入）；Header 优先。
 - WS：连接 URL `?token=<token>`（浏览器 WebSocket 无法携带自定义 header，故走 query）；缺失/错误 → 连接被拒绝（close 1008）。
 - 豁免：`/api/v1/health`、`/api/v1/system/info`——壳需在持有 token 前握手识别后端（§140 身份 marker）。
 - **未设置 token**（开发浏览器 / 开发壳直连后端）= 本地控制面开放（auth 关闭），保持开发便捷。
@@ -3589,6 +3741,8 @@ ShotSummary DTO
 
   "dirty_state": "dirty_video",
 
+  "image_stale": true,
+
   "thumbnail_url": "...",
 
   "duration": 3.2,
@@ -3682,6 +3836,26 @@ Active Generations
 ```
 
 用于快速启动工作区。
+
+## 103.1. 生产就绪度（自主迭代 04）
+
+```http
+GET /api/v1/projects/{id}/readiness
+```
+
+确定性聚合（无 LLM、只读），回答「这部作品还差什么才能产出一致画面」——在工作区
+「生产就绪度」面板展示，缺口可点击跳转补齐：
+
+```text
+characters:      { total, ready, missing }        # ready = 有 MASTER 参考图
+scene_binding:   { scenes_total, bound, bound_with_master, unbound }
+                                                  # bound_with_master = 绑定地点且有 MASTER（可注入地点参考）
+continuity_open: int                               # status=open 的连续性警告数
+```
+
+语义：角色无 MASTER / 场景未绑定地点或地点无 MASTER → 生成无法注入一致性参考图；
+开放连续性警告 → 已检测到跨镜头事实冲突。全部由真实 Project State 聚合，前端据此
+在生成前提示补齐，避免对不一致资产浪费生成。
 
 ---
 
@@ -4655,6 +4829,13 @@ Generation 与 Agent 生命周期分离。
 
 所有长任务返回 202，而不是长期阻塞 HTTP。
 
+### 11.
+
+契约有机器防线（自主迭代 09）：`backend/tests/test_frontend_contract.py`（扫描
+`frontend/src/**/*.{ts,tsx}` 全部 `api.<method>(path)` 调用点，与 `app.openapi()`
+实时 spec 逐段比对）随 pytest 跑。改路由/换 method/删端点/前端调用指向不存在的
+路由 → CI 失败并给出 `file:line`；新增/改前端调用点必须同步存在后端路由。
+
 ---
 
 # 142. MVP 必须实现的 REST API
@@ -4753,6 +4934,8 @@ warnings 来源 = shot_continuity_states.warnings_json（source=RULE）；并行
 /providers/comfyui/test
 /providers/agnes/test   （POST，Agnes 连通探测，§48.0）
 /providers/comfyui/models （GET，ComfyUI checkpoint 列表，§48.2）
+/providers/comfyui/workflows （GET，自动发现的 workflow 模板清单，§48.2b）
+/providers/comfyui/workflows/{id}/validate （POST，workflow live 诊断，§48.2b）
 /providers/models/scan  （POST，本地模型扫描/自动检索，§48.3）
 /providers/models/import （POST 202 + Operation，导入模型到 ComfyUI models，§48.4）
 /providers/fs/list       （GET，本地目录浏览（设置页文件浏览器），§48.6）

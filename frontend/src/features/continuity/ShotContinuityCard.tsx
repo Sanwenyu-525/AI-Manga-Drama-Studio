@@ -9,12 +9,6 @@ import type { ContinuityShotReadCard } from "../../api/types";
 import { ContinuityWarningList } from "./ContinuityWarningList";
 
 export function ShotContinuityCard({ shotId }: { shotId: string }) {
-  const sceneId = useQuery({
-    queryKey: queryKeys.shot(shotId),
-    queryFn: () => api.get<{ scene_id: string }>(`/shots/${shotId}`),
-    enabled: !!shotId,
-  }).data?.scene_id;
-
   const { data: card, isLoading } = useQuery({
     queryKey: queryKeys.shotContinuity(shotId),
     queryFn: () => api.get<ContinuityShotReadCard>(`/shots/${shotId}/continuity-state`),
@@ -46,7 +40,7 @@ export function ShotContinuityCard({ shotId }: { shotId: string }) {
       </div>
 
       {warnings.length > 0 ? (
-        <ContinuityWarningList warnings={warnings} sceneId={sceneId ?? ""} showFix />
+        <ContinuityWarningList warnings={warnings} showFix />
       ) : (
         <p className="muted small continuity-none">镜间状态一致，无连续性警告。</p>
       )}

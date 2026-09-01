@@ -4,7 +4,14 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.domain.shot import ShotCreate, ShotRead, ShotUpdateRequest
+from app.domain.shot import (
+    ShotBatchDeleteRequest,
+    ShotBatchResult,
+    ShotBatchUpdateRequest,
+    ShotCreate,
+    ShotRead,
+    ShotUpdateRequest,
+)
 from app.services import ShotService
 
 router = APIRouter(tags=["shots"])
@@ -44,3 +51,20 @@ def delete_shot(shot_id: str, db: Session = Depends(get_db)) -> dict:
 @router.patch("/scenes/{scene_id}/shots/reorder", response_model=list[ShotRead])
 def reorder_shots(scene_id: str, ordered_ids: list[str], db: Session = Depends(get_db)) -> list[ShotRead]:
     return ShotService(db).reorder_shots(scene_id, ordered_ids)
+
+
+@router.post("/scenes/{scene_id}/shots/batch-update", response_model=ShotBatchResult)
+def batch_update_shots(
+    scene_id: str, data: ShotBatchUpdateRequest, db: Session = Depends(get_db)
+) -> ShotBatchResult:
+    """Bulk apply one patch to selected shots (autonomous-iteration-02).
+    Per-item results; 200 even on partial failure (mirrors ChangeSet undo)."""
+    return ShotService(db).batch_update_shots(scene_id, data.shot_ids, data.patch)
+
+
+@router.post("/scenes/{scene_id}/shots/batch-delete", response_model=ShotBatchResult)
+def batch_delete_shots(
+    scene_id: str, data: ShotBatchDeleteRequest, db: Session = Depends(get_db)
+) -> ShotBatchResult:
+    """Bulk soft-delete selected shots. Per-item results; 200 even on partial failure."""
+    return ShotService(db).batch_delete_shots(scene_id, data.shot_ids)

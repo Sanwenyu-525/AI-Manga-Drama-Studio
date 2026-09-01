@@ -101,6 +101,8 @@ export function changeSetToolLabel(tool: string | undefined | null): string {
   switch (tool) {
     case "update_shot":
       return "修改镜头";
+    case "update_scene":
+      return "修改场景";
     case "generate_image":
       return "生成图片（版本切换）";
     case "get_shot":
@@ -151,6 +153,13 @@ export const SHOT_FIELD_LABELS: Record<string, string> = {
   dirty_state: "脏状态",
   character_ids: "出场角色",
   shot_number: "镜头号",
+  // 自主迭代 07：场景环境字段（update_scene diff 表）。
+  name: "名称",
+  time_of_day: "时段",
+  lighting: "光照",
+  weather: "天气",
+  mood: "氛围",
+  description: "场景描述",
 };
 
 export function fieldLabel(field: string): string {

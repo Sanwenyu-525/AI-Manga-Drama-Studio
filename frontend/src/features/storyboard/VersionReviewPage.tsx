@@ -16,6 +16,10 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { deriveVersionBadges, latestPerGroup } from "../versioning/VersionStrip";
+import { assetUrl } from "../../lib/mediaUrl";
+import { formatDateTime } from "../../lib/format";
+import { ApiErrorPanel } from "../../components/ApiErrorPanel";
+import { DownloadButton } from "../../components/DownloadButton";
 import type { AssetVersionRead, Project, Scene, Shot } from "../../api/types";
 import { SHOT_TYPE_LABELS } from "../../api/types";
 import { canonicalStoryboardPath } from "../studio/studioRoute";
@@ -59,6 +63,7 @@ export function VersionReviewPage() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.storyboard });
     },
   });
+  const activateError = activate.error;
 
   const selected = versions?.find((version) => version.id === selectedId);
   const active = versions?.find((version) => version.is_active);
@@ -137,10 +142,14 @@ export function VersionReviewPage() {
                   className={`version-card ${selectedId === version.id ? "selected" : ""}`}
                   onClick={() => setSelectedId(version.id)}
                 >
-                  <img src={`/api/v1/assets/${version.asset_id}/thumbnail`} alt={`V${version.version_number}`} />
+                  <img
+                    loading="lazy"
+                    src={assetUrl(version.asset_id, "thumbnail")}
+                    alt={`V${version.version_number}`}
+                  />
                   <span>
                     <strong>V{version.version_number}</strong>
-                    <small>{formatDate(version.created_at)}</small>
+                    <small>{formatDateTime(version.created_at)}</small>
                   </span>
                   {version.is_active ? (
                     <span className="badge ok">
@@ -156,6 +165,7 @@ export function VersionReviewPage() {
         </aside>
 
         <section className="review-canvas">
+          {activateError && <ApiErrorPanel error={activateError} />}
           {compareOpen ? (
             <VersionCompareBoard
               versions={versions ?? []}
@@ -168,15 +178,30 @@ export function VersionReviewPage() {
             />
           ) : selected ? (
             <>
+              {/* 审片画布按 media_type 渲染（审计 P0-3）：视频版本曾用 <img> 加载无法播放。 */}
               <div className="review-image-stage">
-                <img
-                  src={`/api/v1/assets/${selected.asset_id}/content`}
-                  alt={`Shot 版本 V${selected.version_number}`}
-                />
+                {selected.media_type === "video" ? (
+                  <video
+                    src={assetUrl(selected.asset_id, "content")}
+                    controls
+                    preload="metadata"
+                    muted
+                    loop
+                  />
+                ) : (
+                  <img src={assetUrl(selected.asset_id, "content")} alt={`Shot 版本 V${selected.version_number}`} />
+                )}
               </div>
               <div className="review-caption">
                 <span>V{selected.version_number}</span>
                 <p>{selected.notes || "生成版本 · 原始资产保持不可变"}</p>
+              </div>
+              <div className="review-canvas-actions">
+                <DownloadButton
+                  assetId={selected.asset_id}
+                  label={`Shot${String(shot?.shot_number ?? 0).padStart(3, "0")}_V${selected.version_number}`}
+                  mediaType={selected.media_type}
+                />
               </div>
             </>
           ) : (
@@ -349,7 +374,11 @@ function CompareSide({
         </select>
       </div>
       <div className="compare-image-stage">
-        <img src={`/api/v1/assets/${version.asset_id}/content`} alt={`对比版本 V${version.version_number}`} />
+        {version.media_type === "video" ? (
+          <video src={assetUrl(version.asset_id, "content")} controls preload="metadata" muted loop />
+        ) : (
+          <img src={assetUrl(version.asset_id, "content")} alt={`对比版本 V${version.version_number}`} />
+        )}
         <span className="compare-side-tag">{title}</span>
         {isActiveThis && (
           <span className="badge ok compare-active-badge">
@@ -381,13 +410,3 @@ function CompareSide({
   );
 }
 
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}

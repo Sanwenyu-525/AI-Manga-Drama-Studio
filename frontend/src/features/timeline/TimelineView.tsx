@@ -22,6 +22,7 @@ import {
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { queryKeys } from "../../api/queryKeys";
+import { assetUrl, mediaUrl } from "../../lib/mediaUrl";
 import type {
   AssetVersionRead,
   FinalVideoRead,
@@ -74,6 +75,7 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
   const [sideTab, setSideTab] = useState<"clip" | "preview" | "media">("clip");
   const [previewTs, setPreviewTs] = useState(0);
   const [addToStart, setAddToStart] = useState<number | null>(null);
+  const [commitError, setCommitError] = useState<string | null>(null);
 
   const {
     data: timeline,
@@ -175,8 +177,17 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
             ...(clip ? { revision: clip.revision } : {}),
           },
         })
-        .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.timeline(episodeId) }))
-        .catch(() => queryClient.invalidateQueries({ queryKey: queryKeys.timeline(episodeId) }));
+        .then(() => {
+          setCommitError(null);
+          queryClient.invalidateQueries({ queryKey: queryKeys.timeline(episodeId) });
+        })
+        .catch((err: unknown) => {
+          // 409 = another editor won; the refetch below syncs the server state silently.
+          if ((err as { status?: number })?.status !== 409) {
+            setCommitError("保存位移失败：" + ((err as { message?: string })?.message ?? "未知错误"));
+          }
+          queryClient.invalidateQueries({ queryKey: queryKeys.timeline(episodeId) });
+        });
     },
     [overrides, queryClient, episodeId, timeline],
   );
@@ -329,9 +340,14 @@ export function TimelineView({ projectId, episodeId }: { projectId: string; epis
         </div>
       </header>
 
-      {render.isError && (
+      {(createTimeline.isError || sequence.isError || render.isError) && (
         <div className="inline-error">
-          <ApiErrorPanel error={render.error as never} />
+          <ApiErrorPanel error={createTimeline.error ?? sequence.error ?? render.error} />
+        </div>
+      )}
+      {commitError && (
+        <div className="inline-error">
+          <ApiErrorPanel error={new Error(commitError)} />
         </div>
       )}
       {voiceError && (
@@ -532,7 +548,7 @@ function ClipBlock({
       }
     >
       {kind === "video" && clip.asset?.thumbnail_url ? (
-        <img className="timeline-clip-thumb" src={clip.asset.thumbnail_url} alt="" draggable={false} />
+        <img className="timeline-clip-thumb" loading="lazy" src={mediaUrl(clip.asset.thumbnail_url)} alt="" draggable={false} />
       ) : null}
       <div className="timeline-clip-body">
         <span className="timeline-clip-label">{clip.shot_id ? "SHOT" : kind.toUpperCase()}</span>
@@ -588,7 +604,10 @@ function ClipInspectorPanel({
   // P4-E3-T02: basic transition (cut/fade/dissolve) on VIDEO clips
   const [transition, setTransition] = useState(clip.transition || "cut");
   const [conflict, setConflict] = useState(false);
-  const [voState, setVoState] = useState<"idle" | "queued" | "error">("idle");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [replaceError, setReplaceError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [voState, setVoState] = useState<"idle" | "pending" | "queued" | "error">("idle");
   const [voError, setVoError] = useState<string | null>(null);
   const isVoice = trackType === "VOICE";
   const isSubtitle = trackType === "SUBTITLE";
@@ -642,6 +661,7 @@ function ClipInspectorPanel({
 
   // P4-E3-T02: every edit carries the clip revision (optimistic concurrency).
   const updateClip = (patch: Record<string, number | string>) => {
+    setEditError(null);
     void api
       .patch<TimelineClip>("/timeline-clips/" + clip.id, { patch: { ...patch, revision: clip.revision } })
       .then(() => {
@@ -651,6 +671,7 @@ function ClipInspectorPanel({
       })
       .catch((err: unknown) => {
         if ((err as { status?: number })?.status === 409) setConflict(true);
+        else setEditError("修改片段失败：" + ((err as { message?: string })?.message ?? "未知错误"));
         onChanged();
       });
   };
@@ -658,6 +679,7 @@ function ClipInspectorPanel({
   const saveText = () => {
     const next = text.trim();
     if (next === (clip.text ?? "")) return;
+    setEditError(null);
     void api
       .patch<TimelineClip>("/timeline-clips/" + clip.id, { patch: { text: next, revision: clip.revision } })
       .then(() => {
@@ -666,12 +688,13 @@ function ClipInspectorPanel({
       })
       .catch((err: unknown) => {
         if ((err as { status?: number })?.status === 409) setConflict(true);
+        else setEditError("保存文案失败：" + ((err as { message?: string })?.message ?? "未知错误"));
         onChanged();
       });
   };
 
   const generateVoiceover = () => {
-    setVoState("idle");
+    setVoState("pending");
     setVoError(null);
     void api
       .post<GenerationRead>("/timeline-clips/" + clip.id + "/generate-voiceover", {})
@@ -686,17 +709,24 @@ function ClipInspectorPanel({
   };
 
   const replaceAsset = (assetId: string) => {
+    setReplaceError(null);
     void api
       .post<TimelineClip>("/timeline-clips/" + clip.id + "/replace-asset", { asset_id: assetId })
       .then(() => onChanged())
-      .catch(() => onChanged());
+      .catch((err: unknown) => {
+        setReplaceError("替换版本失败：" + ((err as { message?: string })?.message ?? "未知错误"));
+        onChanged();
+      });
   };
 
   const del = () => {
+    setDeleteError(null);
     void api
       .delete<{ id: string }>("/timeline-clips/" + clip.id)
       .then(() => onChanged())
-      .catch(() => onChanged());
+      .catch((err: unknown) => {
+        setDeleteError("删除片段失败：" + ((err as { message?: string })?.message ?? "未知错误"));
+      });
   };
 
   return (
@@ -709,7 +739,7 @@ function ClipInspectorPanel({
       </header>
       <div className="clip-asset">
         {clip.asset?.thumbnail_url ? (
-          <img src={clip.asset.thumbnail_url} alt="" />
+          <img src={mediaUrl(clip.asset.thumbnail_url)} alt="" />
         ) : (
           <div className="clip-asset-ph">
             <FilmStrip size={22} />
@@ -778,6 +808,8 @@ function ClipInspectorPanel({
         </div>
       )}
       {conflict && <div className="clip-conflict muted small">已被其他编辑器修改，已刷新为最新值。</div>}
+      {editError && <div className="small danger-text">{editError}</div>}
+      {replaceError && <div className="small danger-text">{replaceError}</div>}
       <div className="clip-versions">
         <h4>替换版本（P9-T012）</h4>
         {clip.shot_id ? (
@@ -815,8 +847,12 @@ function ClipInspectorPanel({
           />
           {isVoice && (
             <div className="clip-voice-actions">
-              <button className="btn secondary compact" onClick={generateVoiceover} disabled={!text.trim()}>
-                <MagicWand size={14} /> 生成配音
+              <button
+                className="btn secondary compact"
+                onClick={generateVoiceover}
+                disabled={!text.trim() || voState === "pending"}
+              >
+                <MagicWand size={14} /> {voState === "pending" ? "提交中…" : "生成配音"}
               </button>
               {voState === "queued" && <span className="muted small">已加入生成队列，完成后自动回填到本片段。</span>}
               {voState === "error" && <span className="small danger-text">{voError}</span>}
@@ -827,7 +863,7 @@ function ClipInspectorPanel({
               className="clip-audio-preview"
               controls
               preload="none"
-              src={"/api/v1/assets/" + clip.asset.id + "/content"}
+              src={assetUrl(clip.asset.id, "content")}
             />
           )}
         </div>
@@ -844,6 +880,7 @@ function ClipInspectorPanel({
         <button className="btn danger compact" onClick={del}>
           <Trash size={14} /> 删除片段
         </button>
+        {deleteError && <span className="small danger-text">{deleteError}</span>}
         <label className="toggle">
           <input
             type="checkbox"
@@ -899,13 +936,14 @@ function PreviewPanel({
             onRefresh();
           }}
           title="刷新"
+          aria-label="刷新预览"
         >
           <ArrowsClockwise size={15} />
         </button>
       </header>
       <div className="preview-frame">
         {previewOk ? (
-          <img src={previewUrl} onError={() => setPreviewOk(false)} alt="时间线帧条预览" />
+          <img src={mediaUrl(previewUrl)} onError={() => setPreviewOk(false)} alt="时间线帧条预览" />
         ) : (
           <div className="empty-state small">暂无素材可预览（先一键排片或添加素材）</div>
         )}
@@ -916,10 +954,13 @@ function PreviewPanel({
             <h3>导出产物 FINAL_VIDEO V{finalVideo.version_number ?? 1}</h3>
             <span className="muted small">{(finalVideo.duration ?? 0).toFixed(1)}s</span>
           </header>
-          {finalVideo.thumbnail_url ? <img src={finalVideo.thumbnail_url} alt="" /> : null}
+          {finalVideo.thumbnail_url ? <img loading="lazy" src={mediaUrl(finalVideo.thumbnail_url)} alt="" /> : null}
           <div className="final-video-actions">
-            <a className="btn" href={finalVideo.content_url} target="_blank" rel="noreferrer">
-              <DownloadSimple size={14} /> 打开导出文件
+            <a className="btn" href={mediaUrl(finalVideo.content_url)} target="_blank" rel="noreferrer">
+              <Play size={14} weight="fill" /> 打开导出文件
+            </a>
+            <a className="btn" href={mediaUrl(finalVideo.content_url)} download>
+              <DownloadSimple size={14} /> 下载成片
             </a>
             <button className="btn" onClick={onRender} disabled={renderPending}>
               <Play size={14} weight="fill" /> 重新渲染
@@ -961,6 +1002,7 @@ function MediaLibrary({
   startTime: number;
   onAdded: () => void;
 }) {
+  const [addError, setAddError] = useState<string | null>(null);
   const { data } = useQuery({
     queryKey: queryKeys.projectAssets(projectId, "image"),
     queryFn: () =>
@@ -979,11 +1021,16 @@ function MediaLibrary({
             key={a.id}
             className="media-item"
             onClick={() => {
-              void addToVideoTrack(timelineId, a.id, startTime).then(onAdded);
+              setAddError(null);
+              void addToVideoTrack(timelineId, a.id, startTime)
+                .then(onAdded)
+                .catch((err: unknown) => {
+                  setAddError("加入时间线失败：" + ((err as { message?: string })?.message ?? "未知错误"));
+                });
             }}
           >
             {a.thumbnail_url ? (
-              <img src={a.thumbnail_url} alt="" />
+              <img loading="lazy" src={mediaUrl(a.thumbnail_url)} alt="" />
             ) : (
               <div className="media-item-ph">
                 <ImageIcon size={18} />
@@ -992,6 +1039,7 @@ function MediaLibrary({
             <span>{a.name}</span>
           </button>
         ))}
+        {addError && <div className="small danger-text">{addError}</div>}
         {items.length === 0 && <div className="muted small">该项目还没有图片素材，先去分镜生成。</div>}
       </div>
     </div>

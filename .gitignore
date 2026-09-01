@@ -72,3 +72,7 @@ scripts/*Startup-Restore*.ps1
 
 # --- AI agent session artifacts (local tooling, never commit) ---
 .zcode/
+
+# --- FeatureMap CLI local tracking (db + generated config, never commit) ---
+.featuremap/
+featuremap.yaml

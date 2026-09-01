@@ -51,6 +51,9 @@ logger = get_logger("comfyui.mapper")
 # only pins templates whose filename stem differs from the canonical id.
 WORKFLOW_CATALOG: dict[str, str] = {
     "default_image_api": "default_image_api.json",
+    # M1（一致性预研 §5.2）：Z-Image Turbo + 3×LoadImage 参考图槽位模板
+    # （TextEncodeZImageOmni image1/2/3）。文件名 stem 与 id 相同，登记只为显式声明。
+    "zimage_turbo_ref": "zimage_turbo_ref.json",
 }
 DEFAULT_WORKFLOW_ID = "default_image_api"
 

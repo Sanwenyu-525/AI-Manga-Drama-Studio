@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P2-E3-T02/T03 live smoke: R1 auto-apply + ChangeSet + Undo + R2 approval.
 
 Run against a fake-LLM server (STUDIO_LLM_MODE=fake). Verifies:
@@ -7,7 +6,6 @@ Run against a fake-LLM server (STUDIO_LLM_MODE=fake). Verifies:
 3. R2 "重新生成" → waiting_human proposal (risk metadata), no generation
 4. approve → generation created
 """
-import json
 import time
 
 import httpx

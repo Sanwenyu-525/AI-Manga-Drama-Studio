@@ -108,7 +108,7 @@ export function SceneWarningBadge({ sceneId }: { sceneId: string }) {
               )}
             </span>
           </div>
-          <ContinuityWarningList warnings={allWarnings} sceneId={sceneId} />
+          <ContinuityWarningList warnings={allWarnings} />
           {allWarnings.length === 0 && <p className="muted small scene-warning-empty">当前没有连续性警告。</p>}
           <div className="scene-warning-popover-actions">
             <button

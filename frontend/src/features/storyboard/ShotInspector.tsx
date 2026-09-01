@@ -16,6 +16,10 @@ import { api, ApiError } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type { ImageEngineChoice } from "../../api/types";
 import { GenerationEnginePicker } from "./GenerationEnginePicker";
+import { assetUrl } from "../../lib/mediaUrl";
+import { ApiErrorPanel } from "../../components/ApiErrorPanel";
+import { DownloadButton } from "../../components/DownloadButton";
+import { Lightbox } from "../../components/Lightbox";
 import type {
   AssetVersionRead,
   Character,
@@ -30,6 +34,19 @@ import { useSelectionStore } from "../../stores/selectionStore";
 import { VersionStrip } from "../versioning/VersionStrip";
 import { ShotContinuityCard } from "../continuity/ShotContinuityCard";
 import { canonicalStoryboardPath, useStudioRoute } from "../studio/studioRoute";
+import { ReferenceImagePicker, type ReferenceChoice } from "./ReferenceImagePicker";
+
+/**
+ * M1 前端闭环：生成提交失败的友好文案。
+ * 409 CONFLICT = 后端幂等门（同 shot+type 单飞行任务），不是「失败」——
+ * 引导用户查看进行中的任务而非重复提交（BACKEND_OPTIMIZATION_REPORT 建议 #1）。
+ */
+export function generationSubmitErrorText(error: unknown): string {
+  if (error instanceof ApiError && error.code === "CONFLICT") {
+    return "该镜头已有同类型生成任务进行中 — 请在下方版本区或生成队列查看进度，完成或取消后再试。";
+  }
+  return `生成失败：${String(error)}`;
+}
 
 // Shot Inspector (frontend-ux §12-13): edit the selected shot, PATCH with optimistic revision.
 // Lives only in the right Agent Dock (P6 职责边界) — the center canvas shows the storyboard.
@@ -103,6 +120,8 @@ export function ShotInspector() {
 
   // P2-4 (Sprint 05): 显式引擎选择（provider + workflow），缺省回落后端 resolver。
   const [engineChoice, setEngineChoice] = useState<ImageEngineChoice>({});
+  // M1 前端闭环：参考图模式（auto=不传字段走后端自动解析 / manual=显式资产 / none=显式空）。
+  const [referenceChoice, setReferenceChoice] = useState<ReferenceChoice>({ mode: "auto", assetIds: [] });
 
   const generate = useMutation({
     mutationFn: () => {
@@ -110,6 +129,8 @@ export function ShotInspector() {
       const body: Record<string, unknown> = { type: "image" };
       if (engineChoice.provider) body.provider = engineChoice.provider;
       if (engineChoice.workflow_id) body.workflow_id = engineChoice.workflow_id;
+      if (referenceChoice.mode === "manual") body.reference_asset_ids = referenceChoice.assetIds;
+      if (referenceChoice.mode === "none") body.reference_asset_ids = [];
       return api.post<GenerationRead>(`/shots/${activeShotId}/generations`, body);
     },
     onSuccess: () => {
@@ -166,6 +187,8 @@ export function ShotInspector() {
     },
     onSuccess: (updated) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.shot(activeShotId!) });
+      // 出场角色变更会影响自动参考图解析（M1 前端闭环）
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shotReferences(activeShotId!) });
       if (sceneId) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.storyboard(sceneId) });
         void queryClient.invalidateQueries({ queryKey: queryKeys.shots(sceneId) });
@@ -385,6 +408,15 @@ export function ShotInspector() {
           />
         </Field>
 
+        <ReferenceImagePicker
+          shotId={shot.id}
+          projectId={projectId ?? ""}
+          provider={engineChoice.provider}
+          hasCastCharacters={(shot.character_ids?.length ?? 0) > 0}
+          value={referenceChoice}
+          onChange={setReferenceChoice}
+        />
+
         {conflict && <p className="error-text">{conflict}</p>}
 
         <div className="inspector-actions">
@@ -425,7 +457,7 @@ export function ShotInspector() {
         </button>
         {generateVideo.isError && <p className="error-text">视频生成失败：{String(generateVideo.error)}</p>}
         {saveShot.isError && !conflict && <p className="error-text">保存失败：{String(saveShot.error)}</p>}
-        {generate.isError && <p className="error-text">生成失败：{String(generate.error)}</p>}
+        {generate.isError && <p className="error-text">{generationSubmitErrorText(generate.error)}</p>}
 
         <ShotVersions shotId={shot.id} projectId={projectId} />
 
@@ -495,6 +527,7 @@ function InspectorChecks({ shot }: { shot: Shot }) {
 function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: string }) {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const { data: generations } = useQuery({
     queryKey: queryKeys.shotGenerations(shotId),
@@ -552,23 +585,59 @@ function ShotVersions({ shotId, projectId }: { shotId: string; projectId?: strin
       </div>
       {active &&
         (active.media_type === "video" ? (
-          <video className="version-preview" src={`/api/v1/assets/${active.asset_id}/content`} controls muted loop />
+          <video
+            className="version-preview"
+            src={assetUrl(active.asset_id, "content")}
+            controls
+            preload="metadata"
+            muted
+            loop
+          />
         ) : (
           <img
             className="version-preview"
-            src={`/api/v1/assets/${active.asset_id}/content`}
+            src={assetUrl(active.asset_id, "content")}
             alt={`V${active.version_number}`}
+            style={{ cursor: "zoom-in" }}
+            onClick={() => setPreviewOpen(true)}
+            title="点击放大查看"
           />
         ))}
+      {active?.generation_id && <GenerationReferenceStrip generationId={active.generation_id} />}
       <VersionStrip versions={versions} selectedId={selectedId} onSelect={setSelectedId} title="版本条" />
-      <button
-        className="btn tiny"
-        disabled={!selected || selectedIsActive || activate.isPending}
-        onClick={() => selected && activate.mutate(selected.asset_id)}
-        title="把选中的版本切换为当前生效版本"
-      >
-        {selectedIsActive ? "当前生效" : activate.isPending ? "切换中…" : "设为当前版本"}
-      </button>
+      <div className="row gap">
+        <button
+          className="btn tiny grow"
+          disabled={!selected || selectedIsActive || activate.isPending}
+          onClick={() => selected && activate.mutate(selected.asset_id)}
+          title="把选中的版本切换为当前生效版本"
+        >
+          {selectedIsActive ? "当前生效" : activate.isPending ? "切换中…" : "设为当前版本"}
+        </button>
+        {selected && (
+          <DownloadButton
+            assetId={selected.asset_id}
+            label={`Shot${shotId.slice(-4).toUpperCase()}_V${selected.version_number}`}
+            mediaType={selected.media_type}
+          />
+        )}
+      </div>
+      {activate.error && <ApiErrorPanel error={activate.error} />}
+      <Lightbox
+        open={previewOpen && active?.media_type !== "video"}
+        onClose={() => setPreviewOpen(false)}
+        src={active ? assetUrl(active.asset_id, "content") : null}
+        alt={`V${active?.version_number ?? ""} 大图预览`}
+        actions={
+          active && (
+            <DownloadButton
+              assetId={active.asset_id}
+              label={`Shot${shotId.slice(-4).toUpperCase()}_V${active.version_number}`}
+              mediaType={active.media_type}
+            />
+          )
+        }
+      />
     </div>
   );
 }
@@ -579,5 +648,34 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="field-label">{label}</span>
       {children}
     </label>
+  );
+}
+
+/**
+ * M1 前端闭环：当前生效版本的生成溯源 — 该图生成时实际注入了哪些参考图。
+ * 溯源行在生成创建时写入后不可变，查询设长 staleTime 避免无谓刷新。
+ */
+function GenerationReferenceStrip({ generationId }: { generationId: string }) {
+  const { data: generation } = useQuery({
+    queryKey: queryKeys.generation(generationId),
+    queryFn: () => api.get<GenerationRead>(`/generations/${generationId}`),
+    staleTime: 300_000,
+  });
+  const refs = generation?.references ?? [];
+  if (!refs.length) return null;
+  return (
+    <div className="generation-refs">
+      <span className="muted small">生成所用参考图</span>
+      <div className="generation-refs-strip">
+        {refs.slice(0, 3).map((r) => (
+          <img
+            key={`${r.asset_id}-${r.version_id ?? "x"}`}
+            src={assetUrl(r.asset_id, "thumbnail")}
+            alt={r.character_name ?? "参考图"}
+            title={`${r.character_name ?? "参考图"} · ${r.source === "auto" ? "自动" : "手动"}`}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
