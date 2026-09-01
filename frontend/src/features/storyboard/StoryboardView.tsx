@@ -7,6 +7,7 @@ import {
   ListBullets,
   MagicWand,
   MapPin,
+  PencilSimple,
   Plus,
   Play,
   SquaresFour,
@@ -25,6 +26,7 @@ import { VirtualizedShotGrid, type ShotSelectMods } from "./VirtualizedShotGrid"
 import { ShotThumbImage } from "./ShotThumbImage";
 import { SceneWarningBadge } from "../continuity/SceneWarningBadge";
 import { BatchActionBar } from "./BatchActionBar";
+import { ScenePropertiesEditor } from "./ScenePropertiesEditor";
 import { generationBatchNotice, submitImageGenerations } from "../generation/batchSubmit";
 
 export function StoryboardView({ sceneId }: { sceneId: string }) {
@@ -45,6 +47,8 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
   const [generationNotice, setGenerationNotice] = useState<string | null>(null);
   const [view, setView] = useState<"grid" | "list">("grid");
   const [selectAnchorId, setSelectAnchorId] = useState<string | null>(null);
+  // 自主迭代 06：场景环境编辑（时段/光照/天气/氛围/描述）。
+  const [sceneEditorOpen, setSceneEditorOpen] = useState(false);
 
   const { data: storyboard, isLoading } = useQuery({
     queryKey: queryKeys.storyboard(sceneId),
@@ -204,6 +208,15 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
             <CheckCircle size={14} /> 已出图 {isLoading ? "…" : `${readyCount}/${shots.length}`}
           </span>
           <SceneWarningBadge sceneId={sceneId} />
+          <button
+            type="button"
+            className="btn secondary compact"
+            aria-expanded={sceneEditorOpen}
+            title="编辑场景环境（时段/光照/天气/氛围/描述）"
+            onClick={() => setSceneEditorOpen((open) => !open)}
+          >
+            <PencilSimple size={13} /> {sceneEditorOpen ? "收起" : "编辑场景"}
+          </button>
           <div className="generation-menu location-menu">
             <button
               type="button"
@@ -297,6 +310,12 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
           </div>
         </div>
       </header>
+
+      {/* 自主迭代 06：场景环境编辑（时段/光照/天气/氛围/描述）——零后端改动，
+          PATCH /scenes/{id} 触发 P8-T017 连续性重算 + 活跃资产 stale 标记。 */}
+      {sceneEditorOpen && scene && (
+        <ScenePropertiesEditor sceneId={sceneId} scene={scene} onClose={() => setSceneEditorOpen(false)} />
+      )}
 
       <div className="storyboard-toolbar">
         <div className="continuity-score">

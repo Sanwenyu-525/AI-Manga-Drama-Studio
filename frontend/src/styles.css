@@ -7681,6 +7681,33 @@ a.crumb:hover,
   border-bottom: 1px solid var(--hairline-soft);
   background: var(--workbench);
 }
+/* 自主迭代 06：场景环境编辑（时段/光照/天气/氛围/描述） */
+.scene-props-editor {
+  flex: none;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--hairline-soft);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.scene-props-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.scene-props-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 12px;
+}
+.scene-props-desc {
+  grid-column: 1 / -1;
+}
+.scene-props-actions {
+  display: flex;
+  gap: 8px;
+}
 .continuity-score {
   gap: 9px;
   font-size: 10px;

@@ -17,6 +17,7 @@
 | Location | **地点生产库（创建/编辑/删除 + 视觉版本链 MASTER + 关联设定文档）** | ✅ | **2026-09-01 自主迭代 03**（后端早已落地，本轮补前端入口） |
 | Location | **场景一致性：场景绑定地点 + 生成自动注入地点 MASTER 参考图（角色优先·地点兜底）+ 预览/溯源区分** | ✅ | **2026-09-01 自主迭代 03**；活动栏「地点」模块 |
 | Scene / Shot | CRUD / 排序 / revision / 软删除 | ✅ | |
+| Scene | **场景信息编辑（时段/光照/天气/氛围/描述）——PATCH /scenes/{id} 触发 P8-T017 连续性重算 + 活跃资产 stale 标记** | ✅ | **2026-09-01 自主迭代 06**；ScenePropertiesEditor（零后端改动，复用既有端点与 hook） |
 | Storyboard | 聚合端点 / ShotCard / 面包屑导航 / 虚拟化网格 | ✅ | |
 | Storyboard | 批量生成（当前/待生成/失败重生成/整场景） | ✅ | 场景粒度 |
 | Storyboard | **镜头多选 + 批量操作**（Ctrl 切换 / Shift 范围选 / checkbox；批量生成·改景别·前移后移·删除；409 计入「进行中」聚合） | ✅ | **2026-09-01 自主迭代 02**；batch-update/batch-delete 端点 |
@@ -59,7 +60,7 @@
 | mutation 错误反馈全覆盖（~15 处 ApiErrorPanel） | ✅ | 前端优化轮；含 operation 轮询失败上限（10 次 / 404 快速失败） |
 | LLM Profiles / 图像引擎配置 / ComfyUI 模型目录 | ✅ | |
 | live 全链路 smoke（14 步：建项目→分析→分镜→生成→配音→渲染→下载） | ✅ | backend/scripts/smoke_fullstack.py |
-| 测试基线 | ✅ | pytest 633（1 skip，1 例既有 flaky 单跑通过）/ vitest 294 |
+| 测试基线 | ✅ | pytest 633（1 skip，1 例既有 flaky 单跑通过）/ vitest 298 |
 
 ## 已知未闭环（详见 PRODUCT_OPPORTUNITY_BACKLOG）
 

@@ -50,7 +50,7 @@ describe("agentStore.hydrate（刷新恢复）", () => {
   });
 
   it("后端 running → 归一为 executing；waiting_human → waiting_human", () => {
-    useAgentStore.getState().hydrate(makeRun({ status: "running" }));
+    useAgentStore.getState().hydrate(makeRun({ status: "running" as AgentRunRead["status"] }));
     expect(useAgentStore.getState().status).toBe("executing");
     useAgentStore.getState().reset();
     useAgentStore.getState().hydrate(makeRun({ status: "waiting_human" }));
