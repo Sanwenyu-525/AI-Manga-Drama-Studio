@@ -84,6 +84,8 @@ export interface ShotSummary {
   thumbnail_url: string | null;
   character_names: string[];
   active_generation: Record<string, unknown> | null;
+  /** 自主迭代 08：活跃图片资产被连续性标记为 stale（场景/环境变更后待重生成）。 */
+  image_stale?: boolean;
 }
 
 export interface Storyboard {

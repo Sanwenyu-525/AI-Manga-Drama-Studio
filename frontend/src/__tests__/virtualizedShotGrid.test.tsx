@@ -82,8 +82,19 @@ describe("VirtualizedShotGrid", () => {
   });
 
   it("hides checkboxes when multi-select is not enabled", () => {
-    const shots = makeShots(4) as never[];
+    const shots = makeShots(3) as never[];
+    const { container } = render(<VirtualizedShotGrid shots={shots} onSelect={() => {}} />);
+    expect(container.querySelectorAll(".shot-select-check").length).toBe(0);
+  });
+
+  it("shows an 过期 badge on shots whose active image asset is stale (迭代 08)", () => {
+    const shots = [
+      { id: "s1", shot_number: 1, shot_type: "medium", status: "image_ready", dirty_state: "clean", character_names: [], thumbnail_url: null, image_stale: true },
+      { id: "s2", shot_number: 2, shot_type: "medium", status: "image_ready", dirty_state: "clean", character_names: [], thumbnail_url: null, image_stale: false },
+    ] as never[];
     render(<VirtualizedShotGrid shots={shots} onSelect={() => {}} />);
-    expect(document.querySelectorAll(".shot-select-check").length).toBe(0);
+    const badges = document.querySelectorAll(".badge.stale");
+    expect(badges.length).toBe(1);
+    expect(badges[0].textContent).toContain("过期");
   });
 });

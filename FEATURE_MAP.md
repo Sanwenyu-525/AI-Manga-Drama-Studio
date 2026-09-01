@@ -21,6 +21,7 @@
 | Storyboard | 聚合端点 / ShotCard / 面包屑导航 / 虚拟化网格 | ✅ | |
 | Storyboard | 批量生成（当前/待生成/失败重生成/整场景） | ✅ | 场景粒度 |
 | Storyboard | **镜头多选 + 批量操作**（Ctrl 切换 / Shift 范围选 / checkbox；批量生成·改景别·前移后移·删除；409 计入「进行中」聚合） | ✅ | **2026-09-01 自主迭代 02**；batch-update/batch-delete 端点 |
+| Storyboard | **过期镜头闭环（连续性 stale 可见 + 批量重生成）** | ✅ | **2026-09-01 自主迭代 08**；ShotSummary.image_stale + 「过期」徽标 + 生成菜单「重新生成过期镜头」 |
 | Image | Generation 队列（DB-poll / claim+lease / 重试 / 崩溃恢复 / 幂等 409 门） | ✅ | max_attempts 默认 3 |
 | Image | Provider：mock / agnes / comfyui（Z-Image-Turbo + 参考图模板） | ✅ | 参考图注入走 $REFERENCE_IMAGE_1..3 |
 | Image | 版本不可变（V1/V2 共存 / active 切换 / 版本条 / 全屏审片 / 对比） | ✅ | |
@@ -60,7 +61,7 @@
 | mutation 错误反馈全覆盖（~15 处 ApiErrorPanel） | ✅ | 前端优化轮；含 operation 轮询失败上限（10 次 / 404 快速失败） |
 | LLM Profiles / 图像引擎配置 / ComfyUI 模型目录 | ✅ | |
 | live 全链路 smoke（14 步：建项目→分析→分镜→生成→配音→渲染→下载） | ✅ | backend/scripts/smoke_fullstack.py |
-| 测试基线 | ✅ | pytest 638（1 skip，1 例既有 flaky 单跑通过）/ vitest 298 |
+| 测试基线 | ✅ | pytest 641（1 skip，1 例既有 flaky 单跑通过）/ vitest 299 |
 
 ## 已知未闭环（详见 PRODUCT_OPPORTUNITY_BACKLOG）
 

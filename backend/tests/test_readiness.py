@@ -83,7 +83,7 @@ def test_readiness_scene_binding_coverage(client) -> None:
     _bind_scene(client, scene_bound_ready["id"], loc_master["id"])
     scene_bound_no_master = _make_episode_scene(client, project["id"], "S2")
     _bind_scene(client, scene_bound_no_master["id"], loc_no_master["id"])
-    scene_unbound = _make_episode_scene(client, project["id"], "S3")
+    _make_episode_scene(client, project["id"], "S3")
 
     data = client.get(f"/api/v1/projects/{project['id']}/readiness").json()
     assert data["scene_binding"] == {

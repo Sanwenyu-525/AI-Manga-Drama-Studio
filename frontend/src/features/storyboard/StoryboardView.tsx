@@ -174,6 +174,8 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
     (shot) => !shot.active_generation && shot.status !== "image_ready" && shot.status !== "approved",
   );
   const failedShots = shots.filter((shot) => !shot.active_generation && shot.status === "failed");
+  // 自主迭代 08：活跃图片资产被连续性标记为 stale（场景/环境变更后待重生成）。
+  const staleShots = shots.filter((shot) => !shot.active_generation && shot.image_stale === true);
   const totalDuration = shots.reduce((sum, shot) => sum + (shot.duration ?? 0), 0);
   const readyCount = shots.filter((shot) => shot.status === "image_ready" || shot.status === "approved").length;
   const sceneMeta = [scene?.time_of_day, scene?.weather, sceneLocation ?? scene?.lighting, scene?.mood].filter(
@@ -296,6 +298,15 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
                   onClick={() => submitImageGeneration(failedShots)}
                 >
                   重新生成失败镜头 <span>{failedShots.length}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!staleShots.length || generateImages.isPending}
+                  title="场景/环境变更后待重生成的镜头"
+                  onClick={() => submitImageGeneration(staleShots)}
+                >
+                  重新生成过期镜头 <span>{staleShots.length}</span>
                 </button>
                 <button
                   type="button"

@@ -33,11 +33,14 @@
 | 场景批量环境应用 | 自主迭代 06 复盘 | 多场景统一改时段/光照需逐场景编辑 | 批量选择场景 → 统一 PATCH 环境字段（复用 batch 逐项结果模式） | 2 | 2 | 1 | 2 | 1 | 无 | P3 | Candidate |
 | AI Director 场景理解增强 | 迭代 07 复盘 | fake 规则只认固定环境词；自然语言（「变成雨天阴冷的氛围」）需真实 LLM | 真实 LLM 路径已由 schema 覆盖；可加场景意图微调样例到 prompt | 2 | 2 | 1 | 1 | 1 | 真实 LLM 验证 | P3 | Candidate |
 | update_scene proposal 兜底 | 迭代 07 复盘 | update_scene 恒 R1 自动应用，无 proposal 兜底分支 | 若未来风险策略升级需场景 proposal（create_scene_proposal） | 1 | 1 | 1 | 2 | 1 | 无 | P3 | Candidate |
+| 视频/音频 stale 纳入过期闭环 | 迭代 08 复盘 | 过期徽标只覆盖图片资产；视频/配音 stale 未暴露 | 扩 image_stale → media_stale（image+video）+ 配音 clip 过期态 | 3 | 2 | 2 | 2 | 1 | 无 | P2 | Candidate |
+| 就绪度纳入过期镜头计数 | 迭代 08 复盘 | readiness 不显示「X 个镜头图片过期待重生成」 | ReadinessRead 增加 stale_images 计数 + 跳转分镜 | 2 | 2 | 1 | 1 | 1 | 无 | P3 | Candidate |
 
 ## Done（已完成轮次）
 
 | Opportunity | 轮次 | 交付物 |
 |---|---|---|
+| **过期镜头闭环（连续性 stale 可见 + 批量重生成）** | **2026-09-01（自主迭代 08）** | **见 `docs/reports/autonomous-iteration-2026-09-01-stale-shot-loop.md`** |
 | **AI Director update_scene 工具（R1 场景级修改 + scene ChangeSet 可撤销 + P8-T017）** | **2026-09-01（自主迭代 07）** | **见 `docs/reports/autonomous-iteration-2026-09-01-agent-update-scene.md`** |
 | **场景信息编辑（Scene Properties：时段/光照/天气/氛围/描述 → 连续性重算/stale）** | **2026-09-01（自主迭代 06）** | **见 `docs/reports/autonomous-iteration-2026-09-01-scene-properties-edit.md`** |
 | **AI Director 刷新恢复（消息转录 + 最近会话列表 + 前端水合）** | **2026-09-01（自主迭代 05）** | **见 `docs/reports/autonomous-iteration-2026-09-01-agent-refresh-recovery.md`** |

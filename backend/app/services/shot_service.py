@@ -82,6 +82,8 @@ def _to_summary(
     s: Shot,
     character_names: list[str] | None = None,
     spec: ShotVisualSpec | None = None,
+    *,
+    image_stale: bool = False,
 ) -> ShotSummary:
     mapped = spec.mapped_read_dict() if spec is not None else {}
     return ShotSummary(
@@ -93,6 +95,7 @@ def _to_summary(
         dirty_state=s.dirty_state,
         thumbnail_url=None,  # resolved per-shot in get_storyboard (needs DB lookups)
         character_names=character_names or [],
+        image_stale=image_stale,
     )
 
 
@@ -508,9 +511,29 @@ class ShotService:
         thumbnails = self._thumbnail_urls(shots)
         _, names = self._character_data([s.id for s in shots])
         specs = self._specs_for([s.id for s in shots])
+        # 自主迭代 08：一次批量查询活跃图片资产是否为 stale（连续性过期标记）——
+        # 前端据此展示「过期」徽标 + 「重新生成过期镜头」入口。
+        stale_asset_ids: set[str] = set()
+        active_asset_ids = [s.active_image_asset_id for s in shots if s.active_image_asset_id]
+        if active_asset_ids:
+            from app.db.models import Asset
+
+            stale_asset_ids = set(
+                self.session.scalars(
+                    select(Asset.id).where(
+                        Asset.id.in_(active_asset_ids),
+                        Asset.status == "stale",
+                    )
+                )
+            )
         summaries = []
         for s in shots:
-            summary = _to_summary(s, names.get(s.id, []), specs.get(s.id))
+            summary = _to_summary(
+                s,
+                names.get(s.id, []),
+                specs.get(s.id),
+                image_stale=s.active_image_asset_id in stale_asset_ids,
+            )
             summary.thumbnail_url = thumbnails.get(s.id)
             summaries.append(summary)
         return StoryboardRead(

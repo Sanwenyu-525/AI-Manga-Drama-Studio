@@ -632,6 +632,11 @@ p {
   border-color: #c789436b;
   background: var(--orange-dim);
 }
+.badge.stale {
+  color: var(--red);
+  border-color: #d95c5c66;
+  background: #d95c5c1f;
+}
 .badge.ok,
 .badge.completed,
 .badge.image_ready,

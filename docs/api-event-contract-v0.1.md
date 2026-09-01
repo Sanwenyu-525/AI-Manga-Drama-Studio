@@ -3741,6 +3741,8 @@ ShotSummary DTO
 
   "dirty_state": "dirty_video",
 
+  "image_stale": true,
+
   "thumbnail_url": "...",
 
   "duration": 3.2,

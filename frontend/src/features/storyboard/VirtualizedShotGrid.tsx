@@ -201,6 +201,7 @@ function renderCard(
         <div className="shot-state-row">
           <span className={`badge ${shot.status}`}>{statusText(shot.status)}</span>
           {shot.dirty_state !== "clean" && <span className="badge warn">需重生成</span>}
+          {shot.image_stale && <span className="badge stale">过期</span>}
         </div>
       </div>
     </button>

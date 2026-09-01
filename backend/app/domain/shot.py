@@ -72,6 +72,8 @@ class ShotSummary(BaseModel):
     thumbnail_url: str | None = None
     character_names: list[str] = Field(default_factory=list)
     active_generation: dict | None = None
+    # 自主迭代 08：活跃图片资产被连续性标记为 stale（场景/环境变更后待重生成）。
+    image_stale: bool = False
 
 
 class ShotRead(BaseModel):
