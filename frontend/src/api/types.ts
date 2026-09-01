@@ -96,6 +96,23 @@ export interface ShotUpdateRequest {
   patch: Partial<ShotUpdatePatch>;
 }
 
+// --- Batch shot operations (autonomous-iteration-02, contract §19 batch) ---
+
+export interface ShotBatchItemResult {
+  shot_id: string;
+  status: string; // "updated" | "deleted" | "failed"
+  error_code: string | null;
+  message: string | null;
+}
+
+export interface ShotBatchResult {
+  scene_id: string;
+  requested: number;
+  succeeded: number;
+  failed: number;
+  results: ShotBatchItemResult[];
+}
+
 export interface ShotUpdatePatch {
   shot_type: string;
   camera_angle: string | null;
@@ -464,6 +481,29 @@ export interface GenerationRead {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+  /** M1 前端闭环：仅 GET /generations/{id} 明细填充（列表端点为 null，防 N+1）。 */
+  references?: GenerationReferenceRead[] | null;
+}
+
+/** M1 + 自主迭代 03：GET /shots/{id}/reference-images — 自动模式将注入的角色 MASTER + 场景地点 MASTER 参考图预览。 */
+export interface ShotReferenceRead {
+  character_id: string | null;
+  character_name: string | null;
+  location_id: string | null;
+  location_name: string | null;
+  version_id: string | null;
+  asset_id: string;
+}
+
+/** M1 + 自主迭代 03：单条生成的参考图溯源（auto=角色/地点 MASTER 解析 / explicit=调用方显式指定）。 */
+export interface GenerationReferenceRead {
+  character_id: string | null;
+  character_name: string | null;
+  location_id: string | null;
+  location_name: string | null;
+  version_id: string | null;
+  asset_id: string;
+  source: "auto" | "explicit";
 }
 
 export interface AssetVersionRead {
@@ -699,6 +739,18 @@ export interface LocationCreate {
   description?: string | null;
   visual_prompt?: string | null;
   status?: string;
+}
+
+export interface LocationUpdatePatch {
+  name?: string;
+  description?: string | null;
+  visual_prompt?: string | null;
+  status?: string;
+}
+
+export interface LocationUpdateRequest {
+  revision: number;
+  patch: LocationUpdatePatch;
 }
 
 export interface LocationVersionCreate {

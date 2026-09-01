@@ -11,6 +11,7 @@ describe("Activity Rail", () => {
       "AI导演",
       "故事",
       "角色",
+      "地点",
       "分镜",
       "工作流",
       "资产",
@@ -31,6 +32,7 @@ describe("Activity Rail", () => {
     expect(target("director")).toBe("/projects/p1/director");
     expect(target("story")).toBe("/projects/p1/script");
     expect(target("characters")).toBe("/projects/p1/characters");
+    expect(target("locations")).toBe("/projects/p1/locations");
     expect(target("storyboard")).toBe("/projects/p1/storyboard");
     expect(target("assets")).toBe("/projects/p1/assets");
     expect(target("shot")).toBe("/projects/p1/shots");
@@ -47,6 +49,7 @@ describe("Activity Rail", () => {
       "director",
       "story",
       "characters",
+      "locations",
       "storyboard",
       "shot",
       "prompts",

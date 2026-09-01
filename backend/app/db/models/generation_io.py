@@ -19,7 +19,8 @@ from app.db.models.columns import uuid_pk
 # Input roles: PROMPT_VERSION, SHOT, CHARACTER_REFERENCE, LOCATION_REFERENCE, ...
 # M1: CHARACTER_REFERENCE is actually written by GenerationService.create_generation
 # (role="character_reference"; auto ShotCharacter→MASTER resolution + explicit override).
-INPUT_ROLES = ("PROMPT_VERSION", "SHOT", "CHARACTER_REFERENCE")
+# 自主迭代 03: LOCATION_REFERENCE 追加（role="location_reference"; 场景地点 MASTER）。
+INPUT_ROLES = ("PROMPT_VERSION", "SHOT", "CHARACTER_REFERENCE", "LOCATION_REFERENCE")
 # Output roles: primary (the generation's named output), plus future secondary outputs.
 OUTPUT_ROLES = ("primary", "secondary", "mask", "upscale")
 

@@ -5,6 +5,7 @@ import {
   Brain,
   FilmStrip,
   MagicWand,
+  MapPin,
   ShieldCheck,
   SquaresFour,
   UsersThree,
@@ -24,6 +25,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { ContinuityWarningList } from "../continuity/ContinuityWarningList";
 import { CharactersSection } from "../libraries/CharactersSection";
 import { DocumentsSection } from "../libraries/DocumentsSection";
+import { LocationsSection } from "../libraries/LocationsSection";
 import { canonicalScriptPath, canonicalShotPath, canonicalStoryboardPath } from "../studio/studioRoute";
 
 function useProjectId(): string {
@@ -100,6 +102,22 @@ export function CharactersWorkspacePage() {
       />
       <section className="rail-module-panel character-library-panel">
         <CharactersSection projectId={projectId} />
+      </section>
+    </div>
+  );
+}
+
+export function LocationsWorkspacePage() {
+  const projectId = useProjectId();
+  return (
+    <div className="rail-module-page characters-workspace">
+      <ModuleHeader
+        icon={<MapPin size={22} weight="fill" />}
+        title="地点"
+        description="管理场景地点设定、视觉提示词与参考资产版本（MASTER）。场景绑定地点后，镜头生成自动注入地点参考图，保证同一场景环境稳定。"
+      />
+      <section className="rail-module-panel character-library-panel">
+        <LocationsSection projectId={projectId} />
       </section>
     </div>
   );
@@ -385,7 +403,7 @@ export function ContinuityWorkspacePage() {
                 </div>
               </div>
             )}
-            <ContinuityWarningList warnings={warnings.data ?? []} sceneId={selected.id} />
+            <ContinuityWarningList warnings={warnings.data ?? []} />
           </section>
         </div>
       )}

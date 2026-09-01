@@ -15,7 +15,8 @@ class GenerationCreate(BaseModel):
     width: int | None = Field(default=None, ge=64, le=4096)
     height: int | None = Field(default=None, ge=64, le=4096)
     seconds: int | None = Field(default=None, ge=4, le=12)  # 视频时长（agnes 4-12s）
-    max_attempts: int = Field(default=1, ge=1, le=5)
+    # None → settings.generation_max_attempts (default 3); explicit 1-5 overrides.
+    max_attempts: int | None = Field(default=None, ge=1, le=5)
     # M1 参考图显式覆盖：传入时替代 ShotCharacter→MASTER 自动解析，作为本条
     # generation 的参考图来源（P3 一致性预研 §5.1；缺省 = 自动解析，行为不变）。
     reference_asset_ids: list[str] | None = None
@@ -56,6 +57,40 @@ class VoiceoverBatchResult(BaseModel):
     already_bound: list[str] = Field(default_factory=list)
 
 
+class ShotReferenceRead(BaseModel):
+    """M1 前端闭环：镜头生成将自动注入的角色 + 场景地点参考图预览。
+
+    GET /shots/{id}/reference-images — 与 create_generation 的自动解析
+    （ShotCharacter → MASTER CharacterVersion；Scene.location_id →
+    Location MASTER）完全同一逻辑，供生成面板在提交前展示；asset_id 可直接
+    用于 /assets/{id}/thumbnail。角色行带 character_id/name，地点行带
+    location_id/name。
+    """
+
+    character_id: str | None = None
+    character_name: str | None = None
+    location_id: str | None = None
+    location_name: str | None = None
+    version_id: str | None = None
+    asset_id: str
+
+
+class GenerationReferenceRead(BaseModel):
+    """单条生成实际记录的参考图溯源（GET /generations/{id} 明细独有）。
+
+    source: auto（ShotCharacter→MASTER / Scene→Location MASTER 解析）|
+    explicit（调用方显式指定）。
+    """
+
+    character_id: str | None = None
+    character_name: str | None = None
+    location_id: str | None = None
+    location_name: str | None = None
+    version_id: str | None = None
+    asset_id: str
+    source: str = "auto"
+
+
 class GenerationRead(BaseModel):
     id: str
     project_id: str
@@ -74,6 +109,8 @@ class GenerationRead(BaseModel):
     created_at: str
     started_at: str | None
     completed_at: str | None
+    # M1 前端闭环：仅单条明细端点填充（列表端点保持 None，避免 N+1）。
+    references: list[GenerationReferenceRead] | None = None
 
 
 class AssetVersionRead(BaseModel):

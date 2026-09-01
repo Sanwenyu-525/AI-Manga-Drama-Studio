@@ -510,3 +510,258 @@ def test_e2e_mock_generation_records_character_reference_rows(client) -> None:
     assert meta["character_id"] == char["id"]
     assert meta["asset_id"] == asset_id
     assert "source" not in meta  # 自动解析路径不带 explicit 标记
+
+
+# --- M1 前端闭环：预览端点 + 明细溯源 ------------------------------------------
+
+
+def test_preview_reference_images_resolves_master_versions(client) -> None:
+    """GET /shots/{id}/reference-images：与自动解析同源 + character_name。"""
+    chain = _make_chain(client)
+    char, asset_id = _create_character_with_master(client, chain["project_id"])
+    shot = _make_shot(client, chain["scene_id"], character_ids=[char["id"]])
+
+    resp = client.get(f"/api/v1/shots/{shot['id']}/reference-images")
+    assert resp.status_code == 200
+    refs = resp.json()
+    assert len(refs) == 1
+    assert refs[0]["character_id"] == char["id"]
+    assert refs[0]["character_name"] == "沈亦"
+    assert refs[0]["asset_id"] == asset_id
+    assert refs[0]["version_id"]  # MASTER CharacterVersion id
+
+
+def test_preview_reference_images_empty_cases(client) -> None:
+    chain = _make_chain(client)
+    # 1) 无出场角色
+    shot_no_chars = _make_shot(client, chain["scene_id"])
+    assert client.get(f"/api/v1/shots/{shot_no_chars['id']}/reference-images").json() == []
+    # 2) 角色未设 MASTER 版本 → 跳过
+    char = client.post(f"/api/v1/projects/{chain['project_id']}/characters", json={"name": "无版本"}).json()
+    shot = _make_shot(client, chain["scene_id"], character_ids=[char["id"]])
+    assert client.get(f"/api/v1/shots/{shot['id']}/reference-images").json() == []
+
+
+def test_preview_reference_images_shot_not_found_404(client) -> None:
+    resp = client.get("/api/v1/shots/shot_nope/reference-images")
+    assert resp.status_code == 404
+
+
+def test_generation_detail_includes_auto_references(client) -> None:
+    """GET /generations/{id} 明细：references 带 source=auto + 角色名。"""
+    chain = _make_chain(client)
+    char, asset_id = _create_character_with_master(client, chain["project_id"])
+    shot = _make_shot(client, chain["scene_id"], character_ids=[char["id"]])
+
+    created = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"})
+    gen_id = created.json()["id"]
+    detail = client.get(f"/api/v1/generations/{gen_id}").json()
+    refs = detail["references"]
+    assert refs is not None
+    assert len(refs) == 1
+    assert refs[0]["source"] == "auto"
+    assert refs[0]["character_id"] == char["id"]
+    assert refs[0]["character_name"] == "沈亦"
+    assert refs[0]["asset_id"] == asset_id
+    assert refs[0]["version_id"]
+
+
+def test_generation_detail_includes_explicit_references(client) -> None:
+    chain = _make_chain(client)
+    shot = _make_shot(client, chain["scene_id"])
+    explicit_asset = _import_image(client, chain["project_id"], color=(7, 7, 7))
+
+    created = client.post(
+        f"/api/v1/shots/{shot['id']}/generations",
+        json={"type": "image", "reference_asset_ids": [explicit_asset]},
+    )
+    detail = client.get(f"/api/v1/generations/{created.json()['id']}").json()
+    refs = detail["references"]
+    assert len(refs) == 1
+    assert refs[0]["source"] == "explicit"
+    assert refs[0]["asset_id"] == explicit_asset
+    assert refs[0]["character_id"] is None
+    assert refs[0]["character_name"] is None
+    assert refs[0]["version_id"] is None  # 显式资产无版本语义
+
+
+def test_generation_detail_references_empty_and_lists_stay_none(client) -> None:
+    """无参考图明细 = []；列表端点（recent/per-shot）references 保持 None（防 N+1）。"""
+    chain = _make_chain(client)
+    shot = _make_shot(client, chain["scene_id"])
+    created = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"})
+
+    detail = client.get(f"/api/v1/generations/{created.json()['id']}").json()
+    assert detail["references"] == []
+
+    per_shot = client.get(f"/api/v1/shots/{shot['id']}/generations").json()
+    assert per_shot[0]["references"] is None
+    recent = client.get("/api/v1/generations/recent").json()
+    assert recent[0]["references"] is None
+
+
+# --- 自主迭代 03：场景地点（Location）参考图注入 ----------------------------------
+
+
+def _create_location_with_master(client, project_id: str, scene_id: str, name: str = "天台") -> tuple[dict, str]:
+    """Location + version + activate MASTER + 绑定场景；返回 (location, 代表 asset_id)。"""
+    loc = client.post(f"/api/v1/projects/{project_id}/locations", json={"name": name}).json()
+    asset_id = _import_image(client, project_id, color=(12, 34, 56))
+    version = client.post(f"/api/v1/locations/{loc['id']}/versions", json={"asset_id": asset_id}).json()
+    client.post(f"/api/v1/locations/{loc['id']}/versions/{version['id']}/activate")
+    scene = client.get(f"/api/v1/scenes/{scene_id}").json()
+    resp = client.patch(
+        f"/api/v1/scenes/{scene_id}",
+        json={"revision": scene["revision"], "patch": {"location_id": loc["id"]}},
+    )
+    assert resp.status_code == 200, resp.text
+    return loc, asset_id
+
+
+def test_auto_resolution_appends_location_reference_after_characters(client) -> None:
+    """create 自动路径：角色参考 + 地点参考并存，地点 order_index 在角色之后。"""
+    chain = _make_chain(client)
+    char, _char_asset = _create_character_with_master(client, chain["project_id"])
+    loc, loc_asset = _create_location_with_master(client, chain["project_id"], chain["scene_id"])
+    shot = _make_shot(client, chain["scene_id"], character_ids=[char["id"]])
+
+    created = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"})
+    assert created.status_code == 202, created.text
+
+    inputs = client.get(f"/api/v1/generations/{created.json()['id']}/inputs").json()
+    loc_rows = [i for i in inputs["inputs"] if i["reference_type"] == "LOCATION_REFERENCE"]
+    assert len(loc_rows) == 1
+    loc_row = loc_rows[0]
+    assert loc_row["role"] == "location_reference"
+    meta = json.loads(loc_row["metadata_json"])
+    assert meta["asset_id"] == loc_asset
+    assert meta["location_id"] == loc["id"]
+    # 地点排在角色之后（角色 3000.x < 地点 4000.0 → worker 取前 3 时角色优先）
+    char_rows = [i for i in inputs["inputs"] if i["reference_type"] == "CHARACTER_REFERENCE"]
+    assert loc_row["order_index"] > char_rows[0]["order_index"]
+
+
+def test_auto_resolution_location_only_when_no_characters(client) -> None:
+    """无出场角色但有绑定地点 → 仅地点参考。"""
+    chain = _make_chain(client)
+    loc, loc_asset = _create_location_with_master(client, chain["project_id"], chain["scene_id"])
+    shot = _make_shot(client, chain["scene_id"])
+
+    created = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"})
+    inputs = client.get(f"/api/v1/generations/{created.json()['id']}/inputs").json()
+    loc_rows = [i for i in inputs["inputs"] if i["reference_type"] == "LOCATION_REFERENCE"]
+    assert len(loc_rows) == 1
+    assert json.loads(loc_rows[0]["metadata_json"])["asset_id"] == loc_asset
+
+
+def test_auto_resolution_skips_location_without_master_or_unbound(client) -> None:
+    chain = _make_chain(client)
+    # 1) 场景未绑定地点（独立 shot，避免同 shot 幂等 409）
+    shot_a = _make_shot(client, chain["scene_id"])
+    created = client.post(f"/api/v1/shots/{shot_a['id']}/generations", json={"type": "image"})
+    assert created.status_code == 202, created.text
+    inputs = client.get(f"/api/v1/generations/{created.json()['id']}/inputs").json()
+    assert all(i["reference_type"] != "LOCATION_REFERENCE" for i in inputs["inputs"])
+    # 2) 绑定地点但无 MASTER 版本 → 跳过（新 shot）
+    loc = client.post(f"/api/v1/projects/{chain['project_id']}/locations", json={"name": "无版本"}).json()
+    scene = client.get(f"/api/v1/scenes/{chain['scene_id']}").json()
+    resp = client.patch(
+        f"/api/v1/scenes/{chain['scene_id']}",
+        json={"revision": scene["revision"], "patch": {"location_id": loc["id"]}},
+    )
+    assert resp.status_code == 200, resp.text
+    shot_b = _make_shot(client, chain["scene_id"])
+    created = client.post(f"/api/v1/shots/{shot_b['id']}/generations", json={"type": "image"})
+    assert created.status_code == 202, created.text
+    inputs = client.get(f"/api/v1/generations/{created.json()['id']}/inputs").json()
+    assert all(i["reference_type"] != "LOCATION_REFERENCE" for i in inputs["inputs"])
+
+
+def test_explicit_references_replace_location_resolution_too(client) -> None:
+    """显式 reference_asset_ids REPLACE 全部自动解析（角色 + 地点）——显式行仍是
+    CHARACTER_REFERENCE（M1 既有语义），但自动角色 MASTER 与地点参考都不再出现。"""
+    chain = _make_chain(client)
+    char, _char_asset = _create_character_with_master(client, chain["project_id"])
+    loc, _loc_asset = _create_location_with_master(client, chain["project_id"], chain["scene_id"])
+    shot = _make_shot(client, chain["scene_id"], character_ids=[char["id"]])
+    explicit_asset = _import_image(client, chain["project_id"], color=(9, 9, 9))
+
+    created = client.post(
+        f"/api/v1/shots/{shot['id']}/generations",
+        json={"type": "image", "reference_asset_ids": [explicit_asset]},
+    )
+    assert created.status_code == 202, created.text
+    inputs = client.get(f"/api/v1/generations/{created.json()['id']}/inputs").json()
+    # 无地点参考行；唯一 reference 行 = 显式资产（非角色 MASTER / 非地点 MASTER）
+    loc_rows = [i for i in inputs["inputs"] if i["reference_type"] == "LOCATION_REFERENCE"]
+    assert loc_rows == []
+    char_rows = [i for i in inputs["inputs"] if i["reference_type"] == "CHARACTER_REFERENCE"]
+    assert len(char_rows) == 1
+    assert char_rows[0]["reference_id"] == explicit_asset
+
+
+def test_preview_includes_location_reference_with_name(client) -> None:
+    """GET /shots/{id}/reference-images：角色 + 地点参考，地点带 location_name。"""
+    chain = _make_chain(client)
+    char, _char_asset = _create_character_with_master(client, chain["project_id"])
+    loc, loc_asset = _create_location_with_master(client, chain["project_id"], chain["scene_id"])
+    shot = _make_shot(client, chain["scene_id"], character_ids=[char["id"]])
+
+    resp = client.get(f"/api/v1/shots/{shot['id']}/reference-images")
+    assert resp.status_code == 200
+    refs = resp.json()
+    assert len(refs) == 2  # 角色 + 地点
+    assert refs[0]["character_id"] == char["id"]
+    assert refs[1]["location_id"] == loc["id"]
+    assert refs[1]["location_name"] == "天台"
+    assert refs[1]["asset_id"] == loc_asset
+    assert refs[0]["location_id"] is None  # 角色行无地点字段
+
+
+def test_generation_detail_includes_location_reference(client) -> None:
+    """GET /generations/{id} 明细：references 含地点溯源（location_name）。"""
+    chain = _make_chain(client)
+    loc, loc_asset = _create_location_with_master(client, chain["project_id"], chain["scene_id"])
+    shot = _make_shot(client, chain["scene_id"])
+
+    created = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"})
+    detail = client.get(f"/api/v1/generations/{created.json()['id']}").json()
+    refs = detail["references"]
+    assert refs is not None
+    assert len(refs) == 1
+    assert refs[0]["location_id"] == loc["id"]
+    assert refs[0]["location_name"] == "天台"
+    assert refs[0]["asset_id"] == loc_asset
+    assert refs[0]["character_id"] is None
+    assert refs[0]["source"] == "auto"
+
+
+def test_worker_injects_location_reference_path(client, session_factory, monkeypatch) -> None:
+    """worker：地点参考行 → 绝对路径 → ImageRequest（角色优先、地点兜底）。"""
+    factory, _ = session_factory
+    chain = _make_chain(client)
+    char, char_asset = _create_character_with_master(client, chain["project_id"])
+    _create_location_with_master(client, chain["project_id"], chain["scene_id"])
+    shot = _make_shot(client, chain["scene_id"], character_ids=[char["id"]])
+    captured = _capture_image_requests(monkeypatch)
+    _capability_true(monkeypatch)
+
+    created = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"})
+    assert created.status_code == 202
+    asyncio.run(run_generation(created.json()["id"]))
+    done = _wait_status(client, created.json()["id"])
+    assert done["status"] == "completed", done.get("error_message")
+
+    with factory() as session:
+        char_asset_path = str(AssetService(session).absolute_path(session.get(Asset, char_asset)))
+        # 地点 asset 是 helper 内最后一张导入图，从溯源行读回
+        loc_asset_id = _location_asset_id(client, created.json()["id"])
+        loc_asset_path = str(AssetService(session).absolute_path(session.get(Asset, loc_asset_id)))
+    assert len(captured) == 1
+    assert captured[0].reference_images == [char_asset_path, loc_asset_path]  # 角色优先、地点兜底
+
+
+def _location_asset_id(client, generation_id: str) -> str:
+    inputs = client.get(f"/api/v1/generations/{generation_id}/inputs").json()
+    loc_rows = [i for i in inputs["inputs"] if i["reference_type"] == "LOCATION_REFERENCE"]
+    return json.loads(loc_rows[0]["metadata_json"])["asset_id"]

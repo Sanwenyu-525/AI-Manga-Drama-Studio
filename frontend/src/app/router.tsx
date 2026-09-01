@@ -32,6 +32,7 @@ import {
   ContinuityWorkspacePage,
   DirectorWorkspacePage,
   KnowledgeWorkspacePage,
+  LocationsWorkspacePage,
   ShotsIndexPage,
   StoryboardIndexPage,
 } from "../features/navigation/RailWorkspacePages";
@@ -72,6 +73,7 @@ export const router = createBrowserRouter([
           { path: "source", element: <SourceWorkspacePage /> },
           { path: "director", element: <DirectorWorkspacePage /> },
           { path: "characters", element: <CharactersWorkspacePage /> },
+          { path: "locations", element: <LocationsWorkspacePage /> },
           { path: "storyboard", element: <StoryboardIndexPage /> },
           { path: "shots", element: <ShotsIndexPage /> },
           { path: "knowledge", element: <KnowledgeWorkspacePage /> },

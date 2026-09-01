@@ -26,7 +26,7 @@ from sqlalchemy import func, or_, select, update
 
 from app.core.config import settings
 from app.core.errors import StudioError
-from app.core.logging import get_logger
+from app.core.logging import get_logger, reset_correlation_id, set_correlation_id
 from app.db import session as db_session_module
 from app.db.models import Asset, Generation, GenerationInput, GenerationOutput
 from app.events.bus import (
@@ -360,7 +360,12 @@ async def worker_loop() -> None:
                 )
             logger.debug("worker poll: %d pending", len(pending))
             for generation in pending:
-                await run_generation(generation.id)
+                # Correlate every log line emitted during this generation's run.
+                corr_token = set_correlation_id(f"gen:{generation.id}")
+                try:
+                    await run_generation(generation.id)
+                finally:
+                    reset_correlation_id(corr_token)
         except Exception:  # noqa: BLE001 — worker must never die
             logger.exception("worker poll iteration failed")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
@@ -471,16 +476,17 @@ async def run_generation(generation_id: str) -> None:
 
 
 def _load_reference_asset_ids(factory: Callable, generation_id: str) -> list[str]:
-    """Read the generation's CHARACTER_REFERENCE provenance rows → ordered asset ids
-    (metadata_json.asset_id, falling back to reference_id), ordered by order_index
-    (GenerationService writes rows in resolution order). Deduplicated."""
+    """Read the generation's CHARACTER_REFERENCE + LOCATION_REFERENCE provenance
+    rows → ordered asset ids (metadata_json.asset_id, falling back to
+    reference_id), ordered by order_index (GenerationService writes rows in
+    resolution order: characters first, location last). Deduplicated."""
     with factory() as session:
         rows = list(
             session.scalars(
                 select(GenerationInput)
                 .where(
                     GenerationInput.generation_id == generation_id,
-                    GenerationInput.role == "character_reference",
+                    GenerationInput.role.in_(("character_reference", "location_reference")),
                 )
                 .order_by(GenerationInput.order_index)
             )
@@ -974,7 +980,11 @@ async def _run_render_generation(
     fps = float(params.get("fps") or 24.0)
     out_dir = settings.data_dir / "render_output"
     out_dir.mkdir(parents=True, exist_ok=True)
-    output_path = str(out_dir / (f"gen_{generation_id}_out" + (".mp4" if provider.name == "ffmpeg" else ".avi")))
+    # Extension is declared by the provider (capability, not identity) — the
+    # worker never branches on concrete engine names.
+    output_path = str(
+        out_dir / (f"gen_{generation_id}_out" + getattr(provider, "output_extension", ".avi"))
+    )
 
     requests = []
     audio_requests = []

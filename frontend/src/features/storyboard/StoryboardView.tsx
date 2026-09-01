@@ -6,6 +6,7 @@ import {
   ImageSquare,
   ListBullets,
   MagicWand,
+  MapPin,
   Plus,
   Play,
   SquaresFour,
@@ -13,23 +14,28 @@ import {
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
-import type { GenerationRead, Location, Scene, Shot, ShotSummary, Storyboard } from "../../api/types";
+import type { Location, Scene, Shot, ShotSummary, Storyboard } from "../../api/types";
 import { SHOT_TYPE_LABELS } from "../../api/types";
 import { useSelectionStore } from "../../stores/selectionStore";
 import { useOperationPolling } from "../ai/useOperationPolling";
 import { useEditorTabsStore } from "../../stores/editorTabsStore";
 import { canonicalShotPath, useStudioRoute } from "../studio/studioRoute";
 import { useNavigate, useParams } from "react-router-dom";
-import { VirtualizedShotGrid } from "./VirtualizedShotGrid";
+import { VirtualizedShotGrid, type ShotSelectMods } from "./VirtualizedShotGrid";
 import { ShotThumbImage } from "./ShotThumbImage";
 import { SceneWarningBadge } from "../continuity/SceneWarningBadge";
+import { BatchActionBar } from "./BatchActionBar";
+import { generationBatchNotice, submitImageGenerations } from "../generation/batchSubmit";
 
 export function StoryboardView({ sceneId }: { sceneId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { episodeId = "" } = useParams();
-  const selectedShotId = useSelectionStore((state) => state.selection.shotIds[0]);
+  const shotIds = useSelectionStore((state) => state.selection.shotIds);
+  const selectedShotId = shotIds[0];
   const selectShot = useSelectionStore((state) => state.selectShot);
+  const toggleShot = useSelectionStore((state) => state.toggleShot);
+  const setShotIds = useSelectionStore((state) => state.setShotIds);
   const clearShots = useSelectionStore((state) => state.clearShots);
   const openShot = useEditorTabsStore((state) => state.openShot);
   const projectId = useStudioRoute().projectId;
@@ -38,6 +44,7 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
   const [generationMenuOpen, setGenerationMenuOpen] = useState(false);
   const [generationNotice, setGenerationNotice] = useState<string | null>(null);
   const [view, setView] = useState<"grid" | "list">("grid");
+  const [selectAnchorId, setSelectAnchorId] = useState<string | null>(null);
 
   const { data: storyboard, isLoading } = useQuery({
     queryKey: queryKeys.storyboard(sceneId),
@@ -58,7 +65,7 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
   const { data: locations } = useQuery({
     queryKey: queryKeys.locations(projectId),
     queryFn: () => api.get<Location[]>(`/projects/${projectId}/locations`),
-    enabled: Boolean(projectId) && Boolean(scene?.location_id),
+    enabled: Boolean(projectId),
   });
   const shotDetails = useMemo(() => {
     const map: Record<string, Shot> = {};
@@ -68,6 +75,22 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
     return map;
   }, [fullShots]);
   const sceneLocation = locations?.find((item) => item.id === scene?.location_id)?.name ?? null;
+  // 自主迭代 03：场景 ↔ 地点绑定（生成时注入地点 MASTER 参考图 → 场景一致性）。
+  const [locationMenuOpen, setLocationMenuOpen] = useState(false);
+  const bindLocation = useMutation({
+    mutationFn: (locationId: string | null) =>
+      api.patch<Scene>(`/scenes/${sceneId}`, {
+        revision: scene?.revision ?? 0,
+        patch: { location_id: locationId },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scene(sceneId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.storyboard });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.scenes });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.generations }); // 参考图预览随绑定变化
+      setLocationMenuOpen(false);
+    },
+  });
 
   useEffect(() => {
     if (!storyboard) return;
@@ -111,17 +134,32 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
   );
 
   const generateImages = useMutation({
-    mutationFn: (targets: ShotSummary[]) =>
-      Promise.all(targets.map((shot) => api.post<GenerationRead>(`/shots/${shot.id}/generations`, { type: "image" }))),
-    onSuccess: (_, targets) => {
+    mutationFn: (targets: ShotSummary[]) => submitImageGenerations(targets),
+    onSuccess: (summary) => {
       setGenerationMenuOpen(false);
-      setGenerationNotice(`已提交 ${targets.length} 个生成任务`);
+      setGenerationNotice(generationBatchNotice(summary));
       void queryClient.invalidateQueries({ queryKey: queryKeys.storyboard(sceneId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.generations });
     },
   });
 
-  const handleSelect = (shotId: string) => {
+  const handleSelect = (shotId: string, mods?: ShotSelectMods) => {
+    if (mods?.toggle) {
+      toggleShot(shotId);
+      setSelectAnchorId(shotId);
+      return;
+    }
+    if (mods?.shift && selectAnchorId) {
+      const orderedIds = (storyboard?.shots ?? []).map((shot) => shot.id);
+      const from = orderedIds.indexOf(selectAnchorId);
+      const to = orderedIds.indexOf(shotId);
+      if (from !== -1 && to !== -1) {
+        const [start, end] = from <= to ? [from, to] : [to, from];
+        setShotIds(orderedIds.slice(start, end + 1));
+        return;
+      }
+    }
+    setSelectAnchorId(shotId);
     selectShot(shotId);
     setGenerationNotice(null);
   };
@@ -166,6 +204,47 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
             <CheckCircle size={14} /> 已出图 {isLoading ? "…" : `${readyCount}/${shots.length}`}
           </span>
           <SceneWarningBadge sceneId={sceneId} />
+          <div className="generation-menu location-menu">
+            <button
+              type="button"
+              className={`btn secondary compact ${sceneLocation ? "has-location" : ""}`}
+              aria-haspopup="menu"
+              aria-expanded={locationMenuOpen}
+              title="绑定场景地点（生成时注入地点参考图，保证环境稳定）"
+              onClick={() => setLocationMenuOpen((open) => !open)}
+            >
+              <MapPin size={13} weight="fill" /> {sceneLocation ?? "绑定地点"} <CaretDown size={11} />
+            </button>
+            {locationMenuOpen && (
+              <div className="generation-menu-popover" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={scene?.location_id == null}
+                  onClick={() => bindLocation.mutate(null)}
+                >
+                  不绑定
+                </button>
+                {(locations ?? []).map((loc) => (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    key={loc.id}
+                    disabled={loc.id === scene?.location_id}
+                    onClick={() => bindLocation.mutate(loc.id)}
+                  >
+                    {loc.name}
+                    {loc.master_version_id ? " · MASTER" : " · 无参考图"}
+                  </button>
+                ))}
+                {!locations?.length && (
+                  <span className="muted small generation-menu-empty">
+                    还没有地点 — 在活动栏「地点」创建并上传参考图。
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
           <button className="btn secondary compact" onClick={() => createShot.mutate()} disabled={createShot.isPending}>
             <Plus size={14} /> 新建镜头
           </button>
@@ -265,7 +344,14 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
         </div>
       </div>
 
+      {shotIds.length > 1 && !isLoading && storyboard && storyboard.shots.length > 0 && (
+        <BatchActionBar sceneId={sceneId} shots={storyboard.shots} selectedIds={shotIds} onNotice={setGenerationNotice} />
+      )}
+
       {planError && <ApiErrorPanel error={planError} />}
+      {(generateImages.error || createShot.error) && (
+        <ApiErrorPanel error={generateImages.error ?? createShot.error} />
+      )}
       {isLoading && <div className="workspace-loading">正在读取 Storyboard…</div>}
 
       {!isLoading && (!storyboard || storyboard.shots.length === 0) && (
@@ -274,8 +360,12 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
           <h2>这一场还没有镜头</h2>
           <p>让 AI 根据场景生成镜头计划，或先手动添加一个镜头。</p>
           <div className="row gap">
-            <button className="btn primary" onClick={() => generateShotPlan.mutate()}>
-              <MagicWand size={16} /> AI 生成 Storyboard
+            <button
+              className="btn primary"
+              disabled={generateShotPlan.isPending || Boolean(planOpId)}
+              onClick={() => generateShotPlan.mutate()}
+            >
+              <MagicWand size={16} /> {generateShotPlan.isPending || planOpId ? "规划中…" : "AI 生成 Storyboard"}
             </button>
             <button className="btn secondary" onClick={() => createShot.mutate()}>
               <Plus size={16} /> 手动添加
@@ -294,7 +384,12 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
                 type="button"
                 role="listitem"
                 className={`shot-row ${isSelected ? "selected" : ""} ${shot.status === "failed" ? "failed" : ""}`}
-                onClick={() => handleSelect(shot.id)}
+                onClick={(event) =>
+                  handleSelect(shot.id, {
+                    toggle: event.ctrlKey || event.metaKey,
+                    shift: event.shiftKey,
+                  })
+                }
               >
                 <ShotThumbImage shot={shot} className="shot-row-thumb" />
                 <span className="shot-row-number">Shot {String(shot.shot_number).padStart(3, "0")}</span>
@@ -319,6 +414,8 @@ export function StoryboardView({ sceneId }: { sceneId: string }) {
           details={shotDetails}
           selectedShotId={selectedShotId}
           onSelect={handleSelect}
+          multiSelectedIds={shotIds}
+          onToggleSelect={toggleShot}
           onOpenShot={(shot) => {
             if (projectId && episodeId) {
               openShot({
