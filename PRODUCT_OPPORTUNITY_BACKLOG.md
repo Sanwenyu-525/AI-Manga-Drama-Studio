@@ -29,13 +29,16 @@
 | 镜头级地点覆盖（多地点场景） | 自主迭代 03 复盘（shot_visual_spec.location_id 已存在） | 一场多地点时无法为单镜头指定不同地点 | ReferenceResolver 支持 shot 级 location 覆盖（shot_visual_spec.location_id 优先于 scene） | 3 | 2 | 2 | 2 | 1 | 无 | P3 | Candidate |
 | 就绪度缺口一键跳转细化 | 自主迭代 04 复盘 | 就绪度卡片跳转落点在模块首页而非具体缺口（未绑定场景列表） | readiness 返回缺口 scene_id 列表 + 前端直达分镜；或「未绑定场景」列表页 | 2 | 2 | 1 | 2 | 1 | 无 | P3 | Candidate |
 | 产出覆盖纳入就绪度（视频/音频） | 自主迭代 04 复盘 | 就绪度只覆盖一致性（角色/场景/连续性），不含视频/音频产出缺口 | 扩 ReadinessRead：per-episode 视频/配音覆盖（复用 workspaceMetrics 的 imageReady 思路） | 3 | 2 | 2 | 2 | 1 | 无 | P2 | Candidate |
-| AI Director update_scene 工具 | 自主迭代 06 复盘 | 用户想「把这场戏改成夜晚」只能手动编辑，Agent 无法提案场景级修改 | Agent 新增 update_scene 工具（走既有 Proposal/风险分级/ChangeSet 流，场景字段白名单） | 3 | 2 | 3 | 3 | 2 | 场景编辑 UI | P2 | Candidate |
+| AI Director update_scene 工具 | 自主迭代 06 复盘 | 用户想「把这场戏改成夜晚」只能手动编辑，Agent 无法提案场景级修改 | Agent 新增 update_scene 工具（走既有 Proposal/风险分级/ChangeSet 流，场景字段白名单） | 3 | 2 | 3 | 3 | 2 | 场景编辑 UI | P2 | **已交付（迭代 07）** |
 | 场景批量环境应用 | 自主迭代 06 复盘 | 多场景统一改时段/光照需逐场景编辑 | 批量选择场景 → 统一 PATCH 环境字段（复用 batch 逐项结果模式） | 2 | 2 | 1 | 2 | 1 | 无 | P3 | Candidate |
+| AI Director 场景理解增强 | 迭代 07 复盘 | fake 规则只认固定环境词；自然语言（「变成雨天阴冷的氛围」）需真实 LLM | 真实 LLM 路径已由 schema 覆盖；可加场景意图微调样例到 prompt | 2 | 2 | 1 | 1 | 1 | 真实 LLM 验证 | P3 | Candidate |
+| update_scene proposal 兜底 | 迭代 07 复盘 | update_scene 恒 R1 自动应用，无 proposal 兜底分支 | 若未来风险策略升级需场景 proposal（create_scene_proposal） | 1 | 1 | 1 | 2 | 1 | 无 | P3 | Candidate |
 
 ## Done（已完成轮次）
 
 | Opportunity | 轮次 | 交付物 |
 |---|---|---|
+| **AI Director update_scene 工具（R1 场景级修改 + scene ChangeSet 可撤销 + P8-T017）** | **2026-09-01（自主迭代 07）** | **见 `docs/reports/autonomous-iteration-2026-09-01-agent-update-scene.md`** |
 | **场景信息编辑（Scene Properties：时段/光照/天气/氛围/描述 → 连续性重算/stale）** | **2026-09-01（自主迭代 06）** | **见 `docs/reports/autonomous-iteration-2026-09-01-scene-properties-edit.md`** |
 | **AI Director 刷新恢复（消息转录 + 最近会话列表 + 前端水合）** | **2026-09-01（自主迭代 05）** | **见 `docs/reports/autonomous-iteration-2026-09-01-agent-refresh-recovery.md`** |
 | **生产就绪度（角色 MASTER / 场景地点绑定 / 连续性警告缺口，生成前可见；含原「地点覆盖健康度」候选）** | **2026-09-01（自主迭代 04）** | **见 `docs/reports/autonomous-iteration-2026-09-01-production-readiness.md`** |

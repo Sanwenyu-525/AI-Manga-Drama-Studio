@@ -189,17 +189,21 @@ async def execute_node(state: DirectorState) -> DirectorState:
     resolved_shot_id = context.get("resolved_shot_id")
     if resolved_shot_id is None and plan.steps:
         # P1-E3-T01: ambiguous / not found / forged target — never guess, ask.
-        message = (
-            context.get("resolution_message")
-            or plan.clarification_message
-            or "请先选中一个镜头，或说明要修改第几镜。"
-        )
-        return {
-            **state,
-            "status": "completed",
-            "tool_results": [],
-            "final_result": {"clarification": message},
-        }
+        # 自主迭代 07：场景级工具（update_scene / get_scene_shots / 检查通道）不需要
+        # 镜头解析——只有镜头定位工具才强制 resolved_shot_id。
+        shot_tools = {"get_shot", "update_shot", "generate_image", "continuity_fix"}
+        if any(op.tool in shot_tools for op in plan.steps):
+            message = (
+                context.get("resolution_message")
+                or plan.clarification_message
+                or "请先选中一个镜头，或说明要修改第几镜。"
+            )
+            return {
+                **state,
+                "status": "completed",
+                "tool_results": [],
+                "final_result": {"clarification": message},
+            }
 
     results: list[dict[str, Any]] = []
     status = state.get("status", "running")

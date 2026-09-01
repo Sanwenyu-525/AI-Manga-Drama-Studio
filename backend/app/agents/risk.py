@@ -38,6 +38,13 @@ def classify_tool_operation(tool: str, arguments: dict) -> RiskAssessment:
             affected_entities=[str(arguments.get("shot_id") or "")],
             estimated_tasks=1,
         )
+    if tool == "update_scene":
+        return RiskAssessment(
+            risk_level=RISK_R1,
+            reason="可逆场景编辑：通过 ChangeSet 记录，可撤销；触发连续性重算。",
+            affected_entities=[str(arguments.get("scene_id") or "")],
+            estimated_tasks=1,
+        )
     if tool == "generate_image":
         return RiskAssessment(
             risk_level=RISK_R2,

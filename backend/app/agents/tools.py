@@ -38,6 +38,20 @@ class UpdateShotArgs(BaseModel):
     )
 
 
+class UpdateSceneArgs(BaseModel):
+    """自主迭代 07：场景级修改（时段/光照/天气/氛围/描述/名称）。
+
+    scene_id 由 planner 从 selection.scene_id 解析；patch 白名单与
+    SceneUpdate 一致（后端 update_scene 触发 P8-T017 连续性重算 + stale 标记）。
+    """
+
+    scene_id: str
+    patch: dict = Field(
+        ...,
+        description="Valid keys: name, time_of_day, lighting, weather, mood, description",
+    )
+
+
 class GenerateImageArgs(BaseModel):
     shot_id: str
     prompt: str | None = None
@@ -91,6 +105,7 @@ TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
     "get_shot": GetShotArgs,
     "get_scene_shots": GetSceneShotsArgs,
     "update_shot": UpdateShotArgs,
+    "update_scene": UpdateSceneArgs,
     "generate_image": GenerateImageArgs,
     "continuity_fix": ContinuityFixArgs,
     "check_workflow": CheckWorkflowArgs,
@@ -348,6 +363,86 @@ class ToolExecutor:
             )
             .order_by(AgentChangeSet.created_at.desc())
             .limit(1)
+        )
+
+    def _update_scene(self, args: dict) -> ToolResult:
+        """自主迭代 07：R1 可逆编辑——场景环境/名称修改自动应用（走 SceneService，
+        触发 P8-T017 连续性重算 + stale 标记），并记录 scene ChangeSet（可撤销）。
+
+        scene_id 由 planner 从 selection.scene_id 解析；ownership 由 _require_scene
+        复核。幂等：resume 重跑 execute_node 时，相同 (run, scene, tool) 的 agent
+        change set 已存在且 after 一致 → 跳过。
+        """
+        from app.agents.risk import approval_needed, classify_tool_operation
+
+        schema = UpdateSceneArgs.model_validate(args)
+        scene = self._require_scene(schema.scene_id)
+        requested = {key: value for key, value in schema.patch.items() if value is not None}
+        if not requested:
+            return ToolResult(
+                success=True,
+                entity_id=scene.id,
+                changed_fields=[],
+                data={"applied": False, "message": "no change requested"},
+            )
+        run = self.session.get(AgentRun, self.run_id) if self.run_id else None
+        if run is None:
+            return ToolResult(
+                success=False,
+                error="update_scene requires a persisted agent run.",
+                data={"code": "AGENT_RUN_REQUIRED"},
+            )
+        assessment = classify_tool_operation("update_scene", args)
+        if approval_needed("update_scene", args):
+            # update_scene 恒 R1（自动应用）；此分支仅防未来风险策略升级——未知
+            # 风险宁可拒绝也不猜测（红线：不静默写库）。
+            return ToolResult(
+                success=False,
+                error="update_scene risk escalated; manual approval not implemented.",
+                data={"code": "RISK_ESCALATED", "risk_level": assessment.risk_level},
+            )
+
+        existing = self._existing_agent_change_set(run.id, scene.id, "update_scene")
+        if existing is not None:
+            after = json.loads(existing.after_json) if existing.after_json else {}
+            if after == requested:
+                return ToolResult(
+                    success=True,
+                    entity_id=scene.id,
+                    changed_fields=list(requested),
+                    data={"message": "already applied", "change_set_id": existing.id, "revision": existing.revision_after},
+                )
+        from app.domain.scene import SceneUpdate
+        from app.services.change_set_service import ChangeSetService
+        from app.services.scene_service import SceneService
+
+        patch = SceneUpdate.model_validate(requested)
+        scenes = SceneService(self.session)
+        before = scenes.get_scene(scene.id)
+        try:
+            updated = scenes.update_scene(scene.id, scene.revision, patch)
+        except ConflictError as exc:
+            return ToolResult(success=False, error=exc.message, data={"code": exc.code})
+        change_set = ChangeSetService(self.session).record_scene_patch(
+            project_id=run.project_id,
+            run_id=run.id,
+            tool="update_scene",
+            scene_id=scene.id,
+            before={f: getattr(before, f, None) for f in requested},
+            after={f: getattr(updated, f, None) for f in requested},
+            revision_before=before.revision,
+            revision_after=updated.revision,
+        )
+        return ToolResult(
+            success=True,
+            entity_id=scene.id,
+            changed_fields=list(requested),
+            data={
+                "applied": True,
+                "change_set_id": change_set.id,
+                "revision": updated.revision,
+                "risk_level": assessment.risk_level,
+            },
         )
 
     def _generate_image(self, args: dict) -> ToolResult:

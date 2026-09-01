@@ -1052,8 +1052,10 @@ status = waiting_human（或等待审批时的 waiting_approval）
 P2-E3-T02 风险分级后只有需要审批的工具会进入此状态：
 
 - **R0**（get_shot / get_scene_shots / check_workflow / inspect_comfy）：只读，自动执行。
-- **R1**（update_shot）：可逆编辑，**自动执行**并记录 ChangeSet（可撤销），
-  不再为每次近景修改打断用户。
+- **R1**（update_shot / update_scene）：可逆编辑，**自动执行**并记录 ChangeSet（可撤销），
+  不再为每次近景修改打断用户。update_scene 修改场景环境（时段/光照/天气/氛围/描述），
+  走 SceneService（触发 P8-T017 连续性重算 + 活跃资产 stale 标记），scene_id 由
+  selection.scene_id 解析（自主迭代 07）。
 - **R2**（generate_image）：昂贵操作，**审批前不创建任何 Generation**，
   产生 pending AgentProposal（含 risk_level/reason/estimated_tasks/
   estimated_cost/irreversible/expires_at），run 进入 WAITING_HUMAN 并发出

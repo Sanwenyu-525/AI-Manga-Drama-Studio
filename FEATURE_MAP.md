@@ -38,7 +38,7 @@
 | 能力 | 状态 | 备注 |
 |---|---|---|
 | AI Director（LangGraph 五节点 / Structured Planner + Deterministic Executor） | ✅ | |
-| 三工具（get_shot / update_shot / generate_image） | ✅ | |
+| 工具面（get_shot / update_shot / **update_scene** / generate_image / continuity_fix / 检查通道） | ✅ | **update_scene 为 2026-09-01 自主迭代 07**（R1 场景级修改 + scene ChangeSet 可撤销 + P8-T017） |
 | Proposal 审批流（R0-R3 风险分级 / TTL 过期 / approve+conflict） | ✅ | R1 自动执行+ChangeSet |
 | ChangeSet / Undo（补偿变更链 / 批量撤销 / 409 恢复） | ✅ | |
 | Agent Run 持久化 + SQLite Checkpointer + resume | ✅ | |
@@ -60,7 +60,7 @@
 | mutation 错误反馈全覆盖（~15 处 ApiErrorPanel） | ✅ | 前端优化轮；含 operation 轮询失败上限（10 次 / 404 快速失败） |
 | LLM Profiles / 图像引擎配置 / ComfyUI 模型目录 | ✅ | |
 | live 全链路 smoke（14 步：建项目→分析→分镜→生成→配音→渲染→下载） | ✅ | backend/scripts/smoke_fullstack.py |
-| 测试基线 | ✅ | pytest 633（1 skip，1 例既有 flaky 单跑通过）/ vitest 298 |
+| 测试基线 | ✅ | pytest 638（1 skip，1 例既有 flaky 单跑通过）/ vitest 298 |
 
 ## 已知未闭环（详见 PRODUCT_OPPORTUNITY_BACKLOG）
 
