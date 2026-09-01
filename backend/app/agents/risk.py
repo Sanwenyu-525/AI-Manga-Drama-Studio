@@ -20,7 +20,7 @@ from __future__ import annotations
 from app.core.config import settings
 from app.domain.agent import RiskAssessment, RISK_R0, RISK_R1, RISK_R2, RISK_R3
 
-_READ_TOOLS = ("get_shot", "get_scene_shots")
+_READ_TOOLS = ("get_shot", "get_scene_shots", "check_workflow", "inspect_comfy")
 
 
 def classify_tool_operation(tool: str, arguments: dict) -> RiskAssessment:

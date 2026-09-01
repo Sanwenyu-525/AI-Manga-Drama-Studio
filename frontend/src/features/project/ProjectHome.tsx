@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowRight,
   Camera,
   Check,
-  Clock,
+  Circle,
+  CheckCircle,
+  DotsThree,
   FolderOpen,
   PencilSimple,
   Plus,
@@ -16,7 +17,11 @@ import {
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
-import type { Project, ProjectUpdateRequest } from "../../api/types";
+import { ApiErrorPanel } from "../../components/ApiErrorPanel";
+import { formatDateTime, formatMonthDay } from "../../lib/format";
+import { mediaUrl } from "../../lib/mediaUrl";
+import type { Episode, Project, ProjectBootstrap, ProjectTreeRead, ProjectUpdateRequest } from "../../api/types";
+import { derivePipeline, summarizeEpisodes, type PipelineStage } from "../../lib/workspaceMetrics";
 
 const statusLabel: Record<string, string> = {
   active: "制作中",
@@ -31,16 +36,22 @@ export function ProjectHome() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [filterOpen, setFilterOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
       if (filterRef.current && !filterRef.current.contains(event.target as Node)) setFilterOpen(false);
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpenId(null);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setFilterOpen(false);
+      if (event.key === "Escape") {
+        setFilterOpen(false);
+        setMenuOpenId(null);
+      }
     };
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKey);
@@ -73,6 +84,63 @@ export function ProjectHome() {
   );
 
   const filterCount = filteredProjects.length;
+  const activeProjectId = activeProject?.id ?? "";
+
+  // 项目进度来自真实 Project State（与漫剧工作区同一套聚合，不伪造进度）。
+  const { data: tree } = useQuery({
+    queryKey: queryKeys.projectTree(activeProjectId),
+    queryFn: () => api.get<ProjectTreeRead>(`/projects/${activeProjectId}/tree`),
+    enabled: Boolean(activeProjectId),
+  });
+  const { data: episodes } = useQuery({
+    queryKey: queryKeys.episodes(activeProjectId),
+    queryFn: () => api.get<Episode[]>(`/projects/${activeProjectId}/episodes`),
+    enabled: Boolean(activeProjectId),
+  });
+  const { data: bootstrap } = useQuery({
+    queryKey: queryKeys.bootstrap(activeProjectId),
+    queryFn: () => api.get<ProjectBootstrap>(`/projects/${activeProjectId}/bootstrap`),
+    enabled: Boolean(activeProjectId),
+    staleTime: 10_000,
+  });
+
+  const progress = useMemo(() => summarizeEpisodes(tree, episodes), [tree, episodes]);
+  const hasTimeline = (bootstrap?.episodes ?? []).some((ep) => ep.has_timeline);
+  const hasFinalVideo = (bootstrap?.episodes ?? []).some((ep) => ep.has_final_video);
+  const firstEpisodeId = bootstrap?.episodes?.[0]?.id ?? tree?.episodes?.[0]?.id ?? null;
+
+  const pipeline = useMemo<PipelineStage[]>(() => {
+    const stages = derivePipeline(progress, hasTimeline, hasFinalVideo);
+    // 每阶段补充真实计数 detail（缺数据就不显示，保持诚实边界）。
+    const counts: Record<string, string | undefined> = {
+      source: progress.episodes.some((e) => e.hasSourceText) ? `${progress.episodes.length} 集原文` : undefined,
+      scenes: progress.sceneCount > 0 ? `${progress.sceneCount} 场` : undefined,
+      shots: progress.shotCount > 0 ? `${progress.shotCount} 镜头` : undefined,
+      image: progress.shotCount > 0 ? `${progress.imageReadyCount}/${progress.shotCount}` : undefined,
+      timeline: hasTimeline ? "已排片" : undefined,
+      export: hasFinalVideo ? "成片已就绪" : undefined,
+    };
+    return stages.map((stage) => ({ ...stage, detail: counts[stage.key] }));
+  }, [progress, hasTimeline, hasFinalVideo]);
+
+  const stagePath = (key: string): string => {
+    const base = `/projects/${activeProjectId}`;
+    const ep = firstEpisodeId;
+    switch (key) {
+      case "source":
+        return `${base}/source`;
+      case "scenes":
+        return ep ? `${base}/episodes/${ep}/script` : `${base}/script`;
+      case "shots":
+      case "image":
+        return `${base}/storyboard`;
+      case "timeline":
+      case "export":
+        return ep ? `${base}/episodes/${ep}/timeline` : `${base}/timeline`;
+      default:
+        return base;
+    }
+  };
 
   const invalidateProjects = () => void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
 
@@ -115,6 +183,16 @@ export function ProjectHome() {
   const handleCoverFile = (file: File | undefined | null) => {
     if (file && activeProject) uploadCover.mutate(file);
     if (coverInputRef.current) coverInputRef.current.value = "";
+  };
+
+  const confirmDelete = (project: Project) => {
+    setMenuOpenId(null);
+    if (
+      window.confirm(`删除项目《${project.name}》？
+其剧集、场景、镜头与角色将一并软删除，不可恢复。`)
+    ) {
+      deleteProject.mutate(project.id);
+    }
   };
 
   return (
@@ -174,6 +252,9 @@ export function ProjectHome() {
 
         {isLoading && <div className="home-loading">正在读取项目…</div>}
         {isError && <div className="error-banner">项目读取失败，请确认 Studio Service 已启动。</div>}
+        {(uploadCover.error || renameProject.error || deleteProject.error) && (
+          <ApiErrorPanel error={uploadCover.error ?? renameProject.error ?? deleteProject.error} />
+        )}
 
         {!isLoading && projects?.length === 0 && (
           <section className="home-empty-card">
@@ -224,10 +305,16 @@ export function ProjectHome() {
                             })
                           }
                           title="保存名称"
+                          aria-label="保存名称"
                         >
                           <Check size={14} />
                         </button>
-                        <button className="icon-button" onClick={() => setRenamingId(null)} title="取消">
+                        <button
+                          className="icon-button"
+                          onClick={() => setRenamingId(null)}
+                          title="取消"
+                          aria-label="取消重命名"
+                        >
                           <X size={14} />
                         </button>
                       </div>
@@ -237,34 +324,49 @@ export function ProjectHome() {
                           <span>
                             <strong>《{project.name}》</strong>
                             <small>
-                              {project.aspect_ratio ?? "未设置"} · {project.fps ?? 24} FPS
+                              {project.aspect_ratio ?? "未设置"} · {project.fps ?? 24} FPS ·{" "}
+                              {formatShortDate(project.updated_at)}
                             </small>
                           </span>
                           <span className={`project-status status-${project.status}`}>
                             <i /> {statusLabel[project.status] ?? project.status}
                           </span>
                         </button>
+                        {/* 编辑/删除是低频危险操作：收入 ··· 菜单，降低误触。 */}
                         <span className="recent-project-actions" onClick={(e) => e.stopPropagation()}>
-                          <button type="button" title="重命名" onClick={() => startRename(project)}>
-                            <PencilSimple size={14} />
-                          </button>
                           <button
                             type="button"
-                            className="danger"
-                            title="删除项目"
-                            disabled={deleteProject.isPending}
-                            onClick={() => {
-                              if (
-                                window.confirm(`删除项目《${project.name}》？
-其剧集、场景、镜头与角色将一并软删除，不可恢复。`)
-                              ) {
-                                deleteProject.mutate(project.id);
-                              }
-                            }}
+                            title="更多操作"
+                            aria-haspopup="menu"
+                            aria-expanded={menuOpenId === project.id}
+                            onClick={() => setMenuOpenId(menuOpenId === project.id ? null : project.id)}
                           >
-                            <Trash size={14} />
+                            <DotsThree size={16} weight="bold" />
                           </button>
                         </span>
+                        {menuOpenId === project.id && (
+                          <div className="recent-project-menu" role="menu" ref={menuRef}>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setMenuOpenId(null);
+                                startRename(project);
+                              }}
+                            >
+                              <PencilSimple size={14} /> 重命名
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="danger"
+                              disabled={deleteProject.isPending}
+                              onClick={() => confirmDelete(project)}
+                            >
+                              <Trash size={14} /> 删除项目
+                            </button>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -275,85 +377,93 @@ export function ProjectHome() {
                   <p>没有「{statusLabel[statusFilter] ?? statusFilter}」状态的项目</p>
                 </div>
               )}
-              <Link to="/projects/new" className="panel-footer-link">
-                <Plus size={15} /> 新建另一个项目
-              </Link>
             </aside>
 
             <section className="project-feature-card">
-              <div className="project-cover-wrap">
-                <img
-                  src={activeProject.cover_url ?? "/assets/manga-shot.png"}
-                  alt={activeProject.cover_url ? `《${activeProject.name}》封面` : "黑白日系写实漫剧镜头"}
-                  className={activeProject.cover_url ? "project-cover" : "project-cover cover-default"}
-                />
-                <span className="cover-caption">{activeProject.aspect_ratio ?? "9:16"}</span>
-                <button
-                  type="button"
-                  className="cover-upload-btn"
-                  disabled={uploadCover.isPending}
-                  onClick={() => coverInputRef.current?.click()}
-                >
-                  <Camera size={15} /> {uploadCover.isPending ? "上传中…" : "更换封面"}
-                </button>
-                <input
-                  ref={coverInputRef}
-                  type="file"
-                  accept=".png,.jpg,.jpeg,.webp,.gif,image/*"
-                  hidden
-                  onChange={(event) => handleCoverFile(event.target.files?.[0])}
-                />
-              </div>
-              <div className="project-feature-content">
-                <div className="project-title-row">
-                  <h2>《{activeProject.name}》</h2>
-                  <span className={`project-status status-${activeProject.status}`}>
-                    {statusLabel[activeProject.status] ?? activeProject.status}
-                  </span>
+              <header className="project-head">
+                <div className="project-head-text">
+                  <div className="project-title-row">
+                    <h2>《{activeProject.name}》</h2>
+                    <span className={`project-status status-${activeProject.status}`}>
+                      {statusLabel[activeProject.status] ?? activeProject.status}
+                    </span>
+                  </div>
+                  <p className="project-description">
+                    {activeProject.description ||
+                      "从小说到分镜、生成与版本回填，所有制作状态都保存在 Project State。"}
+                  </p>
                 </div>
-                <p className="project-description">
-                  {activeProject.description || "从小说到分镜、生成与版本回填，所有制作状态都保存在 Project State。"}
-                </p>
-
-                <div className="project-facts">
-                  <div>
-                    <span>画幅</span>
-                    <strong>{activeProject.aspect_ratio ?? "9:16"}</strong>
-                  </div>
-                  <div>
-                    <span>帧率</span>
-                    <strong>{activeProject.fps ?? 24} FPS</strong>
-                  </div>
-                  <div>
-                    <span>状态</span>
-                    <strong>{statusLabel[activeProject.status] ?? activeProject.status}</strong>
-                  </div>
-                  <div>
-                    <span>最近更新</span>
-                    <strong>{formatDate(activeProject.updated_at)}</strong>
-                  </div>
-                </div>
-
-                <div className="project-actions">
-                  {/* One entry point into the studio; the URL opens the script view
-                      where the user continues toward scenes/storyboard. */}
-                  <Link to={`/projects/${activeProject.id}/script`} className="btn primary">
-                    <Play size={16} weight="fill" /> 打开工作台
+                <div className="project-head-actions">
+                  <Link to={`/projects/${activeProject.id}/script`} className="btn primary btn-lg">
+                    <Play size={16} weight="fill" /> 继续制作
                   </Link>
-                  <span className="muted small">
-                    <ArrowRight size={14} /> 剧本 → 场景 → 分镜
-                  </span>
                 </div>
+              </header>
 
-                <div className="recent-activity">
-                  <div className="section-kicker">制作流程</div>
-                  <div className="activity-row">
-                    <Clock size={16} />
-                    <span>剧本 → 场景 → 分镜 → 生成 → 版本</span>
-                    <small>Project State</small>
-                  </div>
+              <div className="project-media-row">
+                <div className="project-cover-wrap">
+                  <img
+                    src={activeProject.cover_url ? mediaUrl(activeProject.cover_url) : "/assets/manga-shot.png"}
+                    alt={activeProject.cover_url ? `《${activeProject.name}》封面` : "黑白日系写实漫剧镜头"}
+                    className={activeProject.cover_url ? "project-cover" : "project-cover cover-default"}
+                  />
+                  <span className="cover-caption">{activeProject.aspect_ratio ?? "9:16"}</span>
+                  <button
+                    type="button"
+                    className="cover-upload-btn"
+                    disabled={uploadCover.isPending}
+                    onClick={() => coverInputRef.current?.click()}
+                  >
+                    <Camera size={15} /> {uploadCover.isPending ? "上传中…" : "更换封面"}
+                  </button>
+                  <input
+                    ref={coverInputRef}
+                    type="file"
+                    accept=".png,.jpg,.jpeg,.webp,.gif,image/*"
+                    hidden
+                    onChange={(event) => handleCoverFile(event.target.files?.[0])}
+                  />
                 </div>
+                <dl className="project-meta-list">
+                  <div>
+                    <dt>画幅</dt>
+                    <dd>{activeProject.aspect_ratio ?? "9:16"}</dd>
+                  </div>
+                  <div>
+                    <dt>帧率</dt>
+                    <dd>{activeProject.fps ?? 24} FPS</dd>
+                  </div>
+                  <div>
+                    <dt>最近更新</dt>
+                    <dd>{formatDate(activeProject.updated_at)}</dd>
+                  </div>
+                </dl>
               </div>
+
+              <section className="project-pipeline" aria-label="制作进度">
+                <div className="section-kicker">制作进度</div>
+                <ol className="proj-stages">
+                  {pipeline.map((stage, i) => (
+                    <li key={stage.key} className={`proj-stage ${stage.state}`}>
+                      <Link to={stagePath(stage.key)} className="proj-stage-link">
+                        <span className="proj-stage-dot">
+                          {stage.state === "done" ? (
+                            <CheckCircle size={15} weight="fill" />
+                          ) : (
+                            <Circle size={11} weight={stage.state === "running" ? "fill" : "regular"} />
+                          )}
+                        </span>
+                        <span className="proj-stage-index">{String(i + 1).padStart(2, "0")}</span>
+                        <span className="proj-stage-label">{stage.label}</span>
+                        <span className="proj-stage-detail">
+                          {stage.detail ??
+                            (stage.state === "done" ? "已完成" : stage.state === "running" ? "进行中" : "等待")}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ol>
+              </section>
             </section>
           </div>
         )}
@@ -363,12 +473,9 @@ export function ProjectHome() {
 }
 
 function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return formatDateTime(value);
+}
+
+function formatShortDate(value: string): string {
+  return formatMonthDay(value);
 }

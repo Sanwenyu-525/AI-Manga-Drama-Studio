@@ -47,6 +47,8 @@
 | `STUDIO_GENERATION_RETRY_BACKOFF_BASE` / `_MAX` | `1.0` / `60.0` | 指数退避（秒） |
 | `STUDIO_DATA_DIR` | `backend/data` | SQLite + 项目资产目录 |
 | `STUDIO_WORKFLOWS_DIR` | 仓库根 `workflows/` | ComfyUI workflow 模板目录 |
+| `STUDIO_COMFY_INTROSPECTION` | `native` | `native` / `mcp` | 检查通道 introspection 实现（P2-E4-T02）：native=直连 `/object_info`；mcp=经用户自装 comfy-mcp（失败自动回落 native）。只影响诊断，不影响生产执行通道 | 重启 |
+| `STUDIO_COMFY_MCP_COMMAND` | `comfy-mcp` | 任意命令 | mcp 模式下启动的 comfy-mcp console script（用户自装，不随应用分发） | 重启 |
 
 ## 运行时落盘配置（设置页写入，非 env）
 
@@ -58,7 +60,7 @@
 
 | 变量 | 默认 | secret | 说明 |
 |---|---|---|---|
-| `STUDIO_SESSION_TOKEN` | 无 | **是** | Tauri 壳 spawn 后端时注入的高熵会话 token；设置后 REST 需 `X-Session-Token`、WS 需 `?token=`（`/health`、`/system/info` 豁免）。不设 = 开发/浏览器模式（auth 关闭）。绝不写日志、不落库、不入源码 |
+| `STUDIO_SESSION_TOKEN` | 无 | **是** | Tauri 壳 spawn 后端时注入的高熵会话 token；设置后 REST 需 `X-Session-Token`（媒体标签可 `?token=`）、WS 需 `?token=`（`/health`、`/system/info` 豁免）。不设 = 开发/浏览器模式（auth 关闭）。绝不写日志、不落库、不入源码 |
 
 ## 重启影响
 

@@ -89,6 +89,8 @@ def _to_asset_list_item(asset) -> AssetListItemRead:
         id=asset.id,
         type=asset.type,
         status=asset.status,
+        name=asset.name,
+        source_type=asset.source_type,
         version_group_id=asset.version_group_id,
         version_number=asset.version_number,
         checksum=asset.checksum,
@@ -160,8 +162,11 @@ def import_asset(
     the standard RequestValidationError handler); AssetService owns the rest.
     """
     suffix = Path(file.filename or "").suffix
+    # Stream to the temp file in chunks — the multipart body must never be fully
+    # loaded into RAM before the service-side 50 MB check runs.
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(file.file.read())
+        while chunk := file.file.read(1024 * 1024):
+            tmp.write(chunk)
         tmp_path = Path(tmp.name)
     try:
         asset = AssetService(db).import_asset(

@@ -104,6 +104,56 @@ async def list_comfyui_models(base_url: str | None = None) -> dict:
     }
 
 
+@router.get("/comfyui/workflows")
+def list_comfyui_workflows() -> dict:
+    """Discovered workflow templates (auto-discovery by filename, Sprint 05 P2-2).
+
+    前端健康面板的 workflow 选择器 + Agent inspect_comfy 的工作流清单来源。
+    """
+    from app.providers.comfyui.workflow_mapper import DEFAULT_WORKFLOW_ID, _resolve_catalog
+
+    catalog = _resolve_catalog()
+    return {
+        "workflows": [
+            {"id": wid, "filename": filename, "is_default": wid == DEFAULT_WORKFLOW_ID}
+            for wid, filename in sorted(catalog.items())
+        ]
+    }
+
+
+@router.post("/comfyui/workflows/{workflow_id}/validate")
+async def validate_comfyui_workflow(workflow_id: str, body: ComfyUITestRequest | None = None) -> dict:
+    """Live workflow diagnostics against the connected ComfyUI (P2-E4-T02 检查通道).
+
+    静态 preflight + 逐节点 live 校验（缺节点 / 缺模型 / 断链）。永 200：
+    ComfyUI 不可达时返回 status="unreachable"（不阻断排队的语义），未知
+    workflow_id 才 422。introspection 实现由 STUDIO_COMFY_INTROSPECTION
+    选择（native | mcp，MCP 失败自动回落 native）。
+    """
+    from app.core.errors import ValidationError
+    from app.services.workflow_diagnostics_service import get_workflow_diagnostics_service
+
+    override = (body.base_url or "").strip() if body is not None else ""
+    try:
+        diagnostics = await get_workflow_diagnostics_service().validate_workflow_async(
+            workflow_id, base_url=override or None
+        )
+    except ValidationError:
+        raise  # unknown workflow_id → 422
+    except Exception as exc:  # noqa: BLE001 — 诊断永不 500
+        return {
+            "workflow_id": workflow_id,
+            "status": "unreachable",
+            "ok": False,
+            "error": f"diagnostics crashed: {exc}",
+            "nodes": [],
+            "missing_nodes": [],
+            "missing_models": [],
+            "broken_links": [],
+        }
+    return diagnostics.to_dict()
+
+
 class AgnesTestRequest(BaseModel):
     """Optional overrides so an unsaved base_url can be probed first (mirrors /llm/test)."""
 

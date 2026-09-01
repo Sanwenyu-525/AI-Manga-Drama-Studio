@@ -24,7 +24,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.errors import NotFoundError, ValidationError
+from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.logging import get_logger
 from app.db.models import Asset, Episode, Project, Scene, Shot
 from app.db.models.asset import ASSET_STATUSES, ASSET_TYPES
@@ -102,6 +102,13 @@ class AssetService:
         source = Path(source_path)
         if not source.exists():
             raise NotFoundError("Source file does not exist.", {"path": str(source)})
+
+        # Write-side path guard: `name` is concatenated into the destination path —
+        # reject anything that could escape the project directory (defense in depth;
+        # the read side already enforces this via _safe_path).
+        if name is not None:
+            if not name or "/" in name or "\\" in name or ".." in name or name in (".", ".."):
+                raise ValidationError("Invalid asset name.", {"name": name})
 
         if shot_id is not None:
             rel_dir = self._shot_relative_dir(shot_id, asset_type)
@@ -222,10 +229,28 @@ class AssetService:
         dest_dir = project_dir(project_id) / rel_dir
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / dest_name
+        if dest.exists():
+            # Never overwrite an existing file silently (seq race or leftover) —
+            # the DB row would disagree with the bytes on disk.
+            raise ConflictError(
+                "An imported asset file with this name already exists.",
+                {"name": dest_name},
+            )
 
-        content = source.read_bytes()
-        dest.write_bytes(content)
-        checksum = hashlib.sha256(content).hexdigest()
+        # Atomic streamed copy (tmp + os.replace) with checksum computed in-flight —
+        # large files never load into memory and the final path never holds a
+        # partial write.
+        checksum = hashlib.sha256()
+        tmp_dest = dest_dir / f".{dest.name}.{uuid.uuid4().hex}.tmp"
+        try:
+            with source.open("rb") as src, tmp_dest.open("wb") as out:
+                for chunk in iter(lambda: src.read(_STREAM_CHUNK), b""):
+                    checksum.update(chunk)
+                    out.write(chunk)
+            os.replace(tmp_dest, dest)
+        finally:
+            tmp_dest.unlink(missing_ok=True)
+        digest = checksum.hexdigest()
 
         media = probe(dest) or {}
         mime_type = None
@@ -257,7 +282,7 @@ class AssetService:
             meta_json=json.dumps(meta, ensure_ascii=False),
             status="ready",
             source_type="imported",
-            checksum=checksum,
+            checksum=digest,
             version_group_id=None,
             version_number=None,
             generation_id=None,
@@ -321,15 +346,24 @@ class AssetService:
         return checked, newly_missing
 
     def _next_import_seq(self, project_id: str) -> int:
-        count = self.session.scalar(
-            select(func.count())
-            .select_from(Asset)
-            .where(
+        """Next free IMP sequence: MAX(existing numeric suffix) + 1.
+
+        COUNT+1 could collide after purges and let two concurrent imports race
+        onto the same file name; parsing the suffix is monotonic and gap-tolerant.
+        """
+        prefix = f"{project_id}_IMP_"
+        names = self.session.scalars(
+            select(Asset.name).where(
                 Asset.project_id == project_id,
-                Asset.name.like(f"{project_id}_IMP_%"),
+                Asset.name.like(f"{prefix}%"),
             )
         )
-        return int(count or 0) + 1
+        max_seq = 0
+        for name in names:
+            stem = name[len(prefix):].split(".", 1)[0]
+            if stem.isdigit():
+                max_seq = max(max_seq, int(stem))
+        return max_seq + 1
 
     def _publish_asset_created(self, asset: Asset) -> None:
         bus.publish(

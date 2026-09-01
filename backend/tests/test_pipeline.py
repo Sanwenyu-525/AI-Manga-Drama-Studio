@@ -12,7 +12,7 @@ import time
 from fastapi.testclient import TestClient
 
 from app.generations.worker import run_generation
-from app.db.models import Generation, Shot
+from app.db.models import Generation
 
 NOVEL_TEXT = (
     "夜色降临，天台上沈亦握着篮球。顾言说：'最后一种打法，要么赢，要么散。'"
@@ -60,7 +60,6 @@ def _episode_image_generations(session_factory, episode_id: str) -> list[dict]:
     """[(generation_id, status)] of all image generations for the episode's shots."""
     from sqlalchemy import select, text
 
-    from app.db.models import Generation
 
     factory = session_factory[0]
     out: list[dict] = []
@@ -168,7 +167,6 @@ def _latest_render_generation(session_factory, episode_id: str) -> str | None:
     """Latest type=render generation for the episode (via its timeline)."""
     from sqlalchemy import select, text
 
-    from app.db.models import Generation, Timeline
 
     factory = session_factory[0]
     with factory() as s:

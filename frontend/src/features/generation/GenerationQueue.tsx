@@ -17,10 +17,12 @@ import {
   Play,
   WarningCircle,
   X,
+  XCircle,
 } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import type { GenerationRead, JobRead, JobSummaryRead } from "../../api/types";
 import { queryKeys } from "../../api/queryKeys";
+import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { useGenerationStore } from "../../stores/generationStore";
 import type { LiveGeneration } from "../../stores/generationStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -143,6 +145,9 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
       </div>
 
       <div className="queue-body">
+        {(retryGeneration.error || cancelGeneration.error) && (
+          <ApiErrorPanel error={retryGeneration.error ?? cancelGeneration.error} />
+        )}
         {tab === "jobs" ? (
           <JobsPanel projectId={projectId} jobs={jobs} expanded={expanded} />
         ) : (
@@ -150,9 +155,15 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
             {tab === "queue" &&
               Object.keys(live).map((key) => {
                 const generation = live[key];
+                // queued 与 running 必须可区分（审计 P1-1）：排队=沙漏静置，运行=旋转箭头。
+                const isRunning = generation.status === "running";
                 return (
-                  <div key={generation.id} className="queue-item running">
-                    <HourglassMedium size={18} className="queue-status-icon" />
+                  <div key={generation.id} className={`queue-item ${isRunning ? "running" : "queued"}`}>
+                    {isRunning ? (
+                      <ArrowsClockwise size={18} className="queue-status-icon queue-status-spin" />
+                    ) : (
+                      <HourglassMedium size={18} className="queue-status-icon" />
+                    )}
                     <div className="queue-primary">
                       <strong>
                         {generationTypeText(generation.type)} · {shotLabel(generation.shotId)}
@@ -167,6 +178,8 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
                       className="icon-button"
                       onClick={() => cancelGeneration.mutate(generation.id)}
                       title="取消任务"
+                      aria-label="取消任务"
+                      disabled={cancelGeneration.isPending}
                     >
                       <X size={15} />
                     </button>
@@ -183,10 +196,15 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
                   : persisted.filter((item) => item.status === "completed");
               return visible.slice(0, expanded ? 10 : 3).map((generation) => (
                 <div key={generation.id} className={`queue-item ${generation.status}`}>
+                  {/* 状态图标按语义映射（审计 P1-1）：cancelled 曾错误复用成功图标。 */}
                   {generation.status === "failed" ? (
                     <WarningCircle size={18} className="queue-status-icon" />
-                  ) : (
+                  ) : generation.status === "cancelled" ? (
+                    <XCircle size={18} className="queue-status-icon" />
+                  ) : generation.status === "completed" ? (
                     <CheckCircle size={18} weight="fill" className="queue-status-icon" />
+                  ) : (
+                    <HourglassMedium size={18} className="queue-status-icon" />
                   )}
                   <div className="queue-primary">
                     <strong>{shotLabel(generation.shot_id)}</strong>
@@ -195,8 +213,12 @@ export function GenerationQueue({ projectId }: { projectId?: string }) {
                     </span>
                   </div>
                   <span className={`badge ${generation.status}`}>{generationStatusText(generation.status)}</span>
-                  <span className="queue-message" title={generation.error_message ?? undefined}>
-                    {generation.error_message || formatTime(generation.completed_at ?? generation.created_at)}
+                  <span
+                    className="queue-message"
+                    title={friendlyGenerationError(generation.error_message) ? generation.error_message ?? undefined : undefined}
+                  >
+                    {friendlyGenerationError(generation.error_message) ??
+                      (generation.error_message || formatTime(generation.completed_at ?? generation.created_at))}
                   </span>
                   {generation.status === "failed" && (
                     <button
@@ -367,6 +389,9 @@ function JobRow({ projectId, job }: { projectId?: string; job: JobSummaryRead })
             </span>
           )}
         </div>
+        {(pause.error || resume.error || cancel.error || retry.error) && (
+          <ApiErrorPanel error={pause.error ?? resume.error ?? cancel.error ?? retry.error} />
+        )}
         {open && <JobTasks detail={detail.data} />}
       </div>
     </div>
@@ -488,6 +513,28 @@ function generationStatusText(status: string): string {
       } as Record<string, string>
     )[status] ?? status
   );
+}
+
+// 常见技术错误 → 用户可理解文案（审计 P1-1）。未命中时返回 null 展示原文，
+// 原文始终保留在 title tooltip 中供排查。
+function friendlyGenerationError(message: string | null): string | null {
+  if (!message) return null;
+  const raw = message.toLowerCase();
+  if (raw.includes("timeout") || raw.includes("timed out")) return "生成服务响应超时，可稍后重试";
+  if (raw.includes("econnrefused") || raw.includes("connect") || raw.includes("unreachable")) {
+    return "无法连接生成服务，请检查服务是否在运行";
+  }
+  if (raw.includes("unauthorized") || raw.includes("forbidden") || raw.includes(" 401") || raw.includes(" 403")) {
+    return "认证失败，请检查 API Key 配置";
+  }
+  if (raw.includes("rate limit") || raw.includes(" 429")) return "请求频率受限，请稍后重试";
+  if (raw.includes("workflow") && (raw.includes("not") || raw.includes("unknown") || raw.includes("missing"))) {
+    return "工作流模板缺失或未注册";
+  }
+  if (raw.includes("model") && (raw.includes("not found") || raw.includes("unknown") || raw.includes("missing"))) {
+    return "模型不存在或未加载，请检查模型配置";
+  }
+  return null;
 }
 
 function formatTime(value: string): string {

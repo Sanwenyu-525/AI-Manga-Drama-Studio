@@ -94,7 +94,7 @@ describe("SettingsPage — LLM 本地服务检测", () => {
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
 
-    await screen.findByDisplayValue("http://127.0.0.1:8188"); // image config 已加载
+    await screen.findByText("检测本地服务"); // AI Tab 默认激活，LLM 卡已挂载
     fireEvent.click(screen.getByText("检测本地服务").closest("button")!);
     await screen.findByText("http://127.0.0.1:11434/v1"); // 结果行出现
     expect(post).toHaveBeenCalledWith("/llm/detect-local", {});
@@ -111,7 +111,7 @@ describe("SettingsPage — LLM 本地服务检测", () => {
     vi.spyOn(client.api, "post").mockResolvedValue({ servers: [] });
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
-    await screen.findByDisplayValue("http://127.0.0.1:8188");
+    await screen.findByText("检测本地服务");
     fireEvent.click(screen.getByText("检测本地服务").closest("button")!);
     await screen.findByText(/未发现运行中的本地模型服务/);
   });
@@ -134,11 +134,12 @@ describe("SettingsPage — ComfyUI 本地引擎", () => {
     vi.spyOn(client.api, "put").mockImplementation(put);
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
+    fireEvent.click(screen.getByRole("tab", { name: "图像服务" }));
 
     // checkpoint 输入框显示已保存值；datalist 里是 ComfyUI 拉到的列表
     const input = await screen.findByDisplayValue("sd_xl_base_1.0.safetensors");
     fireEvent.change(input, { target: { value: "b.safetensors" } });
-    fireEvent.click(screen.getByText("保存图像配置").closest("button")!);
+    fireEvent.click(screen.getByText("保存配置").closest("button")!);
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
     const [path, body] = put.mock.calls[0];
     expect(path).toBe("/image/config");
@@ -202,6 +203,7 @@ describe("SettingsPage — ComfyUI 本地引擎", () => {
 
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
+    fireEvent.click(screen.getByRole("tab", { name: "图像服务" }));
     await screen.findByDisplayValue("http://127.0.0.1:8188");
 
     fireEvent.change(screen.getByPlaceholderText(/如 D:\\Models，或 ComfyUI 的 models 目录/), {
@@ -234,6 +236,7 @@ describe("SettingsPage — ComfyUI 本地引擎", () => {
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
+    fireEvent.click(screen.getByRole("tab", { name: "图像服务" }));
     await screen.findByPlaceholderText("ComfyUI 未连接，可手动输入文件名");
   });
 });
@@ -264,6 +267,7 @@ describe("SettingsPage — 视频模型目录（后端清单）", () => {
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
+    fireEvent.click(screen.getByRole("tab", { name: "视频服务" }));
 
     const select = (await screen.findByLabelText("视频模型")) as HTMLSelectElement;
     await waitFor(() => expect(select.options.length).toBe(3));
@@ -279,13 +283,14 @@ describe("SettingsPage — 视频模型目录（后端清单）", () => {
     vi.spyOn(client.api, "put").mockImplementation(put);
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
+    fireEvent.click(screen.getByRole("tab", { name: "视频服务" }));
 
     const select = (await screen.findByLabelText("视频模型")) as HTMLSelectElement;
     await waitFor(() => expect(select.options.length).toBe(3));
     fireEvent.change(select, { target: { value: "agnes-video-v2.0" } });
     await screen.findByText(/不在该账号可用模型列表/);
 
-    fireEvent.click(screen.getByText("保存视频配置").closest("button")!);
+    fireEvent.click(screen.getByText("保存配置").closest("button")!);
     await waitFor(() =>
       expect(put).toHaveBeenCalledWith("/image/config", {
         video_provider: "agnes",
@@ -304,6 +309,7 @@ describe("SettingsPage — 视频模型目录（后端清单）", () => {
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
+    fireEvent.click(screen.getByRole("tab", { name: "视频服务" }));
 
     const select = (await screen.findByLabelText("视频模型")) as HTMLSelectElement;
     await screen.findByText(/模型目录读取失败/);
@@ -356,7 +362,7 @@ describe("SettingsPage — 目录浏览选择（P-LocalModels 文件浏览器）
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
-
+    fireEvent.click(screen.getByRole("tab", { name: "图像服务" }));
     await screen.findByDisplayValue("http://127.0.0.1:8188");
     fireEvent.click(screen.getByTitle(/浏览并选择要扫描的目录/));
 
@@ -394,7 +400,7 @@ describe("SettingsPage — 目录浏览选择（P-LocalModels 文件浏览器）
     vi.spyOn(client.api, "get").mockImplementation(get);
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
-
+    fireEvent.click(screen.getByRole("tab", { name: "图像服务" }));
     await screen.findByDisplayValue("http://127.0.0.1:8188");
     fireEvent.change(screen.getByPlaceholderText(/如 D:\\Models，或 ComfyUI 的 models 目录/), {
       target: { value: "X:\\不存在" },
@@ -438,7 +444,7 @@ describe("SettingsPage — 原生目录对话框（Tauri 桌面壳）", () => {
     vi.spyOn(client.api, "get").mockImplementation(tauriGet());
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
-
+    fireEvent.click(screen.getByRole("tab", { name: "图像服务" }));
     await screen.findByDisplayValue("http://127.0.0.1:8188");
     fireEvent.click(screen.getByTitle(/浏览并选择要扫描的目录/));
     await waitFor(() =>
@@ -456,7 +462,7 @@ describe("SettingsPage — 原生目录对话框（Tauri 桌面壳）", () => {
     vi.spyOn(client.api, "get").mockImplementation(tauriGet());
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
-
+    fireEvent.click(screen.getByRole("tab", { name: "图像服务" }));
     await screen.findByDisplayValue("http://127.0.0.1:8188");
     // 第一次：取消 → 输入框保持为空，无内置弹窗
     fireEvent.click(screen.getByTitle(/浏览并选择要扫描的目录/));
@@ -552,15 +558,19 @@ describe("SettingsPage — LLM 连接 Profiles（P-LLM-Profiles）", () => {
     await waitFor(() => expect(put).toHaveBeenCalledWith("/llm/task-bindings", { bindings: { director: null } }));
   });
 
-  it("「+ 存为新连接」把当前表单配置 POST 为命名 profile", async () => {
+  it("「+ 存为新连接」展开内联命名行，输入名称后 POST 为命名 profile（空名禁用保存）", async () => {
     vi.spyOn(client.api, "get").mockImplementation(llmGet());
     const post = vi.fn().mockResolvedValue({});
     vi.spyOn(client.api, "post").mockImplementation(post);
-    vi.spyOn(window, "prompt").mockReturnValue("我的连接");
     const { wrapper } = makeWrapper();
     render(<SettingsPage />, { wrapper });
 
     fireEvent.click(await screen.findByText("+ 存为新连接"));
+    const nameInput = screen.getByPlaceholderText("连接名称（如：本地 Qwen）");
+    // 空名称时「保存」禁用（即时校验，不弹原生 prompt）
+    expect((screen.getByText("保存").closest("button") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(nameInput, { target: { value: "我的连接" } });
+    fireEvent.click(screen.getByText("保存"));
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/llm/profiles", {
         name: "我的连接",

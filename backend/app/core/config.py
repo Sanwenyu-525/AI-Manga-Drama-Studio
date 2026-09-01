@@ -104,6 +104,14 @@ class Settings(BaseSettings):
     # override with STUDIO_WORKFLOWS_DIR for packaged/bundled layouts.
     workflows_dir: Path = REPO_ROOT / "workflows"
 
+    # 检查通道（P2-E4-T02）：workflow live 诊断的 introspection 实现。
+    # "native" = 直连 ComfyUI HTTP /object_info（默认，无额外依赖）；
+    # "mcp" = 经由用户自装的 comfy-mcp（MCP stdio，AGPL 双许可，不随应用分发）。
+    # MCP 缺失或能力不足时诊断服务自动回落 native——生产执行通道永远走
+    # GenerationService → ImageProvider，不受本配置影响。
+    comfy_introspection: Literal["native", "mcp"] = "native"
+    comfy_mcp_command: str = "comfy-mcp"  # comfy-mcp console script（用户自装）
+
     @property
     def database_path(self) -> Path:
         return self.data_dir / "studio.db"

@@ -143,10 +143,7 @@ def continuity_fix(body: ContinuityFixRequest) -> AgentRunRead:
     frontend first runs a check, then issues a fix per warning.
     """
     from app.agents.continuity.runner import create_fix_run
-    from app.agents.director.runner import _to_read, _session
-    from app.db.models import AgentRun
+    from app.agents.director.runner import get_run
 
-    with _session() as session:
-        run = create_fix_run(body.warning_id, body.patch)
-        persisted = session.get(AgentRun, run.id)
-        return _to_read(session, persisted)
+    run = create_fix_run(body.warning_id, body.patch)
+    return get_run(run.id)

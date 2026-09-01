@@ -171,3 +171,40 @@ def test_generation_cancel(client: TestClient) -> None:
     versions = client.get(f"/api/v1/shots/{shot['id']}/versions").json()
     assert versions == []  # cancelled generation produced nothing
 
+
+def test_double_submit_rejected_until_terminal(client: TestClient) -> None:
+    """Backend audit P1-2: one expensive generation per shot+type at a time —
+    a second submit while the first is queued/running is a 409; regeneration
+    after a terminal state stays allowed (V2 path)."""
+    shot = _make_shot(client)
+    g1 = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"}).json()
+    assert g1["status"] == "queued"
+
+    dup = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"})
+    assert dup.status_code == 409
+    assert dup.json()["error"]["code"] == "CONFLICT"
+
+    _drive(g1["id"])
+    assert _wait_status(client, g1["id"])["status"] == "completed"
+
+    # terminal → a new generation is accepted again (regenerate semantics)
+    g2 = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"})
+    assert g2.status_code == 202
+
+
+def test_default_max_attempts_wired_from_settings(client: TestClient, session_factory, monkeypatch) -> None:
+    """Backend audit P1-1: settings.generation_max_attempts is the retry budget for
+    generations created without an explicit override (previously hard-wired to 1,
+    which disabled auto-retry and crash re-queue entirely)."""
+    from app.core.config import settings
+    from app.db.models import Generation
+
+    monkeypatch.setattr(settings, "generation_max_attempts", 4)
+    shot = _make_shot(client)
+    created = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"}).json()
+
+    factory, _ = session_factory
+    with factory() as s:
+        row = s.get(Generation, created["id"])
+        assert row.max_attempts == 4
+

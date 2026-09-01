@@ -102,10 +102,11 @@ export function CharactersSection({ projectId }: { projectId: string }) {
                 disabled={!newName.trim() || createCharacter.isPending}
                 onClick={() => createCharacter.mutate(newName.trim())}
                 title="保存"
+                aria-label="保存角色"
               >
                 <Check size={14} />
               </button>
-              <button className="icon-button" onClick={() => setCreating(false)} title="取消">
+              <button className="icon-button" onClick={() => setCreating(false)} title="取消" aria-label="取消创建">
                 <X size={14} />
               </button>
             </div>

@@ -1,6 +1,13 @@
 // P2 聚合指标纯函数测试（真实 Project State 形状，见 api/types.ts ShotTreeItem 等）。
 import { describe, expect, it } from "vitest";
-import { derivePipeline, percent, summarizeEpisodes } from "../lib/workspaceMetrics";
+import {
+  derivePipeline,
+  episodeAction,
+  percent,
+  pickCurrentEpisode,
+  primaryStageKey,
+  summarizeEpisodes,
+} from "../lib/workspaceMetrics";
 import type { Episode, ProjectTreeRead } from "../api/types";
 
 function shot(partial: Partial<{ status: string; active_image_version: number | null }>) {
@@ -169,5 +176,73 @@ describe("percent", () => {
     expect(percent(1, 3)).toBe(33);
     expect(percent(0, 0)).toBe(0);
     expect(percent(5, 3)).toBe(100);
+  });
+});
+
+describe("primaryStageKey", () => {
+  it("取首个 running 阶段；全部完成落在最后阶段", () => {
+    const stages = derivePipeline(summarizeEpisodes(TREE, EPISODES), false, false);
+    expect(primaryStageKey(stages)).toBe("timeline");
+    const allDone = derivePipeline(summarizeEpisodes(TREE, EPISODES), true, true);
+    expect(primaryStageKey(allDone)).toBe("export");
+  });
+});
+
+describe("episodeAction", () => {
+  it("无原文/无场景 → start（开始制作）", () => {
+    const progress = summarizeEpisodes(TREE, EPISODES);
+    expect(episodeAction(progress.episodes[1], undefined)).toEqual({ kind: "start", label: "开始制作" });
+  });
+
+  it("出图未完成 → produce（继续制作）", () => {
+    const progress = summarizeEpisodes(TREE, EPISODES);
+    expect(episodeAction(progress.episodes[0], undefined).kind).toBe("produce");
+  });
+
+  it("出图齐 + 无时间线 → timeline；有时间线无成片 → render；齐活 → review", () => {
+    const progress = summarizeEpisodes(TREE, EPISODES);
+    const ep = { ...progress.episodes[0], imageReadyCount: progress.episodes[0].shotCount };
+    expect(episodeAction(ep, { hasTimeline: false, hasFinalVideo: false }).kind).toBe("timeline");
+    expect(episodeAction(ep, { hasTimeline: true, hasFinalVideo: false }).kind).toBe("render");
+    expect(episodeAction(ep, { hasTimeline: true, hasFinalVideo: true }).kind).toBe("review");
+  });
+
+  it("bootstrap flags 缺省（undefined）按未达成处理，不伪造完成", () => {
+    const progress = summarizeEpisodes(TREE, EPISODES);
+    const ep = { ...progress.episodes[0], imageReadyCount: progress.episodes[0].shotCount };
+    expect(episodeAction(ep, undefined).kind).toBe("timeline");
+  });
+});
+
+describe("pickCurrentEpisode", () => {
+  it("正在出图的一集优先", () => {
+    const progress = summarizeEpisodes(TREE, EPISODES);
+    expect(pickCurrentEpisode(progress, [])?.episodeId).toBe("ep1");
+  });
+
+  it("全部出图后 → 未开始的一集", () => {
+    const progress = summarizeEpisodes(TREE, EPISODES);
+    const allDone = progress.episodes.map((e) => ({ ...e, imageReadyCount: e.shotCount }));
+    expect(pickCurrentEpisode({ ...progress, episodes: allDone }, [])?.episodeId).toBe("ep2");
+  });
+
+  it("各集均已开始且出图完成 → 尚未出片的最靠后一集（收尾推进）", () => {
+    const progress = summarizeEpisodes(TREE, EPISODES);
+    // 两集都视为「已开始」（有原文、有场景）且全部出图
+    const allDone = progress.episodes.map((e) => ({
+      ...e,
+      imageReadyCount: e.shotCount,
+      hasSourceText: true,
+      sceneCount: Math.max(e.sceneCount, 1),
+    }));
+    const bootstrap = [
+      { id: "ep1", has_timeline: true, has_final_video: false },
+      { id: "ep2", has_timeline: true, has_final_video: true },
+    ];
+    expect(pickCurrentEpisode({ ...progress, episodes: allDone }, bootstrap)?.episodeId).toBe("ep1");
+  });
+
+  it("空项目返回 null", () => {
+    expect(pickCurrentEpisode(summarizeEpisodes(undefined, undefined), [])).toBeNull();
   });
 });

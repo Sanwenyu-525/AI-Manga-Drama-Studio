@@ -11,10 +11,12 @@ Rules:
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.core.errors import ConflictError, NotFoundError, ValidationError
+from app.core.errors import ConflictError, NotFoundError, StudioError, ValidationError
 from app.db.models import Character, Episode, Scene, Shot, ShotCharacter, ShotVisualSpec
 from app.domain.scene import SceneSummary
 from app.domain.shot import (
+    ShotBatchItemResult,
+    ShotBatchResult,
     ShotCreate,
     ShotRead,
     ShotSummary,
@@ -426,6 +428,76 @@ class ShotService:
         live = self.repo.list_for_scene(scene_id)
         specs = self._specs_for([s.id for s in live])
         return [_to_read(s, ids.get(s.id, []), specs.get(s.id)) for s in live]
+
+    # --- Batch operations (autonomous-iteration-02: multi-select bulk actions) ---
+
+    def batch_update_shots(
+        self, scene_id: str, shot_ids: list[str], patch: ShotUpdate
+    ) -> ShotBatchResult:
+        """Bulk apply one patch to selected shots (per-item results, 200 on partial
+        failure). Batch overwrite semantics: each shot is updated with its CURRENT
+        server-side revision — bulk intent = "make these shots match", so the client
+        sends no per-shot revision. Every shot goes through update_shot(), so
+        revision bumps, dirty_state, prompt versions, shot.updated events and
+        continuity recompute behave exactly like a single edit."""
+        self._validate_batch(scene_id, shot_ids)
+        if not patch.model_dump(exclude_none=True):
+            raise ValidationError("Batch patch is empty.", {"scene_id": scene_id})
+
+        def op(shot_id: str) -> None:
+            shot = self._batch_guard(shot_id, scene_id)
+            self.update_shot(shot_id, shot.revision, patch)
+
+        return self._run_batch(scene_id, shot_ids, op, ok_status="updated")
+
+    def batch_delete_shots(self, scene_id: str, shot_ids: list[str]) -> ShotBatchResult:
+        """Bulk soft-delete selected shots (per-item results; each delete publishes
+        its own shot.deleted event via delete_shot)."""
+        self._validate_batch(scene_id, shot_ids)
+
+        def op(shot_id: str) -> None:
+            self._batch_guard(shot_id, scene_id)
+            self.delete_shot(shot_id)
+
+        return self._run_batch(scene_id, shot_ids, op, ok_status="deleted")
+
+    def _validate_batch(self, scene_id: str, shot_ids: list[str]) -> None:
+        if len(shot_ids) != len(set(shot_ids)):
+            raise ValidationError("Batch contains duplicate shot ids.", {"scene_id": scene_id})
+        if self.scenes.get(scene_id) is None:
+            raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
+
+    def _batch_guard(self, shot_id: str, scene_id: str) -> Shot:
+        shot = self.repo.get(shot_id)
+        if shot is None:
+            raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
+        if shot.scene_id != scene_id:
+            raise ValidationError(
+                "Shot belongs to another scene.",
+                {"shot_id": shot_id, "shot_scene_id": shot.scene_id, "scene_id": scene_id},
+            )
+        return shot
+
+    def _run_batch(self, scene_id: str, shot_ids: list[str], op, ok_status: str) -> ShotBatchResult:
+        results: list[ShotBatchItemResult] = []
+        for shot_id in shot_ids:
+            try:
+                op(shot_id)
+                results.append(ShotBatchItemResult(shot_id=shot_id, status=ok_status))
+            except StudioError as exc:
+                results.append(
+                    ShotBatchItemResult(
+                        shot_id=shot_id, status="failed", error_code=exc.code, message=str(exc)
+                    )
+                )
+        succeeded = sum(1 for r in results if r.status != "failed")
+        return ShotBatchResult(
+            scene_id=scene_id,
+            requested=len(shot_ids),
+            succeeded=succeeded,
+            failed=len(results) - succeeded,
+            results=results,
+        )
 
     def get_storyboard(self, scene_id: str) -> StoryboardRead:
         """Aggregate endpoint payload (api-event-contract §101-102) — avoids N+1 on the grid."""

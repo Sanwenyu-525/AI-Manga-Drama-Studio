@@ -349,7 +349,7 @@ function NewDocumentForm({
         >
           <Check size={13} /> {saving ? "创建中…" : "创建设定文档"}
         </button>
-        <button className="icon-button" onClick={onCancel} title="取消">
+        <button className="icon-button" onClick={onCancel} title="取消" aria-label="取消创建">
           <X size={14} />
         </button>
       </div>

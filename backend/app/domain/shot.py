@@ -101,3 +101,36 @@ class StoryboardRead(BaseModel):
 
     scene: SceneSummary
     shots: list[ShotSummary]
+
+
+class ShotBatchUpdateRequest(BaseModel):
+    """Bulk apply one patch to selected shots (autonomous-iteration-02).
+
+    Batch overwrite semantics: each shot is updated with its CURRENT server-side
+    revision — the bulk intent is "make these shots match", so no per-shot
+    revision is required from the client."""
+
+    shot_ids: list[str] = Field(min_length=1)
+    patch: ShotUpdate
+
+
+class ShotBatchDeleteRequest(BaseModel):
+    shot_ids: list[str] = Field(min_length=1)
+
+
+class ShotBatchItemResult(BaseModel):
+    """Per-shot outcome, mirroring the ChangeSet undo result pattern
+    (updated/deleted/failed — one bad id never blocks the rest)."""
+
+    shot_id: str
+    status: str
+    error_code: str | None = None
+    message: str | None = None
+
+
+class ShotBatchResult(BaseModel):
+    scene_id: str
+    requested: int
+    succeeded: int
+    failed: int
+    results: list[ShotBatchItemResult]

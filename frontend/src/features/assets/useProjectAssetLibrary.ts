@@ -1,7 +1,7 @@
 // P6-T016/AssetBrowser endpoint switch - project-scoped asset listing (parallel
 // backend task added GET /projects/{id}/assets -> {total, items} and GET /assets/{id}).
 // The old client-side aggregation (tree + per-shot versions + masters) is dropped in
-// favour of the server endpoint. A server "type" filter param narrows image/video;
+// favour of the server endpoint. A server "asset_type" filter param narrows image/video;
 // source groups (storyboard/character/location) refine client-side on source_type.
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
@@ -35,8 +35,10 @@ export function useProjectAssetLibrary(
   typeFilter: AssetTypeFilter | null = null,
 ): ProjectAssetLibrary {
   const typeParam = typeFilter === "all" || typeFilter === null ? null : typeFilter;
+  // Contract: the backend filter query param is `asset_type` (api/assets.py) —
+  // a `?type=` param is silently ignored by FastAPI and the filter never applies.
   const path = typeParam
-    ? "/projects/" + projectId + "/assets?type=" + typeParam
+    ? "/projects/" + projectId + "/assets?asset_type=" + typeParam
     : "/projects/" + projectId + "/assets";
   const query = useQuery({
     queryKey: queryKeys.projectAssets(projectId, typeParam),

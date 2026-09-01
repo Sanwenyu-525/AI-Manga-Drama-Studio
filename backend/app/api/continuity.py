@@ -39,9 +39,10 @@ router = APIRouter(tags=["continuity"])
     response_model=SceneContinuityRead,
 )
 def get_scene_continuity(scene_id: str, db: Session = Depends(get_db)) -> SceneContinuityRead:
-    data: dict[str, Any] = ContinuityService(db).get_scene_continuity(scene_id)
+    svc = ContinuityService(db)
+    data: dict[str, Any] = svc.get_scene_continuity(scene_id)
     # merge the parallel continuity_warnings table (P8-B) entries — read-only probe
-    data["shots"] = _merge_shadow_warnings(db, scene_id, data["shots"])
+    data["shots"] = svc.merge_open_warnings_into_shots(scene_id, data["shots"])
     return SceneContinuityRead(**data)
 
 
@@ -73,49 +74,6 @@ def recompute_scene_continuity(scene_id: str, db: Session = Depends(get_db)) -> 
         total_shots=total,
         state_hash=final_hash,
     )
-
-
-def _merge_shadow_warnings(db: Session, scene_id: str, shots: list[dict]) -> list[dict]:
-    """Merge OPEN continuity_warnings table entries into each shot's warnings.
-
-    The continuity_warnings table (P8-T018) holds rule + agent semantic warnings;
-    shot_continuity_states.warnings_json stays authoritative for rule snapshots.
-    Wrapped so any schema drift degrades to the snapshot, never to a 500.
-    """
-    try:
-        from sqlalchemy import text
-
-        rows = db.execute(
-            text(
-                "SELECT shot_id, category, severity, message, id "
-                "FROM continuity_warnings "
-                "WHERE scene_id = :scene_id AND status = 'open'"
-            ),
-            {"scene_id": scene_id},
-        ).mappings().all()
-    except Exception:  # noqa: BLE001 — table not present yet or schema drift
-        return shots
-    if not rows:
-        return shots
-    by_shot: dict[str, list[dict]] = {}
-    for row in rows:
-        by_shot.setdefault(row["shot_id"], []).append({
-            "code": row["category"] or "RULE",
-            "category": row["category"] or "RULE",
-            "severity": row["severity"] or "warning",
-            "message": row["message"],
-            "shot_id": row["shot_id"],
-            "id": row["id"],
-        })
-    for shot in shots:
-        extra = by_shot.get(shot["shot_id"], [])
-        if not extra:
-            continue
-        existing_codes = {w.get("id") for w in shot.get("warnings", [])}
-        for w in extra:
-            if "id" in w and w["id"] not in existing_codes:
-                shot["warnings"].append(w)
-    return shots
 
 
 @router.get("/scenes/{scene_id}/continuity-warnings", response_model=list[ContinuityWarningRead])

@@ -1,6 +1,7 @@
 """FastAPI application entrypoint (mvp-spec Epic 01)."""
 
 import asyncio
+import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -14,7 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.router import api_router
 from app.core.config import settings, validate_startup_config
 from app.core.errors import StudioError
-from app.core.logging import configure_logging, get_logger
+from app.core.logging import configure_logging, get_logger, reset_correlation_id, set_correlation_id
 
 
 def _error_response(
@@ -87,7 +88,18 @@ def create_app() -> FastAPI:
         token = settings.session_token
         if token is not None:
             exempt = (f"{settings.api_prefix}/health", f"{settings.api_prefix}/system/info")
-            if request.url.path not in exempt and request.headers.get("X-Session-Token") != token:
+            # Media tags (<img>/<video>/<audio>/<a download>) cannot send custom
+            # headers, so they may present the token via ?token= — the same
+            # pattern the WS gateway already enforces (events/ws.py). Without
+            # this fallback every generated asset 401s in the Tauri shell.
+            provided = (
+                request.headers.get("X-Session-Token")
+                or request.query_params.get("token")
+                or ""
+            )
+            if request.url.path not in exempt and not secrets.compare_digest(
+                provided.encode("utf-8"), token.encode("utf-8")
+            ):
                 logger.warning("local session auth rejected %s %s", request.method, request.url.path)
                 return _error_response(
                     request,
@@ -109,18 +121,24 @@ def create_app() -> FastAPI:
     async def request_logging(request: Request, call_next):
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         request.state.request_id = request_id
+        # Bind request_id into the logging correlation context so every log line
+        # emitted while handling this request is traceable to it (AGENTS §9).
+        corr_token = set_correlation_id(request_id)
         start = time.perf_counter()
-        response = await call_next(request)
-        duration_ms = (time.perf_counter() - start) * 1000
-        logger.info(
-            "http %s %s -> %s (%.1fms)",
-            request.method,
-            request.url.path,
-            response.status_code,
-            duration_ms,
-        )
-        response.headers["X-Request-ID"] = request_id
-        return response
+        try:
+            response = await call_next(request)
+            duration_ms = (time.perf_counter() - start) * 1000
+            logger.info(
+                "http %s %s -> %s (%.1fms)",
+                request.method,
+                request.url.path,
+                response.status_code,
+                duration_ms,
+            )
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            reset_correlation_id(corr_token)
 
     @app.exception_handler(StudioError)
     async def studio_error_handler(request: Request, exc: StudioError) -> JSONResponse:

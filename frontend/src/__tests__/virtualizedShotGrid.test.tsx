@@ -46,4 +46,44 @@ describe("VirtualizedShotGrid", () => {
     card!.click();
     expect(onSelect).toHaveBeenCalledWith("shot_3");
   });
+
+  it("passes toggle/shift modifiers on modifier-clicks (iteration-02)", () => {
+    const onSelect = vi.fn();
+    const shots = makeShots(4) as never[];
+    render(<VirtualizedShotGrid shots={shots} onSelect={onSelect} />);
+    const card = (Array.from(document.querySelectorAll(".shot-card")) as HTMLElement[])[2];
+    card!.dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+    expect(onSelect).toHaveBeenLastCalledWith("shot_2", { toggle: true, shift: false });
+    card!.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+    expect(onSelect).toHaveBeenLastCalledWith("shot_2", { toggle: false, shift: true });
+  });
+
+  it("renders and toggles multi-select checkboxes (iteration-02)", () => {
+    const onSelect = vi.fn();
+    const onToggleSelect = vi.fn();
+    const shots = makeShots(4) as never[];
+    render(
+      <VirtualizedShotGrid
+        shots={shots}
+        onSelect={onSelect}
+        multiSelectedIds={["shot_1"]}
+        onToggleSelect={onToggleSelect}
+      />,
+    );
+    const checks = Array.from(document.querySelectorAll(".shot-select-check")) as HTMLElement[];
+    expect(checks.length).toBe(4);
+    const checked = checks.find((el) => el.getAttribute("aria-checked") === "true");
+    expect(checked?.getAttribute("aria-label")).toContain("Shot 002");
+
+    // Clicking the checkbox toggles without triggering card single-select.
+    checks[3].click();
+    expect(onToggleSelect).toHaveBeenCalledWith("shot_3");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("hides checkboxes when multi-select is not enabled", () => {
+    const shots = makeShots(4) as never[];
+    render(<VirtualizedShotGrid shots={shots} onSelect={() => {}} />);
+    expect(document.querySelectorAll(".shot-select-check").length).toBe(0);
+  });
 });

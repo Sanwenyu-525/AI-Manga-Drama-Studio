@@ -10,6 +10,8 @@ import { Star, UploadSimple } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
 import { queryKeys } from "../../api/queryKeys";
+import { assetUrl } from "../../lib/mediaUrl";
+import { formatDateTime } from "../../lib/format";
 import type { AssetRead, CharacterVersion, LocationVersion } from "../../api/types";
 import { deriveEntityVersionBadges, newestVersionId, type LibraryKind } from "./libraryBadges";
 
@@ -75,7 +77,7 @@ export function EntityVersionBlock({ kind, entityId, projectId }: EntityVersionB
 
   const uploading = importAsset.isPending || createVersion.isPending;
   const newestId = newestVersionId((versions ?? []) as LocationVersion[] | CharacterVersion[]);
-  const mutateError = importAsset.error ?? createVersion.error;
+  const mutateError = importAsset.error ?? createVersion.error ?? activate.error;
 
   return (
     <div className="library-version-block">
@@ -91,13 +93,13 @@ export function EntityVersionBlock({ kind, entityId, projectId }: EntityVersionB
             const badges = deriveEntityVersionBadges(version, newestId === version.id);
             return (
               <div key={version.id} className={`version-card library-version-row ${version.is_master ? "master" : ""}`}>
-                <img src={`/api/v1/assets/${version.asset_id}/thumbnail`} alt={`V${version.version_number}`} />
+                <img loading="lazy" src={assetUrl(version.asset_id, "thumbnail")} alt={`V${version.version_number}`} />
                 <span className="library-version-meta">
                   <strong>
                     V{version.version_number}
                     {version.name ? ` · ${version.name}` : ""}
                   </strong>
-                  <small>{formatDate(version.created_at)}</small>
+                  <small>{formatDateTime(version.created_at)}</small>
                 </span>
                 <span className="library-version-right">
                   {badges.map((badge) => (
@@ -153,13 +155,3 @@ export function EntityVersionBlock({ kind, entityId, projectId }: EntityVersionB
   );
 }
 
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}

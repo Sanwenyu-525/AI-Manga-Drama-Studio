@@ -58,6 +58,19 @@ class ContinuityFixArgs(BaseModel):
     )
 
 
+class CheckWorkflowArgs(BaseModel):
+    """P2-E4-T02 检查通道: live-validate a workflow template against the connected
+    ComfyUI (missing nodes / missing models / broken links). workflow_id omitted →
+    the system default template."""
+
+    workflow_id: str | None = None
+
+
+class InspectComfyArgs(BaseModel):
+    """P2-E4-T02 检查通道: read-only ComfyUI environment summary (reachability,
+    node count, workflow list, introspection source). No arguments."""
+
+
 class ToolResult(BaseModel):
     """Unified tool result (agent-director §32): never free-form natural language."""
 
@@ -80,6 +93,8 @@ TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
     "update_shot": UpdateShotArgs,
     "generate_image": GenerateImageArgs,
     "continuity_fix": ContinuityFixArgs,
+    "check_workflow": CheckWorkflowArgs,
+    "inspect_comfy": InspectComfyArgs,
 }
 
 
@@ -482,5 +497,66 @@ class ToolExecutor:
                 "target_type": proposal.target_type,
                 "target_id": proposal.target_id,
                 "warning_id": schema.warning_id,
+            },
+        )
+
+    # --- 检查通道工具（P2-E4-T02，R0 只读；经 WorkflowDiagnosticsService 红线合规） ---
+
+    def _check_workflow(self, args: dict) -> ToolResult:
+        """Live-validate a workflow template against the connected ComfyUI."""
+        schema = CheckWorkflowArgs.model_validate(args)
+        from app.services.workflow_diagnostics_service import get_workflow_diagnostics_service
+
+        diagnostics = get_workflow_diagnostics_service().validate_workflow_sync(schema.workflow_id)
+        data = diagnostics.to_dict()
+        if diagnostics.status == "invalid":
+            summary = "workflow 不可运行：" + "；".join(
+                filter(None, [
+                    f"缺节点 {', '.join(diagnostics.missing_nodes)}" if diagnostics.missing_nodes else "",
+                    f"缺模型 {', '.join(diagnostics.missing_models[:5])}" if diagnostics.missing_models else "",
+                    f"断链 {', '.join(diagnostics.broken_links[:5])}" if diagnostics.broken_links else "",
+                ])
+            )
+        elif diagnostics.status == "ok":
+            summary = "workflow 与当前 ComfyUI 环境完全兼容。"
+        elif diagnostics.status == "unreachable":
+            summary = f"无法完成 live 校验：{diagnostics.error}"
+        else:
+            summary = f"模板静态缺陷：{diagnostics.static_error}"
+        data["summary"] = summary
+        return ToolResult(success=True, entity_id=diagnostics.workflow_id, warnings=[summary], data=data)
+
+    def _inspect_comfy(self, args: dict) -> ToolResult:
+        """Read-only ComfyUI environment summary (reachability / node count / workflows)."""
+        from app.core.config import settings
+        from app.providers.comfyui.client import ComfyUIClient
+        from app.services.workflow_diagnostics_service import get_workflow_diagnostics_service
+
+        service = get_workflow_diagnostics_service()
+        client = ComfyUIClient()
+        info = service._cached(service._sync_cache, client.base_url, client.get_object_info_sync)
+        from app.providers.comfyui.workflow_mapper import _resolve_catalog
+
+        workflows = sorted(_resolve_catalog())
+        if info is None:
+            return ToolResult(
+                success=True,
+                warnings=["ComfyUI 不可达。"],
+                data={
+                    "reachable": False,
+                    "base_url": client.base_url,
+                    "workflows": workflows,
+                    "introspection_mode": settings.comfy_introspection,
+                },
+            )
+        return ToolResult(
+            success=True,
+            data={
+                "reachable": True,
+                "base_url": client.base_url,
+                "node_count": len(info),
+                "workflows": workflows,
+                "introspection_mode": settings.comfy_introspection,
+                "summary": f"ComfyUI 可达，已安装 {len(info)} 个节点类。",
             },
         )
