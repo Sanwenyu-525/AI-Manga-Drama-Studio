@@ -16,6 +16,7 @@ import type {
   EpisodeTreeItem,
   GenerationRead,
   ProjectBootstrap,
+  ProjectReadiness,
   ProjectTreeRead,
   ShotTreeItem,
 } from "../api/types";
@@ -115,19 +116,31 @@ const bootstrap: ProjectBootstrap = {
 
 const recent: GenerationRead[] = [];
 
+// 自主迭代 04：生产就绪度（默认全就绪 → 干净态）。
+const readyReadiness: ProjectReadiness = {
+  characters: { total: 2, ready: 2, missing: 0 },
+  scene_binding: { scenes_total: 1, bound: 1, bound_with_master: 1, unbound: 0 },
+  continuity_open: 0,
+};
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
 
 describe("workspace overview", () => {
-  const stubApi = (overrides?: { bootstrap?: ProjectBootstrap; recent?: GenerationRead[] }) => {
+  const stubApi = (overrides?: {
+    bootstrap?: ProjectBootstrap;
+    recent?: GenerationRead[];
+    readiness?: ProjectReadiness;
+  }) => {
     // 未匹配的路径按契约拒绝（失败要响，静默降级会掩盖契约漂移）
     const get = vi.fn().mockImplementation((path: string) => {
       if (path === "/projects/p1/tree") return Promise.resolve(tree);
       if (path === "/projects/p1/episodes") return Promise.resolve(episodes);
       if (path === "/projects/p1/bootstrap") return Promise.resolve(overrides?.bootstrap ?? bootstrap);
       if (path === "/generations/recent") return Promise.resolve(overrides?.recent ?? recent);
+      if (path === "/projects/p1/readiness") return Promise.resolve(overrides?.readiness ?? readyReadiness);
       return Promise.reject(new Error("unexpected " + path));
     });
     vi.spyOn(client.api, "get").mockImplementation(get);
@@ -257,5 +270,96 @@ describe("workspace overview", () => {
     const card = img.closest("a");
     expect(card?.getAttribute("href")).toBe("/projects/p1/episodes/ep1/scenes/sc1/shots/sh1");
     expect(screen.getByRole("link", { name: "查看全部资产" })).toBeTruthy();
+  });
+});
+
+describe("生产就绪度（自主迭代 04）", () => {
+  it("全部就绪 → 干净态，不显示缺口卡片", async () => {
+    const stubApi = (readiness: ProjectReadiness) => {
+      const get = vi.fn().mockImplementation((path: string) => {
+        if (path === "/projects/p1/tree") return Promise.resolve(tree);
+        if (path === "/projects/p1/episodes") return Promise.resolve(episodes);
+        if (path === "/projects/p1/bootstrap") return Promise.resolve(bootstrap);
+        if (path === "/generations/recent") return Promise.resolve(recent);
+        if (path === "/projects/p1/readiness") return Promise.resolve(readiness);
+        return Promise.reject(new Error("unexpected " + path));
+      });
+      vi.spyOn(client.api, "get").mockImplementation(get);
+    };
+    stubApi(readyReadiness);
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+    expect(await screen.findByText(/一致性资产就绪/, {}, { timeout: 4000 })).toBeTruthy();
+    expect(screen.queryByText("去补齐")).toBeNull();
+    expect(screen.queryByText("去绑定")).toBeNull();
+    expect(screen.queryByText("去检查")).toBeNull();
+  });
+
+  it("角色缺 MASTER → 卡片显示缺口并跳转角色页", async () => {
+    const readiness: ProjectReadiness = {
+      characters: { total: 3, ready: 1, missing: 2 },
+      scene_binding: { scenes_total: 1, bound: 1, bound_with_master: 1, unbound: 0 },
+      continuity_open: 0,
+    };
+    const get = vi.fn().mockImplementation((path: string) => {
+      if (path === "/projects/p1/tree") return Promise.resolve(tree);
+      if (path === "/projects/p1/episodes") return Promise.resolve(episodes);
+      if (path === "/projects/p1/bootstrap") return Promise.resolve(bootstrap);
+      if (path === "/generations/recent") return Promise.resolve(recent);
+      if (path === "/projects/p1/readiness") return Promise.resolve(readiness);
+      return Promise.reject(new Error("unexpected " + path));
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get);
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+    const link = await screen.findByRole("link", { name: /角色参考图/, timeout: 4000 });
+    expect(link.textContent).toContain("1/3");
+    expect(link.textContent).toContain("缺 2");
+    expect(link.getAttribute("href")).toBe("/projects/p1/characters");
+  });
+
+  it("场景未绑定地点 → 卡片显示缺口并跳转分镜", async () => {
+    const readiness: ProjectReadiness = {
+      characters: { total: 2, ready: 2, missing: 0 },
+      scene_binding: { scenes_total: 4, bound: 2, bound_with_master: 1, unbound: 2 },
+      continuity_open: 0,
+    };
+    const get = vi.fn().mockImplementation((path: string) => {
+      if (path === "/projects/p1/tree") return Promise.resolve(tree);
+      if (path === "/projects/p1/episodes") return Promise.resolve(episodes);
+      if (path === "/projects/p1/bootstrap") return Promise.resolve(bootstrap);
+      if (path === "/generations/recent") return Promise.resolve(recent);
+      if (path === "/projects/p1/readiness") return Promise.resolve(readiness);
+      return Promise.reject(new Error("unexpected " + path));
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get);
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+    const link = await screen.findByRole("link", { name: /场景地点/, timeout: 4000 });
+    expect(link.textContent).toContain("1/4");
+    expect(link.textContent).toContain("2 未绑定");
+    expect(link.getAttribute("href")).toBe("/projects/p1/storyboard");
+  });
+
+  it("开放连续性警告 → 卡片显示计数并跳转连续性检查", async () => {
+    const readiness: ProjectReadiness = {
+      characters: { total: 2, ready: 2, missing: 0 },
+      scene_binding: { scenes_total: 1, bound: 1, bound_with_master: 1, unbound: 0 },
+      continuity_open: 3,
+    };
+    const get = vi.fn().mockImplementation((path: string) => {
+      if (path === "/projects/p1/tree") return Promise.resolve(tree);
+      if (path === "/projects/p1/episodes") return Promise.resolve(episodes);
+      if (path === "/projects/p1/bootstrap") return Promise.resolve(bootstrap);
+      if (path === "/generations/recent") return Promise.resolve(recent);
+      if (path === "/projects/p1/readiness") return Promise.resolve(readiness);
+      return Promise.reject(new Error("unexpected " + path));
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get);
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+    const link = await screen.findByRole("link", { name: /连续性/, timeout: 4000 });
+    expect(link.textContent).toContain("3");
+    expect(link.getAttribute("href")).toBe("/projects/p1/continuity");
   });
 });

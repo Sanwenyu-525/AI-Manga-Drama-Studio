@@ -6685,6 +6685,53 @@ textarea:disabled {
 .ws-attn-row:hover .text-link {
   text-decoration: underline;
 }
+/* 自主迭代 04：生产就绪度（一致性缺口卡片，前瞻式） */
+.ws-readiness-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ws-ready-card + .ws-ready-card {
+  border-top: 1px solid var(--hairline-soft);
+}
+.ws-ready-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 4px;
+  color: inherit;
+  font-size: 12px;
+  text-decoration: none;
+}
+.ws-ready-row svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.ws-ready-card.bad .ws-ready-row svg {
+  color: var(--orange);
+}
+.ws-ready-text {
+  flex: 1;
+  min-width: 0;
+}
+.ws-ready-text strong {
+  color: var(--ink);
+  font-family: var(--font-mono);
+}
+.ws-ready-text em {
+  font-style: normal;
+  color: var(--red);
+}
+.ws-ready-row .text-link {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.ws-ready-row:hover .text-link {
+  text-decoration: underline;
+}
 .sw-columns {
   flex: 1;
   min-height: 0;

@@ -3815,6 +3815,26 @@ Active Generations
 
 用于快速启动工作区。
 
+## 103.1. 生产就绪度（自主迭代 04）
+
+```http
+GET /api/v1/projects/{id}/readiness
+```
+
+确定性聚合（无 LLM、只读），回答「这部作品还差什么才能产出一致画面」——在工作区
+「生产就绪度」面板展示，缺口可点击跳转补齐：
+
+```text
+characters:      { total, ready, missing }        # ready = 有 MASTER 参考图
+scene_binding:   { scenes_total, bound, bound_with_master, unbound }
+                                                  # bound_with_master = 绑定地点且有 MASTER（可注入地点参考）
+continuity_open: int                               # status=open 的连续性警告数
+```
+
+语义：角色无 MASTER / 场景未绑定地点或地点无 MASTER → 生成无法注入一致性参考图；
+开放连续性警告 → 已检测到跨镜头事实冲突。全部由真实 Project State 聚合，前端据此
+在生成前提示补齐，避免对不一致资产浪费生成。
+
 ---
 
 # 104. Bootstrap 不返回

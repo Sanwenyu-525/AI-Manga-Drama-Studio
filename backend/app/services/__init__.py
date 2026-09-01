@@ -16,6 +16,7 @@ from app.services.job_service import JobService
 from app.services.project_service import ProjectService
 from app.services.provenance_service import ProvenanceService
 from app.services.pipeline_service import PipelineService
+from app.services.readiness_service import ProjectReadinessService
 from app.services.readmodel_service import ReadModelService
 from app.services.scene_service import SceneService
 from app.services.script_service import ScriptService
@@ -39,6 +40,7 @@ __all__ = [
     "ProjectService",
     "ProvenanceService",
     "PipelineService",
+    "ProjectReadinessService",
     "ReadModelService",
     "SceneService",
     "ScriptService",

@@ -12,16 +12,25 @@ import {
   CheckCircle,
   Circle,
   FilmStrip,
+  MapPin,
   MusicNote,
   Play,
   Scroll,
+  ShieldCheck,
+  UsersThree,
   Warning,
 } from "@phosphor-icons/react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { assetUrl } from "../../lib/mediaUrl";
-import type { Episode, GenerationRead, ProjectBootstrap, ProjectTreeRead } from "../../api/types";
+import type {
+  Episode,
+  GenerationRead,
+  ProjectBootstrap,
+  ProjectReadiness,
+  ProjectTreeRead,
+} from "../../api/types";
 import {
   percent,
   derivePipeline,
@@ -96,6 +105,13 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
     queryFn: () => api.get<GenerationRead[]>("/generations/recent"),
     refetchInterval: 15_000,
     enabled: Boolean(pid),
+  });
+  // 自主迭代 04：生产就绪度（角色/场景绑定/连续性缺口，前瞻式 vs 需要处理=反应式）。
+  const { data: readiness } = useQuery({
+    queryKey: queryKeys.readiness(pid),
+    queryFn: () => api.get<ProjectReadiness>(`/projects/${pid}/readiness`),
+    enabled: Boolean(pid),
+    staleTime: 10_000,
   });
 
   const progress = useMemo(() => summarizeEpisodes(tree, episodes), [tree, episodes]);
@@ -281,6 +297,23 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
     return items;
   }, [activeGens, activeRuns, failedRecent, pid, progress.failedCount, sceneIndex, setBottomDockExpanded, setBottomDockTab, setRightPanelCollapsed, setRightPanelTab]);
 
+  // 生产就绪度（自主迭代 04）：三指标确定性聚合 → 卡片 + 点击补齐。
+  const readinessReady = useMemo(() => {
+    if (!readiness) return null;
+    const chars = readiness.characters;
+    const sb = readiness.scene_binding;
+    const charReady = chars.total === 0 || chars.missing === 0;
+    const sceneReady = sb.scenes_total === 0 || (sb.bound_with_master === sb.scenes_total && sb.unbound === 0);
+    const contReady = readiness.continuity_open === 0;
+    return {
+      charReady,
+      sceneReady,
+      contReady,
+      allReady: charReady && sceneReady && contReady,
+      missingAny: chars.missing + sb.unbound + Math.max(0, sb.bound - sb.bound_with_master) + readiness.continuity_open,
+    };
+  }, [readiness]);
+
   if (!pid) return <div className="workspace-loading">未打开项目</div>;
 
   return (
@@ -448,6 +481,65 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
                   </li>
                 );
               })}
+            </ul>
+          )}
+        </section>
+
+        {/* ---- 生产就绪度（自主迭代 04：一致性缺口在生成前可见，前瞻式） ---- */}
+        <section className="ws-panel ws-panel-readiness" aria-label="生产就绪度">
+          <div className="ws-panel-head">
+            <h2 className="ws-panel-title">生产就绪度</h2>
+            <span className="muted small">一致性缺口 · 生成前补齐</span>
+          </div>
+          {!readinessReady ? (
+            <p className="muted small ws-pad">正在读取就绪度…</p>
+          ) : readinessReady.allReady ? (
+            <div className="ws-attn-clean">
+              <CheckCircle size={15} weight="fill" />
+              <span>一致性资产就绪 — 角色与地点参考图齐备，无开放连续性警告。</span>
+            </div>
+          ) : (
+            <ul className="ws-readiness-grid">
+              {!readinessReady.charReady && readiness && (
+                <li className={`ws-ready-card ${readiness.characters.missing > 0 ? "bad" : "ok"}`}>
+                  <Link to={`/projects/${pid}/characters`} className="ws-ready-row">
+                    <UsersThree size={15} />
+                    <span className="ws-ready-text">
+                      角色参考图 <strong>{readiness.characters.ready}/{readiness.characters.total}</strong> 有 MASTER
+                      {readiness.characters.missing > 0 && (
+                        <em> · 缺 {readiness.characters.missing}</em>
+                      )}
+                    </span>
+                    <span className="text-link">去补齐</span>
+                  </Link>
+                </li>
+              )}
+              {!readinessReady.sceneReady && readiness && (
+                <li className={`ws-ready-card ${readiness.scene_binding.unbound > 0 || readiness.scene_binding.bound_with_master < readiness.scene_binding.bound ? "bad" : "ok"}`}>
+                  <Link to={`/projects/${pid}/storyboard`} className="ws-ready-row">
+                    <MapPin size={15} />
+                    <span className="ws-ready-text">
+                      场景地点 <strong>{readiness.scene_binding.bound_with_master}/{readiness.scene_binding.scenes_total}</strong> 可注入参考
+                      {readiness.scene_binding.unbound > 0 && <em> · {readiness.scene_binding.unbound} 未绑定</em>}
+                      {readiness.scene_binding.bound - readiness.scene_binding.bound_with_master > 0 && (
+                        <em> · {readiness.scene_binding.bound - readiness.scene_binding.bound_with_master} 地点无 MASTER</em>
+                      )}
+                    </span>
+                    <span className="text-link">去绑定</span>
+                  </Link>
+                </li>
+              )}
+              {!readinessReady.contReady && (
+                <li className="ws-ready-card bad">
+                  <Link to={`/projects/${pid}/continuity`} className="ws-ready-row">
+                    <ShieldCheck size={15} />
+                    <span className="ws-ready-text">
+                      连续性 <strong>{readiness!.continuity_open}</strong> 条开放警告
+                    </span>
+                    <span className="text-link">去检查</span>
+                  </Link>
+                </li>
+              )}
             </ul>
           )}
         </section>

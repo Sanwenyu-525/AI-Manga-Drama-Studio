@@ -14,7 +14,8 @@ from app.domain.project import (
     ProjectSettingUpdate,
     ProjectUpdateRequest,
 )
-from app.services import ProjectService
+from app.domain.readiness import ReadinessRead
+from app.services import ProjectReadinessService, ProjectService
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -64,6 +65,13 @@ def update_settings(
 def get_bootstrap(project_id: str, db: Session = Depends(get_db)) -> ProjectBootstrapRead:
     """Workspace bootstrap (api-event-contract §103-104): summaries only."""
     return ProjectService(db).bootstrap(project_id)
+
+
+@router.get("/{project_id}/readiness", response_model=ReadinessRead)
+def get_readiness(project_id: str, db: Session = Depends(get_db)) -> ReadinessRead:
+    """生产就绪度（自主迭代 04，契约 §103.1）：角色 MASTER 覆盖 / 场景地点绑定覆盖 /
+    开放连续性警告——一致性缺口在生成前可见。确定性聚合、只读、无 LLM。"""
+    return ProjectReadinessService(db).readiness(project_id)
 
 
 @router.post("/{project_id}/cover", response_model=ProjectRead)

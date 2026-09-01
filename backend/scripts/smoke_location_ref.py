@@ -74,7 +74,16 @@ def main() -> int:
     assert refs2[0]["source"] == "auto" and refs2[0]["location_id"] == loc["id"], refs2
     print("7. generation detail references -> location provenance OK:", refs2)
 
-    print("SMOKE OK: 场景地点参考图注入链路 live 全通")
+    # 自主迭代 04：生产就绪度（角色/场景绑定/连续性聚合，与上述状态一致）
+    r = c.get(f"/projects/{p['id']}/readiness").json()
+    assert r["scene_binding"]["scenes_total"] == 1, r
+    assert r["scene_binding"]["bound_with_master"] == 1, r
+    assert r["scene_binding"]["unbound"] == 0, r
+    assert r["characters"]["total"] == 0 and r["characters"]["missing"] == 0, r
+    assert r["continuity_open"] == 0, r
+    print("8. readiness aggregation OK:", r)
+
+    print("SMOKE OK: 场景地点参考图注入链路 + 生产就绪度 live 全通")
     return 0
 
 

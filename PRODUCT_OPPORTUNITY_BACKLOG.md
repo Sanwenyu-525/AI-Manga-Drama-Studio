@@ -27,13 +27,15 @@
 | 契约防回归 CI（调用点→OpenAPI 比对） | 全栈联调报告建议 #1 | 契约断点类 P0（本轮 3/4 个）无自动防线，靠人工联调发现 | 脚本断言前端 163 调用点全部存在于 openapi.json（或 OpenAPI 生成前端类型），纳入 CI | 3 | 3 | 2 | 2 | 1 | 无 | P1 | Candidate |
 | Tauri 壳内媒体 E2E | 全栈联调报告建议 #2 | `<img>/<video>` token 401 类问题只在壳内出现，HTTP smoke 无法覆盖 | session token 启用下的壳内浏览器级 E2E 主链路一条 | 3 | 2 | 3 | 3 | 2 | 无 | P2 | Candidate |
 | AI Director 刷新恢复 | 全栈联调报告 Known Limitation 1 | 刷新后对话流/工具进度丢失（提案可经 server query 恢复） | agent run 消息持久化端点 + agentStore 水合（建议随多 Agent 阶段一并设计） | 3 | 2 | 3 | 3 | 2 | 多 Agent 阶段 | P2 | Candidate |
-| 地点覆盖健康度（Project Health 深化） | 自主迭代 03 复盘 | 工作区概览不显示「哪些场景未绑定地点/无 MASTER」——场景一致性缺口不可见 | workspaceMetrics 增加 locationCoverage（未绑定/无 MASTER 场景数）+ 概览面板提示 | 3 | 3 | 2 | 2 | 1 | 无 | P2 | Candidate |
 | 镜头级地点覆盖（多地点场景） | 自主迭代 03 复盘（shot_visual_spec.location_id 已存在） | 一场多地点时无法为单镜头指定不同地点 | ReferenceResolver 支持 shot 级 location 覆盖（shot_visual_spec.location_id 优先于 scene） | 3 | 2 | 2 | 2 | 1 | 无 | P3 | Candidate |
+| 就绪度缺口一键跳转细化 | 自主迭代 04 复盘 | 就绪度卡片跳转落点在模块首页而非具体缺口（未绑定场景列表） | readiness 返回缺口 scene_id 列表 + 前端直达分镜；或「未绑定场景」列表页 | 2 | 2 | 1 | 2 | 1 | 无 | P3 | Candidate |
+| 产出覆盖纳入就绪度（视频/音频） | 自主迭代 04 复盘 | 就绪度只覆盖一致性（角色/场景/连续性），不含视频/音频产出缺口 | 扩 ReadinessRead：per-episode 视频/配音覆盖（复用 workspaceMetrics 的 imageReady 思路） | 3 | 2 | 2 | 2 | 1 | 无 | P2 | Candidate |
 
 ## Done（已完成轮次）
 
 | Opportunity | 轮次 | 交付物 |
 |---|---|---|
+| **生产就绪度（角色 MASTER / 场景地点绑定 / 连续性警告缺口，生成前可见；含原「地点覆盖健康度」候选）** | **2026-09-01（自主迭代 04）** | **见 `docs/reports/autonomous-iteration-2026-09-01-production-readiness.md`** |
 | **场景一致性闭环（地点库 + 场景绑定 + 生成注入地点参考图）** | **2026-09-01（自主迭代 03）** | **见 `docs/reports/autonomous-iteration-2026-09-01-location-consistency.md`** |
 | 镜头多选批量操作（多选态 + BatchActionBar + 批量端点 + allSettled 聚合） | 2026-09-01（自主迭代 02） | 见 `docs/reports/autonomous-iteration-2026-09-01-batch-shot-operations.md` |
 | （M1 前端闭环） | 2026-08-31 | 见 `docs/reports/autonomous-iteration-2026-08-31-refimages.md` |

@@ -393,6 +393,27 @@ export interface ProjectBootstrap {
   active_agent_runs: number;
 }
 
+// --- 自主迭代 04: 生产就绪度（GET /projects/{id}/readiness，契约 §103.1）---
+// 一致性缺口在生成前可见：角色 MASTER 覆盖 / 场景地点绑定覆盖 / 开放连续性警告。
+export interface ReadinessMetric {
+  total: number;
+  ready: number;
+  missing: number;
+}
+
+export interface SceneBindingReadiness {
+  scenes_total: number;
+  bound: number;
+  bound_with_master: number;
+  unbound: number;
+}
+
+export interface ProjectReadiness {
+  characters: ReadinessMetric;
+  scene_binding: SceneBindingReadiness;
+  continuity_open: number;
+}
+
 // --- Stage B: AI planning DTOs (mvp-spec §55-57) ---
 
 export interface ScenePlan {

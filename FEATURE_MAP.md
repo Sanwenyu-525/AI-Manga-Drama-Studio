@@ -30,6 +30,7 @@
 | Export | FINAL_VIDEO 不可变版本注册 / 下载 | ✅ | |
 | Export | **产物下载 + 全屏预览**（DownloadButton ×5 处 / FINAL_VIDEO 下载成片 / 文件名自动推导 / 统一 Lightbox） | ✅ | **2026-08-31 前端优化轮** |
 | Pipeline | 一键成片（analyze→shots→images→timeline→render 断点续跑） | ✅ | |
+| Project Health | **生产就绪度（角色 MASTER 覆盖 / 场景地点绑定覆盖 / 开放连续性警告，生成前可见缺口）** | ✅ | **2026-09-01 自主迭代 04**；`GET /projects/{id}/readiness` + 工作区面板点击补齐 |
 
 ## Agent / AI 层
 
@@ -58,7 +59,7 @@
 | mutation 错误反馈全覆盖（~15 处 ApiErrorPanel） | ✅ | 前端优化轮；含 operation 轮询失败上限（10 次 / 404 快速失败） |
 | LLM Profiles / 图像引擎配置 / ComfyUI 模型目录 | ✅ | |
 | live 全链路 smoke（14 步：建项目→分析→分镜→生成→配音→渲染→下载） | ✅ | backend/scripts/smoke_fullstack.py |
-| 测试基线 | ✅ | pytest 623（1 skip，1 例既有 flaky 单跑通过）/ vitest 285 |
+| 测试基线 | ✅ | pytest 628（1 skip，1 例既有 flaky 单跑通过）/ vitest 289 |
 
 ## 已知未闭环（详见 PRODUCT_OPPORTUNITY_BACKLOG）
 

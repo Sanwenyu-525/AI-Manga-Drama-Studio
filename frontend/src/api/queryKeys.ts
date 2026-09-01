@@ -4,6 +4,8 @@ export const queryKeys = {
   projects: ["projects"] as const,
   project: (id: string) => ["project", id] as const,
   bootstrap: (projectId: string) => ["bootstrap", projectId] as const,
+  /** 自主迭代 04：生产就绪度（角色/场景绑定/连续性缺口聚合）。 */
+  readiness: (projectId: string) => ["readiness", projectId] as const,
   episodes: (projectId: string) => ["episodes", projectId] as const,
   scene: (sceneId: string) => ["scene", sceneId] as const,
   scenes: (episodeId: string) => ["scenes", episodeId] as const,
