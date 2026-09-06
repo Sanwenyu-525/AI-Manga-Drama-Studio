@@ -19,7 +19,16 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.domain.asset import AssetDetailRead, AssetListRead, AssetListItemRead, AssetMissingCheckRead, AssetRead
+from app.domain.asset import (
+    AssetDetailRead,
+    AssetIntegrityRead,
+    AssetListRead,
+    AssetListItemRead,
+    AssetMissingCheckRead,
+    AssetRead,
+    AssetShotContextRead,
+    AssetVersionContextRead,
+)
 from app.services.asset_service import AssetService
 
 router = APIRouter(prefix="/assets", tags=["assets"])
@@ -75,14 +84,6 @@ def _asset_dimensions(asset) -> tuple[int | None, int | None]:
     return width, height
 
 
-def _shot_ref(asset) -> str | None:
-    """Reference summary: shot_id carried in version_group_id (vg:shot:{id}:{PURPOSE})."""
-    if not asset.version_group_id or not asset.version_group_id.startswith("vg:shot:"):
-        return None
-    parts = asset.version_group_id.split(":")
-    return parts[2] if len(parts) >= 3 else None
-
-
 def _to_asset_list_item(asset) -> AssetListItemRead:
     width, height = _asset_dimensions(asset)
     return AssetListItemRead(
@@ -103,7 +104,7 @@ def _to_asset_list_item(asset) -> AssetListItemRead:
     )
 
 
-def _to_asset_detail(asset) -> AssetDetailRead:
+def _to_asset_detail(asset, integrity: dict, version_context: dict, shot_context: dict | None) -> AssetDetailRead:
     width, height = _asset_dimensions(asset)
     return AssetDetailRead(
         id=asset.id,
@@ -122,7 +123,10 @@ def _to_asset_detail(asset) -> AssetDetailRead:
         meta_json=asset.meta_json,
         generation_id=asset.generation_id,
         parent_asset_id=asset.parent_asset_id,
-        shot_id=_shot_ref(asset),
+        shot_id=shot_context["shot_id"] if shot_context else None,
+        integrity=AssetIntegrityRead(**integrity),
+        version_context=AssetVersionContextRead(**version_context),
+        shot_context=AssetShotContextRead(**shot_context) if shot_context else None,
     )
 
 
@@ -243,6 +247,12 @@ def list_project_assets(
 
 @router.get("/{asset_id}", response_model=AssetDetailRead)
 def get_asset_detail(asset_id: str, db: Session = Depends(get_db)) -> AssetDetailRead:
-    """P6-B: single-asset full detail (Inspector). 404 when absent or soft-deleted."""
-    asset = AssetService(db).get_asset(asset_id)
-    return _to_asset_detail(asset)
+    """P6-B: single-asset full detail (Inspector). 404 when absent or soft-deleted.
+
+    P2-E2-T02: + integrity (现场文件校验) / version_context (active/MASTER) /
+    shot_context (shot→scene→episode 回查)；Generation 展开走 /assets/{id}/provenance。
+    """
+    detail = AssetService(db).asset_detail(asset_id)
+    return _to_asset_detail(
+        detail["asset"], detail["integrity"], detail["version_context"], detail["shot_context"]
+    )

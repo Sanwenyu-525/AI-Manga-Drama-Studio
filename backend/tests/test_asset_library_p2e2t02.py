@@ -307,3 +307,63 @@ def test_import_with_cross_project_shot_422(client: TestClient) -> None:
     _, shot_b = _shot(client, p_b["id"])
     resp = _import(client, p_a["id"], _png(), extra={"shot_id": shot_b["id"]})
     assert resp.status_code == 422
+
+
+# --- 详情追溯 ---------------------------------------------------------------
+
+def test_detail_integrity_ok_for_imported(client: TestClient) -> None:
+    project = _project(client)
+    asset = _upload(client, project["id"])
+    detail = client.get(f"/api/v1/assets/{asset['id']}").json()
+    integrity = detail["integrity"]
+    assert integrity["file_exists"] is True
+    assert integrity["checksum_match"] is True
+    assert integrity["checked_at"]
+    assert detail["version_context"] == {
+        "version_number": None,
+        "is_active": False,
+        "is_master": False,
+    }
+    assert detail["shot_context"] is None
+
+
+def test_detail_integrity_missing_file(client: TestClient) -> None:
+    from app.services.asset_service import project_dir
+
+    project = _project(client)
+    asset = _upload(client, project["id"])
+    (project_dir(project["id"]) / asset["file_path"]).unlink()
+
+    detail = client.get(f"/api/v1/assets/{asset['id']}").json()
+    assert detail["integrity"]["file_exists"] is False
+    assert detail["integrity"]["checksum_match"] is None
+
+
+def test_detail_traces_generation_and_shot(client: TestClient) -> None:
+    project = _project(client)
+    scene, shot = _shot(client, project["id"])
+    g = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"}).json()
+    asyncio.run(run_generation(g["id"]))
+    done = client.get(f"/api/v1/generations/{g['id']}").json()
+    assert done["status"] == "completed"
+
+    detail = client.get(f"/api/v1/assets/{done['output_asset_id']}").json()
+    assert detail["generation_id"] == g["id"]
+    assert detail["shot_id"] == shot["id"]
+    assert detail["shot_context"]["shot_id"] == shot["id"]
+    assert detail["shot_context"]["scene_id"] == scene["id"]
+    assert detail["integrity"]["checksum_match"] is True
+    # 新生成即该镜头的 active 版本
+    assert detail["version_context"]["is_active"] is True
+    # Generation 展开走 provenance 端点
+    prov = client.get(f"/api/v1/assets/{done['output_asset_id']}/provenance").json()
+    assert prov["generation"]["id"] == g["id"]
+
+
+def test_detail_shot_context_from_import_link(client: TestClient) -> None:
+    project = _project(client)
+    scene, shot = _shot(client, project["id"])
+    resp = _import(client, project["id"], _png(), extra={"shot_id": shot["id"]})
+    detail = client.get(f"/api/v1/assets/{resp.json()['id']}").json()
+    assert detail["shot_context"]["shot_id"] == shot["id"]
+    assert detail["shot_context"]["scene_id"] == scene["id"]

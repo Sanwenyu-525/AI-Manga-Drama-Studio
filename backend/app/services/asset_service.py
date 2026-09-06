@@ -28,8 +28,19 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.logging import get_logger
-from app.db.models import Asset, Episode, Generation, GenerationOutput, Project, Scene, Shot
+from app.db.models import (
+    Asset,
+    CharacterVersion,
+    Episode,
+    Generation,
+    GenerationOutput,
+    LocationVersion,
+    Project,
+    Scene,
+    Shot,
+)
 from app.db.models.asset import ASSET_SOURCE_TYPES, ASSET_STATUSES, ASSET_TYPES
+from app.db.models.columns import utcnow_iso
 from app.events.bus import EVENT_ASSET_CREATED, StudioEvent, bus
 from app.repositories import SceneRepository, ShotRepository
 
@@ -499,6 +510,119 @@ class AssetService:
         if asset is None or asset.deleted_at:
             raise NotFoundError("Asset does not exist.", {"asset_id": asset_id})
         return asset
+
+    def asset_detail(self, asset_id: str) -> dict:
+        """P2-E2-T02: 资产详情追溯包（asset + integrity + version + shot 上下文）。
+
+        Generation 展开不在此（复用 ProvenanceService /assets/{id}/provenance）。
+        """
+        asset = self.get_asset(asset_id)
+        return {
+            "asset": asset,
+            "integrity": self._file_integrity(asset),
+            "version_context": self._version_context(asset),
+            "shot_context": self._shot_context(asset),
+        }
+
+    def _file_integrity(self, asset: Asset) -> dict:
+        """文件完整性：存在性 + 全量 checksum 比对（P2-E2-T02 用户选择：精确但大文件慢）。"""
+        checked_at = utcnow_iso()
+        if not asset.file_path:
+            return {"file_exists": False, "checksum_match": None, "checked_at": checked_at}
+        path = project_dir(asset.project_id) / asset.file_path
+        try:
+            resolved = path.resolve()
+            root = project_dir(asset.project_id).resolve()
+            inside = resolved == root or root in resolved.parents
+        except OSError:
+            inside = False
+        if not inside or not resolved.is_file():
+            return {"file_exists": False, "checksum_match": None, "checked_at": checked_at}
+        if not asset.checksum:
+            return {"file_exists": True, "checksum_match": None, "checked_at": checked_at}
+        digest = hashlib.sha256()
+        with resolved.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(_STREAM_CHUNK), b""):
+                digest.update(chunk)
+        return {
+            "file_exists": True,
+            "checksum_match": digest.hexdigest() == asset.checksum,
+            "checked_at": checked_at,
+        }
+
+    def _version_context(self, asset: Asset) -> dict:
+        """版本上下文：active 指针（shot）/ MASTER（角色·地点版本 active 行）。"""
+        is_active = (
+            self.session.scalar(
+                select(func.count())
+                .select_from(Shot)
+                .where(
+                    Shot.deleted_at.is_(None),
+                    or_(
+                        Shot.active_image_asset_id == asset.id,
+                        Shot.active_video_asset_id == asset.id,
+                    ),
+                )
+            )
+            or 0
+        ) > 0
+        is_master = (
+            self.session.scalar(
+                select(func.count())
+                .select_from(CharacterVersion)
+                .where(
+                    CharacterVersion.asset_id == asset.id,
+                    CharacterVersion.deleted_at.is_(None),
+                    CharacterVersion.status == "active",
+                )
+            )
+            or 0
+        ) > 0 or (
+            self.session.scalar(
+                select(func.count())
+                .select_from(LocationVersion)
+                .where(
+                    LocationVersion.asset_id == asset.id,
+                    LocationVersion.deleted_at.is_(None),
+                    LocationVersion.status == "active",
+                )
+            )
+            or 0
+        ) > 0
+        return {
+            "version_number": asset.version_number,
+            "is_active": is_active,
+            "is_master": is_master,
+        }
+
+    def _shot_context(self, asset: Asset) -> dict | None:
+        """镜头追溯：version_group → import meta → producing generation（逐级回退）。"""
+        shot_id: str | None = None
+        if asset.version_group_id and asset.version_group_id.startswith("vg:shot:"):
+            parts = asset.version_group_id.split(":")
+            shot_id = parts[2] if len(parts) >= 3 else None
+        if shot_id is None and asset.meta_json:
+            try:
+                meta = json.loads(asset.meta_json)
+            except (ValueError, TypeError):
+                meta = None
+            if isinstance(meta, dict) and isinstance(meta.get("shot_id"), str):
+                shot_id = meta["shot_id"]
+        if shot_id is None and asset.generation_id:
+            gen = self.session.get(Generation, asset.generation_id)
+            if gen is not None and not gen.deleted_at:
+                shot_id = gen.shot_id
+        if shot_id is None:
+            return None
+        scene_id: str | None = None
+        episode_id: str | None = None
+        shot = self.session.get(Shot, shot_id)
+        if shot is not None:
+            scene_id = shot.scene_id
+            scene = self.session.get(Scene, shot.scene_id)
+            if scene is not None:
+                episode_id = scene.episode_id
+        return {"shot_id": shot_id, "scene_id": scene_id, "episode_id": episode_id}
 
     def list_assets(
         self,
