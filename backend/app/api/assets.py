@@ -154,12 +154,16 @@ def import_asset(
     asset_type: Literal["image", "video"] = Form(...),
     purpose: str | None = Form(default=None),
     source_name: str | None = Form(default=None),
+    shot_id: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> AssetRead:
     """P3-T003: import a single file as a project-scope Asset (multipart).
 
     FastAPI validates the form fields (an invalid asset_type is a 422 through
     the standard RequestValidationError handler); AssetService owns the rest.
+
+    P2-E2-T02: optional `shot_id` links the import to a shot (meta-only, no
+    version-group ownership); unknown shot → 404, cross-project shot → 422.
     """
     suffix = Path(file.filename or "").suffix
     # Stream to the temp file in chunks — the multipart body must never be fully
@@ -175,6 +179,7 @@ def import_asset(
             source_path=tmp_path,
             purpose=purpose,
             source_name=source_name or (file.filename or None),
+            shot_id=shot_id,
         )
     finally:
         tmp_path.unlink(missing_ok=True)

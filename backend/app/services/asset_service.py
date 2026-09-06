@@ -216,6 +216,57 @@ class AssetService:
             )
         return asset
 
+    @staticmethod
+    def _clean_import_text(value: str | None, *, field: str, max_len: int) -> str | None:
+        """导入元文本清洗：去首尾空、拒越界路径片段、限长（P2-E2-T02）。"""
+        if value is None:
+            return None
+        text = value.strip()
+        if not text:
+            return None
+        if len(text) > max_len or "/" in text or "\\" in text or ".." in text:
+            raise ValidationError(
+                f"Invalid {field} (path segments and over-long text are rejected).",
+                {field: value, "max_len": max_len},
+            )
+        return text
+
+    @staticmethod
+    def _validated_import_mime(asset_type: str, dest: Path, media: dict) -> str | None:
+        """按真实文件头校验导入类型；伪装/不可识别 → 422 并清理已拷贝文件。
+
+        - image：probe 文件头必须命中已知图片格式（含 PIL 侧校验在缩略图环节 best-effort）。
+        - video：内容是图片头 → 422（类型伪装）；有 ffprobe 却探不出 → 422；
+          无 ffprobe 时放行并由调用方标记 unprobed（诚实未知，不伪造）。
+        """
+        import shutil
+
+        fmt = media.get("format")
+        if asset_type == "image":
+            if fmt is None or fmt not in _IMAGE_MIME_BY_FORMAT:
+                dest.unlink(missing_ok=True)
+                raise ValidationError(
+                    "Uploaded file is not a valid image.",
+                    {"detected_format": fmt},
+                )
+            return _IMAGE_MIME_BY_FORMAT[fmt]
+        # video
+        if fmt is not None and fmt in _IMAGE_MIME_BY_FORMAT:
+            dest.unlink(missing_ok=True)
+            raise ValidationError(
+                "Uploaded file is an image, not a video.",
+                {"detected_format": fmt},
+            )
+        if fmt is None and shutil.which("ffprobe") is not None:
+            dest.unlink(missing_ok=True)
+            raise ValidationError(
+                "Uploaded file is not a recognizable video.",
+                {"detected_format": None},
+            )
+        if fmt is None:
+            media["unprobed"] = True
+        return None
+
     def import_asset(
         self,
         *,
@@ -224,6 +275,7 @@ class AssetService:
         source_path: str | Path,
         purpose: str | None = None,
         source_name: str | None = None,
+        shot_id: str | None = None,
     ) -> Asset:
         """P3-T003: bring an external file into the project and register it as a
         project-scope Asset (no shot / version-group ownership).
@@ -258,6 +310,21 @@ class AssetService:
                 "Imported asset exceeds the 50 MB limit.",
                 {"size": size, "limit": IMPORT_MAX_BYTES},
             )
+        if size == 0:
+            raise ValidationError("Imported asset is empty.", {"size": 0})
+
+        # P2-E2-T02: source_name/purpose 只进 meta（不参与落盘命名），仍做越界
+        # 路径与长度清洗——调用方透传不可信文件名时不把 "../" 带进元数据。
+        clean_source_name = self._clean_import_text(source_name, field="source_name", max_len=255)
+        clean_purpose = self._clean_import_text(purpose, field="purpose", max_len=500)
+
+        # P2-E2-T02: 可选 shot 关联——shot 不存在 → 404，跨项目 → 422。
+        # 关联只记 meta（不占 version_group，保持"导入资产无版本归属"不变量）。
+        if shot_id is not None:
+            shot = self.session.get(Shot, shot_id)
+            if shot is None or shot.deleted_at:
+                raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
+            self._require_shot_in_project(shot, project_id)
 
         seq = self._next_import_seq(project_id)
         dest_name = f"{project_id}_IMP_{seq:03d}{_import_suffix(asset_type, source.name)}"
@@ -289,20 +356,22 @@ class AssetService:
         digest = checksum.hexdigest()
 
         media = probe(dest) or {}
-        mime_type = None
-        if asset_type == "image":
-            fmt = media.get("format") or "png"
-            mime_type = _IMAGE_MIME_BY_FORMAT.get(fmt, f"image/{fmt}")
+        # P2-E2-T02: 伪装 MIME 拒绝——文件头说了算，不信扩展名/客户端 MIME。
+        mime_type = self._validated_import_mime(asset_type, dest, media)
 
         thumbnail_rel = self.create_thumbnail(project_id, dest) if asset_type == "image" else None
 
         meta = {"asset_type": asset_type}
-        if purpose:
-            meta["purpose"] = purpose
-        if source_name:
-            meta["source_name"] = source_name
+        if clean_purpose:
+            meta["purpose"] = clean_purpose
+        if clean_source_name:
+            meta["source_name"] = clean_source_name
+        if shot_id is not None:
+            meta["shot_id"] = shot_id
         if "codec_type" in media:
             meta["codec"] = media.get("codec_name")
+        if media.get("unprobed"):
+            meta["unprobed"] = True
 
         asset = Asset(
             project_id=project_id,
@@ -555,7 +624,9 @@ class AssetService:
             .join(Generation, Generation.id == GenerationOutput.generation_id)
             .where(Generation.shot_id.in_(shot_ids), Generation.deleted_at.is_(None))
         )
-        return or_(*vg_conds, Asset.id.in_(produced))
+        # P2-E2-T02: import 时 meta 关联的 shot（json_extract 对字符串值返无引号 TEXT）。
+        meta_conds = [func.json_extract(Asset.meta_json, "$.shot_id") == sid for sid in shot_ids]
+        return or_(*vg_conds, Asset.id.in_(produced), *meta_conds)
 
     def _require_shot_in_project(self, shot: Shot, project_id: str) -> None:
         """shot→scene→episode 回查项目归属；不一致 → 422。"""

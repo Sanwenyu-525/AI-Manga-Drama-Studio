@@ -231,3 +231,79 @@ def test_filter_created_invalid_422(client: TestClient) -> None:
         f"/api/v1/projects/{project['id']}/assets", params={"created_from": "not-a-date"}
     )
     assert resp.status_code == 422
+
+
+# --- 导入校验 ---------------------------------------------------------------
+
+def _import(
+    client: TestClient,
+    project_id: str,
+    content: bytes,
+    filename: str = "img.png",
+    asset_type: str = "image",
+    extra: dict | None = None,
+):
+    fields: dict = {"asset_type": asset_type}
+    if extra:
+        fields.update(extra)
+    return client.post(
+        f"/api/v1/projects/{project_id}/assets/import",
+        files={"file": (filename, content, "application/octet-stream")},
+        data=fields,
+    )
+
+
+def test_import_rejects_spoofed_mime(client: TestClient) -> None:
+    project = _project(client)
+    # 文本内容套 png 扩展名 → 文件头校验拒绝
+    resp = _import(client, project["id"], b"this is not an image at all" * 10, filename="fake.png")
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_import_rejects_image_declared_as_video(client: TestClient) -> None:
+    project = _project(client)
+    resp = _import(client, project["id"], _png(), filename="photo.mp4", asset_type="video")
+    # 有 ffprobe 时为"不可识别视频"422；无 ffprobe 时图片头伪装同样 422
+    assert resp.status_code == 422
+
+
+def test_import_rejects_empty_file(client: TestClient) -> None:
+    project = _project(client)
+    resp = _import(client, project["id"], b"", filename="empty.png")
+    assert resp.status_code == 422
+
+
+def test_import_rejects_path_traversal_source_name(client: TestClient) -> None:
+    project = _project(client)
+    resp = _import(
+        client, project["id"], _png(), extra={"source_name": "../../evil.png"}
+    )
+    assert resp.status_code == 422
+
+
+def test_import_with_shot_link_and_filter(client: TestClient) -> None:
+    project = _project(client)
+    _, shot = _shot(client, project["id"])
+    resp = _import(client, project["id"], _png(), extra={"shot_id": shot["id"]})
+    assert resp.status_code == 201
+    asset_id = resp.json()["id"]
+
+    body = client.get(
+        f"/api/v1/projects/{project['id']}/assets", params={"shot_id": shot["id"]}
+    ).json()
+    assert asset_id in {it["id"] for it in body["items"]}
+
+
+def test_import_with_unknown_shot_404(client: TestClient) -> None:
+    project = _project(client)
+    resp = _import(client, project["id"], _png(), extra={"shot_id": "does-not-exist"})
+    assert resp.status_code == 404
+
+
+def test_import_with_cross_project_shot_422(client: TestClient) -> None:
+    p_a = _project(client, "ProjA")
+    p_b = _project(client, "ProjB")
+    _, shot_b = _shot(client, p_b["id"])
+    resp = _import(client, p_a["id"], _png(), extra={"shot_id": shot_b["id"]})
+    assert resp.status_code == 422
