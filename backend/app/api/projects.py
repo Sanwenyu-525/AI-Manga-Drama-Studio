@@ -13,6 +13,7 @@ from app.domain.project import (
     ProjectSettingRead,
     ProjectSettingUpdate,
     ProjectUpdateRequest,
+    TrashItem,
 )
 from app.domain.readiness import ReadinessRead
 from app.services import ProjectReadinessService, ProjectService
@@ -26,8 +27,11 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)) -> Projec
 
 
 @router.get("", response_model=list[ProjectRead])
-def list_projects(db: Session = Depends(get_db)) -> list[ProjectRead]:
-    return ProjectService(db).list_projects()
+def list_projects(
+    include_deleted: bool = False, db: Session = Depends(get_db)
+) -> list[ProjectRead]:
+    """Live projects by default; ?include_deleted=true appends trash rows (P2-E2-T01)."""
+    return ProjectService(db).list_projects(include_deleted=include_deleted)
 
 
 @router.get("/{project_id}", response_model=ProjectRead)
@@ -99,3 +103,15 @@ def delete_project(project_id: str, db: Session = Depends(get_db)) -> dict:
     """Soft-delete the project and its episode/scene/shot/character tree."""
     ProjectService(db).delete_project(project_id)
     return {"id": project_id, "deleted": True}
+
+
+@router.post("/{project_id}/restore", response_model=ProjectRead)
+def restore_project(project_id: str, db: Session = Depends(get_db)) -> ProjectRead:
+    """P2-E2-T01: restore a soft-deleted project + its cascade set (same-timestamp rows only)."""
+    return ProjectService(db).restore_project(project_id)
+
+
+@router.get("/{project_id}/trash", response_model=list[TrashItem])
+def get_trash(project_id: str, db: Session = Depends(get_db)) -> list[TrashItem]:
+    """P2-E2-T01: soft-deleted episode/scene/shot/character rows for review + restore."""
+    return ProjectService(db).get_trash(project_id)

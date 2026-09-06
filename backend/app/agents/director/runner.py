@@ -18,7 +18,17 @@ import uuid
 from datetime import UTC, datetime
 
 from app.core.errors import ConflictError, NotFoundError
-from app.core.logging import get_logger
+from app.core.logging import (
+    get_logger,
+    reset_correlation_id,
+    reset_generation_id,
+    reset_project_id,
+    reset_run_id,
+    set_correlation_id,
+    set_generation_id,
+    set_project_id,
+    set_run_id,
+)
 from app.db import session as db_session_module
 from app.db.models import AgentProposal, AgentRun
 from app.domain.agent import (
@@ -167,6 +177,12 @@ async def _run_graph(run_id: str) -> None:
         meta = _load_input(run)
         project_id = run.project_id
 
+    # P1-E4-T03: bind run/project into the logging context so every line
+    # emitted by the graph, tools, and bus publish is traceable.
+    corr_token = set_correlation_id(f"run:{run_id}")
+    proj_token = set_project_id(project_id)
+    run_token = set_run_id(run_id)
+    gen_token = set_generation_id(None)
     initial_state = {
         "run_id": run_id,
         "project_id": project_id,
@@ -213,6 +229,10 @@ async def _run_graph(run_id: str) -> None:
         )
     finally:
         _running.discard(run_id)
+        reset_generation_id(gen_token)
+        reset_run_id(run_token)
+        reset_project_id(proj_token)
+        reset_correlation_id(corr_token)
 
 
 def _finalize(session, run: AgentRun, final: dict, *, cancelled: bool) -> None:

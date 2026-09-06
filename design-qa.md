@@ -24,7 +24,7 @@
 - Full-page captures: 1600 × 1280. Home and New Project were compared at full size.
 - Studio viewport captures: 1600 × 1065 because the desktop app browser reserves host chrome vertically. The matching source was cropped to the same 1600 × 1065 top viewport before comparison; no scaling was applied.
 - Narrow desktop check: 1100 × 900 CSS pixels, no horizontal document overflow (`scrollWidth === innerWidth`).
-- State: real local Project State, Stage B fake LLM preview, Stage C Mock Image Provider, Stage D not connected.
+- State: real local Project State, Stage B fake LLM preview, Stage C Mock Image Provider, Stage D connected (AI Director via live API; the "not connected" note below is the pre-D historical record).
 
 ## Full-view comparison evidence
 
@@ -40,7 +40,7 @@ The implementation preserves the source composition: near-black multi-panel canv
 - New Project: header, settings controls, start-mode cards, vertical cover preview, project specs, and workflow ribbon were checked in the full-size 1600 × 1280 comparison.
 - Storyboard: project tree, scene header, shot-card density, selected state, Inspector state, and bottom queue were checked in the 1600 × 1065 comparison and separate Inspector capture.
 - Analysis: source editor, scene list, selected scene details, analysis stepper, and confirm action were checked in the analysis comparison.
-- Version review and AI Director were checked as implementation-only states because their Stitch references contain known visual/content conflicts (white rendering artifacts, unrelated photography, and Stage D behavior not yet backed by API).
+- Version review and AI Director were checked as implementation-only states because their Stitch references contain known visual/content conflicts (white rendering artifacts, unrelated photography; at QA time Stage D behavior was not yet backed by API — since backed by the live Director API).
 
 ## Required fidelity surfaces
 

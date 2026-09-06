@@ -21,7 +21,14 @@ import { useNavigate } from "react-router-dom";
 import { ApiError, api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
-import type { Episode, Operation, ScenePlan } from "../../api/types";
+import type {
+  CharacterCandidate,
+  CharacterDecision,
+  CharacterDecisionResult,
+  Episode,
+  Operation,
+  ScenePlan,
+} from "../../api/types";
 import { isTauriRuntime, listTextDir, pickDirectory, pickTextFile, readTextFile } from "../../lib/nativeDialog";
 import { useOperationPolling } from "../ai/useOperationPolling";
 import { PipelineBar } from "../pipeline/PipelineBar";
@@ -36,6 +43,7 @@ const ANALYSIS_HINTS = [
 ];
 
 // P2-E1-T01: preview/confirm 响应信封（后端落库不可变快照）。
+// P2-E1-T02: + 分块范围/成本透明度 + 角色候选。
 interface PreviewResponse {
   snapshot_id: string;
   episode_id: string;
@@ -43,6 +51,12 @@ interface PreviewResponse {
   plans: ScenePlan[];
   model: string | null;
   status: string;
+  source_chars: number;
+  analyzed_chars: number;
+  chunk_count: number;
+  llm_calls: number;
+  max_chars: number;
+  character_candidates: CharacterCandidate[];
 }
 interface LatestSnapshot {
   id: string;
@@ -50,6 +64,12 @@ interface LatestSnapshot {
   plans: ScenePlan[];
   episode_revision: number;
   created_scene_ids: string[];
+  source_chars: number;
+  analyzed_chars: number;
+  chunk_count: number;
+  llm_calls: number;
+  max_chars: number;
+  character_candidates: CharacterCandidate[];
 }
 
 function formatElapsed(total: number): string {
@@ -143,16 +163,46 @@ export function EpisodePanel({
   const [preview, setPreview] = useState<ScenePlan[] | null>(null);
   // P2-E1-T01: 预览落库的不可变快照 id——confirm 只提交它，后端零二次 LLM。
   const [snapshotId, setSnapshotId] = useState<string | null>(null);
+  // P2-E1-T02: 分块范围/成本 + 角色候选（与 plans 同一快照，不可变）。
+  const [scope, setScope] = useState<PreviewResponse | null>(null);
+  const [candidates, setCandidates] = useState<CharacterCandidate[]>([]);
+  const [decisions, setDecisions] = useState<Record<string, CharacterDecision>>({});
+  const [decisionResults, setDecisionResults] = useState<CharacterDecisionResult[] | null>(null);
   const [activePlanIndex, setActivePlanIndex] = useState(0);
   const [previewError, setPreviewError] = useState<Error | null>(null);
   const [createOpId, setCreateOpId] = useState<string | null>(null);
 
-  useEffect(() => {
-    setSourceText(episode.source_text ?? "");
+  const resetPreviewState = () => {
     setPreview(null);
     setSnapshotId(null);
+    setScope(null);
+    setCandidates([]);
+    setDecisions({});
+    setDecisionResults(null);
     setActivePlanIndex(0);
+  };
+
+  useEffect(() => {
+    setSourceText(episode.source_text ?? "");
+    resetPreviewState();
   }, [episode.id, episode.source_text]);
+
+  const applyPreviewEnvelope = (envelope: PreviewResponse | LatestSnapshot, id: string) => {
+    setPreview(envelope.plans);
+    setSnapshotId(id);
+    setScope(envelope as PreviewResponse);
+    setCandidates(envelope.character_candidates ?? []);
+    // 默认决策：有同名人物则合并，无则新建；用户可逐项改（创建/合并前先审阅）。
+    const initial: Record<string, CharacterDecision> = {};
+    for (const candidate of envelope.character_candidates ?? []) {
+      initial[candidate.name] = candidate.existing_character_id
+        ? { name: candidate.name, action: "merge", character_id: candidate.existing_character_id }
+        : { name: candidate.name, action: "create" };
+    }
+    setDecisions(initial);
+    setDecisionResults(null);
+    setActivePlanIndex(0);
+  };
 
   // P2-E1-T01 刷新水合：重开页面时恢复最近一次 pending 快照（AC: 刷新后可读取 preview 状态）。
   const { data: latestSnapshot } = useQuery({
@@ -162,8 +212,7 @@ export function EpisodePanel({
   });
   useEffect(() => {
     if (!preview && latestSnapshot && latestSnapshot.status === "pending") {
-      setPreview(latestSnapshot.plans);
-      setSnapshotId(latestSnapshot.id);
+      applyPreviewEnvelope(latestSnapshot, latestSnapshot.id);
     }
   }, [preview, latestSnapshot]);
 
@@ -209,12 +258,26 @@ export function EpisodePanel({
       return api.post<PreviewResponse>(`/episodes/${episode.id}/analyze/preview`);
     },
     onSuccess: (response) => {
-      setPreview(response.plans);
-      setSnapshotId(response.snapshot_id);
-      setActivePlanIndex(0);
+      applyPreviewEnvelope(response, response.snapshot_id);
       setPreviewError(null);
       void queryClient.invalidateQueries({ queryKey: queryKeys.episodes(episode.project_id) });
       void queryClient.invalidateQueries({ queryKey: ["analysis-snapshot", episode.id] });
+    },
+    onError: (error) => setPreviewError(error instanceof Error ? error : new Error(String(error))),
+  });
+
+  // P2-E1-T02: 应用角色决策（新建/合并/忽略）。逐项结果：冲突与失败是条目级的，
+  // 整体仍返回 200，调用方按条目引导用户改合并或忽略后重提。
+  const applyDecisions = useMutation({
+    mutationFn: () =>
+      api.post<{ episode_id: string; results: CharacterDecisionResult[] }>(
+        `/episodes/${episode.id}/analyze/characters`,
+        { snapshot_id: snapshotId, decisions: Object.values(decisions) },
+      ),
+    onSuccess: (response) => {
+      setDecisionResults(response.results);
+      setPreviewError(null);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.characters(episode.project_id) });
     },
     onError: (error) => setPreviewError(error instanceof Error ? error : new Error(String(error))),
   });
@@ -340,10 +403,27 @@ export function EpisodePanel({
     }
   };
 
-  // C2 一键成片：pipeline 分析确认复用现有 preview 展示卡（plans + snapshot）。
-  const showPipelinePlans = (plans: ScenePlan[], pipelineSnapshotId: string | null) => {
+  // C2 一键成片：pipeline 分析确认复用现有 preview 展示卡。快照行就是同一
+  // analysis_snapshots 表，拉取 latest 信封（含范围与候选），对不上才回落裸 plans。
+  const showPipelinePlans = async (plans: ScenePlan[], pipelineSnapshotId: string | null) => {
+    try {
+      const latest = await api.get<LatestSnapshot | null>(
+        `/episodes/${episode.id}/analysis-snapshots/latest`,
+      );
+      if (latest && (!pipelineSnapshotId || latest.id === pipelineSnapshotId)) {
+        applyPreviewEnvelope(latest, latest.id);
+        setPreviewError(null);
+        return;
+      }
+    } catch {
+      // 回落裸 plans（候选面板显示未识别，由用户重新预览补齐）。
+    }
     setPreview(plans);
     setSnapshotId(pipelineSnapshotId);
+    setScope(null);
+    setCandidates([]);
+    setDecisions({});
+    setDecisionResults(null);
     setActivePlanIndex(0);
     setPreviewError(null);
   };
@@ -507,6 +587,14 @@ export function EpisodePanel({
                 <strong>分析完成</strong>
                 <span>{preview.length} 个场景</span>
               </div>
+              {scope && (
+                <p className="analysis-scope-note" role="status">
+                  原文 {scope.source_chars.toLocaleString("zh-CN")} 字 · 本次分析全部{" "}
+                  {scope.analyzed_chars.toLocaleString("zh-CN")} 字（{scope.chunk_count} 块，
+                  {scope.llm_calls} 次模型调用）
+                  {scope.chunk_count > 1 && " · 超 6000 字已自动分块，无截断"}
+                </p>
+              )}
               <div className="scene-plan-list">
                 {preview.map((plan, index) => (
                   <button
@@ -562,9 +650,71 @@ export function EpisodePanel({
               </div>
               <div className="scene-description-block muted-block">
                 <span className="field-label">
-                  <UsersThree size={14} /> 角色提取
+                  <UsersThree size={14} /> 角色提取（需审阅，不自动创建）
                 </span>
-                <p>角色关系将在确认创建场景后进入 Project State。</p>
+                {candidates.length === 0 && <p>本次分析未识别出人物候选。</p>}
+                {candidates.map((candidate) => {
+                  const decision = decisions[candidate.name];
+                  const result = decisionResults?.find((r) => r.name === candidate.name);
+                  return (
+                    <div className="candidate-row" key={candidate.name}>
+                      <div>
+                        <strong>{candidate.name}</strong>
+                        {candidate.existing_character_name && (
+                          <span className="candidate-match">
+                            · 已存在「{candidate.existing_character_name}」
+                          </span>
+                        )}
+                        <p className="muted small">{candidate.description || "—"}</p>
+                        {result && (
+                          <p className="candidate-result" role="status">
+                            {result.status === "created" && `已新建人物`}
+                            {result.status === "merged" && `已合并到已有人物`}
+                            {result.status === "skipped" && `已忽略`}
+                            {result.status === "conflict" && `冲突：${result.message ?? "同名人物已存在"}`}
+                            {result.status === "failed" && `失败：${result.message ?? "未知错误"}`}
+                          </p>
+                        )}
+                      </div>
+                      <div className="candidate-actions" role="radiogroup" aria-label={`${candidate.name} 处理方式`}>
+                        {(["create", "merge", "skip"] as const).map((action) => (
+                          <label key={action}>
+                            <input
+                              type="radio"
+                              name={`candidate-${candidate.name}`}
+                              checked={decision?.action === action}
+                              onChange={() =>
+                                setDecisions((prev) => ({
+                                  ...prev,
+                                  [candidate.name]: {
+                                    name: candidate.name,
+                                    action,
+                                    character_id:
+                                      action === "merge"
+                                        ? (prev[candidate.name]?.character_id ??
+                                          candidate.existing_character_id)
+                                        : undefined,
+                                  },
+                                }))
+                              }
+                            />
+                            {action === "create" ? "新建" : action === "merge" ? "合并" : "忽略"}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+                {candidates.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn secondary compact"
+                    disabled={applyDecisions.isPending || !snapshotId}
+                    onClick={() => applyDecisions.mutate()}
+                  >
+                    {applyDecisions.isPending ? "应用中…" : "应用角色决策"}
+                  </button>
+                )}
               </div>
             </aside>
           </>
@@ -592,7 +742,7 @@ export function EpisodePanel({
             {saveSource.isPending ? "保存中…" : dirty ? "保存剧本" : "已保存"}
           </button>
           {preview && (
-            <button className="btn secondary" onClick={() => setPreview(null)}>
+            <button className="btn secondary" onClick={resetPreviewState}>
               返回修改原文
             </button>
           )}

@@ -46,6 +46,11 @@ from app.db.models.analysis import ANALYSIS_PROMPT_VERSION, ANALYSIS_SCHEMA_VERS
 from app.domain.analysis import (
     AnalysisPreview,
     AnalysisResult,
+    CharacterCandidate,
+    CharacterCandidateRead,
+    CharacterDecisionResult,
+    CharacterDecisionsRequest,
+    CharacterDecisionsResult,
     ScenePlan,
     ShotPlan,
     ShotPlanResult,
@@ -81,7 +86,9 @@ SHOT_PLAN_SYSTEM_PROMPT = (
 
 # Idempotency keys hash the EXACT input sent to the LLM (not the LLM output —
 # real models are non-deterministic). Keys are hex prefixes stored on the rows.
-_ANALYSIS_SOURCE_CAP = 6000  # hard cap for context budget (must match the prompt)
+_ANALYSIS_CHUNK_CHARS = 6000  # one LLM call covers at most this many source chars
+_ANALYSIS_MAX_CHUNKS = 4  # ... and at most this many chunks per preview
+_ANALYSIS_MAX_CHARS = _ANALYSIS_CHUNK_CHARS * _ANALYSIS_MAX_CHUNKS  # 24000
 _KEY_LENGTH = 16
 
 # Setting-document digest budget (mvp-spec DOC-004): injected BEFORE the source
@@ -108,6 +115,7 @@ class ScriptService:
         the previous AI-created scenes; manual scenes are preserved.
         """
         episode = self._require_episode_with_source(episode_id)
+        self._check_source_length(episode)
         key = self._episode_analysis_key(episode)
 
         existing = self.scenes.list_all(episode_id=episode_id, analysis_key=key)
@@ -122,7 +130,7 @@ class ScriptService:
                 created_scene_ids=[s.id for s in existing],
             )
 
-        plans = await self._request_scene_plans(episode)
+        plans, _chunk_count = await self._request_scene_plans(episode)
         try:
             self._replace_ai_scenes(episode_id)
             # LLM 的 scene_number 只是顺序提示：flush 软删后按「live 场景之后」统一
@@ -164,15 +172,27 @@ class ScriptService:
         The plans the user reviews are exactly the plans a later confirm writes
         (confirm reads the snapshot; it never calls the LLM again). Also lets the
         frontend rehydrate the preview after a refresh (AC: 刷新后可读取状态).
+
+        P2-E1-T02: long texts are analyzed in sequential chunks (no silent
+        truncation); a chunk failure aborts BEFORE anything is persisted, so a
+        retry re-runs the same chunking and lands a consistent snapshot.
+        Character candidates are extracted in one extra call and stored on the
+        snapshot — the decisions endpoint later reads them as server truth.
         """
         episode = self._require_episode_with_source(episode_id)
-        plans = await self._request_scene_plans(episode)
+        self._check_source_length(episode)
+        plans, chunk_count = await self._request_scene_plans(episode)
+        candidates = await self._request_character_candidates(episode)
+        candidate_reads = self._match_candidates(episode.project_id, candidates)
         snapshot = AnalysisSnapshot(
             episode_id=episode_id,
             source_hash=self._episode_analysis_key(episode),
             episode_revision=episode.revision,
             plan_json=json.dumps(
                 [p.model_dump() for p in plans], ensure_ascii=False
+            ),
+            character_candidates_json=json.dumps(
+                [c.model_dump() for c in candidates], ensure_ascii=False
             ),
             model=self._script_model_provenance(),
             prompt_version=ANALYSIS_PROMPT_VERSION,
@@ -181,9 +201,10 @@ class ScriptService:
         )
         self.session.add(snapshot)
         self.session.commit()
+        source_chars = len(episode.source_text or "")
         logger.info(
-            "episode %s preview snapshot %s persisted (%d plans, model=%s)",
-            episode_id, snapshot.id, len(plans), snapshot.model,
+            "episode %s preview snapshot %s persisted (%d plans, %d chunks, %d candidates, model=%s)",
+            episode_id, snapshot.id, len(plans), chunk_count, len(candidates), snapshot.model,
         )
         return AnalysisPreview(
             snapshot_id=snapshot.id,
@@ -191,6 +212,12 @@ class ScriptService:
             source_hash=snapshot.source_hash,
             plans=plans,
             model=snapshot.model,
+            source_chars=source_chars,
+            analyzed_chars=min(source_chars, _ANALYSIS_MAX_CHARS),
+            chunk_count=chunk_count,
+            llm_calls=chunk_count + 1,
+            max_chars=_ANALYSIS_MAX_CHARS,
+            character_candidates=candidate_reads,
         )
 
     async def confirm_snapshot(self, episode_id: str, snapshot_id: str) -> AnalysisResult:
@@ -298,6 +325,17 @@ class ScriptService:
         if not rows:
             return None
         snap = rows[0]
+        episode = self.episodes.get(episode_id)
+        scope = self._snapshot_scope(episode) if episode is not None else {
+            "source_chars": 0, "analyzed_chars": 0,
+            "chunk_count": 1, "llm_calls": 2, "max_chars": _ANALYSIS_MAX_CHARS,
+        }
+        candidates = self._load_snapshot_candidates(snap)
+        candidate_reads = (
+            self._match_candidates(episode.project_id, candidates)
+            if episode is not None else
+            [CharacterCandidateRead(name=c.name, description=c.description) for c in candidates]
+        )
         return SnapshotRead(
             id=snap.id,
             episode_id=snap.episode_id,
@@ -310,6 +348,8 @@ class ScriptService:
             schema_version=snap.schema_version,
             created_scene_ids=json.loads(snap.created_scene_ids_json or "[]"),
             created_at=snap.created_at,
+            character_candidates=candidate_reads,
+            **scope,
         )
 
     @staticmethod
@@ -344,34 +384,241 @@ class ScriptService:
             )
         return episode
 
-    async def _request_scene_plans(self, episode: Episode) -> list[ScenePlan]:
-        prompt = (
-            f"剧集标题：{episode.title or episode.episode_number}\n"
-            f"{self._analysis_input(episode)}\n\n"
-            "请输出场景列表。"
-        )
-        return await self.llm.structured_list(ScenePlan, ANALYZE_SYSTEM_PROMPT, prompt)  # type: ignore[return-value]
+    def _check_source_length(self, episode: Episode) -> None:
+        """P2-E1-T02: refuse over-limit texts with an actionable message instead
+        of silently truncating (AC: 不静默截断)."""
+        chars = len(episode.source_text or "")
+        if chars > _ANALYSIS_MAX_CHARS:
+            raise ValidationError(
+                f"原文共 {chars} 字，超过单次分析上限 {_ANALYSIS_MAX_CHARS} 字"
+                f"（{_ANALYSIS_MAX_CHUNKS} 块 × {_ANALYSIS_CHUNK_CHARS} 字）。"
+                "请拆分成多集后分别导入分析。",
+                {"source_chars": chars, "max_chars": _ANALYSIS_MAX_CHARS},
+            )
 
-    def _analysis_input(self, episode: Episode) -> str:
-        """The EXACT LLM input for episode analysis: setting-document digest + source.
+    @staticmethod
+    def _split_source(source: str) -> list[str]:
+        """Split into ≤_ANALYSIS_CHUNK_CHARS chunks on paragraph boundaries.
 
-        Single source of truth shared by _request_scene_plans and the idempotency
-        key, so the key always reflects exactly what was analyzed (mvp-spec DOC-004:
-        a changed setting document changes the key → re-analysis; P2-E1-T01 snapshots
-        then expire on the old source_hash).
+        Deterministic: the same source always yields the same chunks, so a
+        retried preview lands a consistent snapshot (AC: 分块失败可重试).
         """
+        paras = [p for p in source.split("\n") if p.strip()]
+        if not paras:
+            return [source] if source else []
+        chunks: list[str] = []
+        current: list[str] = []
+        current_len = 0
+        for para in paras:
+            # A single giant paragraph is hard-split (no silent drop).
+            while len(para) > _ANALYSIS_CHUNK_CHARS:
+                if current:
+                    chunks.append("\n".join(current))
+                    current, current_len = [], 0
+                chunks.append(para[:_ANALYSIS_CHUNK_CHARS])
+                para = para[_ANALYSIS_CHUNK_CHARS:]
+            if current_len + len(para) + 1 > _ANALYSIS_CHUNK_CHARS and current:
+                chunks.append("\n".join(current))
+                current, current_len = [], 0
+            current.append(para)
+            current_len += len(para) + 1
+        if current:
+            chunks.append("\n".join(current))
+        return chunks or [source]
+
+    def _analysis_digest(self, project_id: str) -> str:
+        """Setting-document digest shared by every chunk prompt and the key."""
         from app.services.document_service import DocumentService
 
         digest = DocumentService(self.session).render_digest(
-            episode.project_id, max_chars=_DOCUMENT_DIGEST_CAP
+            project_id, max_chars=_DOCUMENT_DIGEST_CAP
         )
-        source = (episode.source_text or "")[:_ANALYSIS_SOURCE_CAP]
-        head = f"设定文档（项目归档，仅供参考）：\n{digest}\n\n" if digest else ""
-        return f"{head}小说/剧本原文：\n{source}"
+        return f"设定文档（项目归档，仅供参考）：\n{digest}\n\n" if digest else ""
+
+    def _analysis_chunks(self, episode: Episode) -> tuple[str, list[str]]:
+        """Digest head + source chunks (each ≤ _ANALYSIS_CHUNK_CHARS)."""
+        source = episode.source_text or ""
+        return self._analysis_digest(episode.project_id), self._split_source(source)
+
+    async def _request_scene_plans(self, episode: Episode) -> tuple[list[ScenePlan], int]:
+        """Scene planning over sequential chunks; merged + globally renumbered.
+
+        A chunk failure aborts BEFORE anything is persisted (callers only write
+        the snapshot/rows after this returns), so retrying the preview re-runs
+        the same deterministic chunking and lands a consistent snapshot.
+        """
+        digest, chunks = self._analysis_chunks(episode)
+        title = f"剧集标题：{episode.title or episode.episode_number}\n"
+        merged: list[ScenePlan] = []
+        total = len(chunks)
+        for index, chunk in enumerate(chunks, start=1):
+            scope = f"原文第 {index}/{total} 部分（本块 {len(chunk)} 字）：\n" if total > 1 else ""
+            prompt = f"{title}{digest}小说/剧本{scope}\n{chunk}\n\n请输出场景列表。"
+            try:
+                plans = await self.llm.structured_list(ScenePlan, ANALYZE_SYSTEM_PROMPT, prompt)  # type: ignore[assignment]
+            except Exception as exc:
+                raise RuntimeError(
+                    f"第 {index}/{total} 部分场景分析失败，重试本次预览即可（未写入任何内容）。"
+                ) from exc
+            for plan in plans:
+                plan.scene_number = len(merged) + 1
+                merged.append(plan)
+        logger.info(
+            "episode %s scene planning: %d chunks → %d scenes",
+            episode.id, total, len(merged),
+        )
+        return merged, total
+
+    CHARACTER_EXTRACT_SYSTEM_PROMPT = (
+        "你是漫剧制作 Studio 的角色提取器。从小说/剧本原文中识别有实质出场的人物。"
+        "只输出真实出现的人物，不要虚构；每个人物一句话描述其身份/外貌/性格。"
+        "严格遵守输出的 JSON 结构，不要输出任何额外文字。"
+    )
+
+    async def _request_character_candidates(self, episode: Episode) -> list[CharacterCandidate]:
+        """One extraction call over the analyzed source (never auto-created)."""
+        digest, chunks = self._analysis_chunks(episode)
+        prompt = (
+            f"剧集标题：{episode.title or episode.episode_number}\n"
+            f"{digest}小说/剧本原文：\n{"\n---\n".join(chunks)}\n\n"
+            "请输出人物候选列表。"
+        )
+        try:
+            return await self.llm.structured_list(CharacterCandidate, self.CHARACTER_EXTRACT_SYSTEM_PROMPT, prompt)  # type: ignore[return-value]
+        except Exception as exc:
+            raise RuntimeError("人物候选提取失败，重试本次预览即可（未写入任何内容）。") from exc
+
+    def _match_candidates(
+        self, project_id: str, candidates: list[CharacterCandidate]
+    ) -> list[CharacterCandidateRead]:
+        """Attach same-project exact-name matches as merge suggestions."""
+        from app.services.character_service import CharacterService
+
+        existing = {c.name: c for c in CharacterService(self.session).list_characters(project_id)}
+        return [
+            CharacterCandidateRead(
+                name=c.name,
+                description=c.description,
+                existing_character_id=existing[c.name].id if c.name in existing else None,
+                existing_character_name=c.name if c.name in existing else None,
+            )
+            for c in candidates
+        ]
 
     def _episode_analysis_key(self, episode: Episode) -> str:
-        """Hash of the exact LLM input for episode analysis (digest + truncated source)."""
-        return hashlib.sha256(self._analysis_input(episode).encode("utf-8")).hexdigest()[:_KEY_LENGTH]
+        """Hash of the exact LLM input (digest + FULL source + chunking).
+
+        P2-E1-T02 changed the strategy (v2 prompt): old v1 snapshots hash the
+        truncated input, so they expire on next confirm — re-preview required.
+        """
+        digest = self._analysis_digest(episode.project_id)
+        return hashlib.sha256(
+            (digest + (episode.source_text or "")).encode("utf-8")
+        ).hexdigest()[:_KEY_LENGTH]
+
+    def _snapshot_scope(self, episode: Episode) -> dict[str, int]:
+        """Transparency counters shared by preview + latest-snapshot read."""
+        source_chars = len(episode.source_text or "")
+        chunks = self._split_source(episode.source_text or "")
+        chunk_count = len(chunks)
+        return {
+            "source_chars": source_chars,
+            "analyzed_chars": min(source_chars, _ANALYSIS_MAX_CHARS),
+            "chunk_count": chunk_count,
+            "llm_calls": chunk_count + 1,  # scene chunks + one candidate extraction
+            "max_chars": _ANALYSIS_MAX_CHARS,
+        }
+
+    def _load_snapshot_candidates(self, snapshot: AnalysisSnapshot) -> list[CharacterCandidate]:
+        try:
+            return [CharacterCandidate.model_validate(c) for c in json.loads(snapshot.character_candidates_json or "[]")]
+        except Exception:  # noqa: BLE001 — legacy v1 snapshots have no candidates
+            return []
+
+    async def apply_character_decisions(
+        self, episode_id: str, body: CharacterDecisionsRequest
+    ) -> CharacterDecisionsResult:
+        """P2-E1-T02: create / merge / skip reviewed candidates (per-item results).
+
+        Candidate identity comes from the immutable snapshot (server truth);
+        the client only picks the action. Nothing is auto-created: an explicit
+        decision per name is required, and duplicate-name creates conflict.
+        """
+        from app.domain.character import CharacterCreate, CharacterUpdate
+        from app.services.character_service import CharacterService
+
+        episode = self.episodes.get(episode_id)
+        if episode is None:
+            raise NotFoundError("Episode does not exist.", {"episode_id": episode_id})
+        snapshot = self.session.get(AnalysisSnapshot, body.snapshot_id)
+        if snapshot is None or snapshot.episode_id != episode_id:
+            raise NotFoundError(
+                "Analysis snapshot does not exist for this episode.",
+                {"snapshot_id": body.snapshot_id},
+            )
+        known = {c.name: c for c in self._load_snapshot_candidates(snapshot)}
+        characters = CharacterService(self.session)
+        live_names = {c.name: c for c in characters.list_characters(episode.project_id)}
+        results: list[CharacterDecisionResult] = []
+        for decision in body.decisions:
+            candidate = known.get(decision.name)
+            if candidate is None:
+                results.append(CharacterDecisionResult(
+                    name=decision.name, action=decision.action,
+                    status="failed", message="不在本次预览候选内，请重新预览。",
+                ))
+                continue
+            if decision.action == "skip":
+                results.append(CharacterDecisionResult(
+                    name=decision.name, action="skip", status="skipped"))
+                continue
+            if decision.action == "create":
+                if decision.name in live_names:
+                    results.append(CharacterDecisionResult(
+                        name=decision.name, action="create", status="conflict",
+                        character_id=live_names[decision.name].id,
+                        message=f"已存在同名人物「{decision.name}」，请选择合并或忽略。",
+                    ))
+                    continue
+                created = characters.create_character(
+                    episode.project_id,
+                    CharacterCreate(name=candidate.name, appearance=candidate.description or None),
+                )
+                live_names[created.name] = created
+                results.append(CharacterDecisionResult(
+                    name=decision.name, action="create",
+                    status="created", character_id=created.id))
+                continue
+            # merge: must point at a live same-project character.
+            if not decision.character_id:
+                results.append(CharacterDecisionResult(
+                    name=decision.name, action="merge",
+                    status="failed", message="合并需要指定已有人物 character_id。",
+                ))
+                continue
+            try:
+                target = characters.get_character(decision.character_id)
+            except NotFoundError:
+                results.append(CharacterDecisionResult(
+                    name=decision.name, action="merge",
+                    status="failed", message="指定人物不存在。",
+                ))
+                continue
+            if target.project_id != episode.project_id:
+                results.append(CharacterDecisionResult(
+                    name=decision.name, action="merge",
+                    status="failed", message="指定人物属于其他项目。",
+                ))
+                continue
+            if not target.appearance and candidate.description:
+                characters.update_character(
+                    target.id, target.revision,
+                    CharacterUpdate(appearance=candidate.description),
+                )
+            results.append(CharacterDecisionResult(
+                name=decision.name, action="merge",
+                status="merged", character_id=target.id))
+        return CharacterDecisionsResult(episode_id=episode_id, results=results)
 
     # --- shot planning ---
 

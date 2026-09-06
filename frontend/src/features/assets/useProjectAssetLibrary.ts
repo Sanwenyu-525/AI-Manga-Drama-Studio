@@ -3,7 +3,10 @@
 // The old client-side aggregation (tree + per-shot versions + masters) is dropped in
 // favour of the server endpoint. A server "asset_type" filter param narrows image/video;
 // source groups (storyboard/character/location) refine client-side on source_type.
-import { useQuery } from "@tanstack/react-query";
+//
+// P2-E2-T02: cursor pagination via useInfiniteQuery (opaque next_cursor, keyset —
+// no dup/loss on concurrent inserts) + Error state passthrough for the list view.
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import type { AssetListRead, AssetRead } from "../../api/types";
@@ -28,7 +31,15 @@ export interface ProjectAssetLibrary {
   assets: ProjectAssetEntry[];
   total: number;
   isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  fetchNextPage: () => void;
+  refetch: () => void;
 }
+
+const PAGE_SIZE = 50;
 
 export function useProjectAssetLibrary(
   projectId: string,
@@ -37,18 +48,33 @@ export function useProjectAssetLibrary(
   const typeParam = typeFilter === "all" || typeFilter === null ? null : typeFilter;
   // Contract: the backend filter query param is `asset_type` (api/assets.py) —
   // a `?type=` param is silently ignored by FastAPI and the filter never applies.
-  const path = typeParam
-    ? "/projects/" + projectId + "/assets?asset_type=" + typeParam
-    : "/projects/" + projectId + "/assets";
-  const query = useQuery({
+  const basePath = typeParam
+    ? "/projects/" + projectId + "/assets?asset_type=" + typeParam + "&limit=" + PAGE_SIZE
+    : "/projects/" + projectId + "/assets?limit=" + PAGE_SIZE;
+  const query = useInfiniteQuery({
     queryKey: queryKeys.projectAssets(projectId, typeParam),
-    queryFn: () => api.get<AssetListRead>(path),
+    queryFn: ({ pageParam }: { pageParam: string | null }) =>
+      api.get<AssetListRead>(
+        pageParam ? basePath + "&cursor=" + encodeURIComponent(pageParam) : basePath,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: Boolean(projectId),
   });
 
-  const items = query.data?.items ?? [];
+  const items = (query.data?.pages ?? []).flatMap((page) => page.items);
   const assets = items.map(toEntry);
-  return { assets, total: query.data?.total ?? items.length, isLoading: query.isLoading };
+  return {
+    assets,
+    total: query.data?.pages[0]?.total ?? items.length,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: () => void query.fetchNextPage(),
+    refetch: () => void query.refetch(),
+  };
 }
 
 function toEntry(asset: AssetRead): ProjectAssetEntry {

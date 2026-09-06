@@ -20,6 +20,25 @@ export interface AgentMessage {
   content: string;
 }
 
+/** C 真流式：graph 五阶段思考时间线（后端事件驱动，非本地猜测）。 */
+export type AgentStage = "understand" | "load_context" | "plan" | "execute" | "review";
+
+export interface AgentStageState {
+  stage: AgentStage;
+  status: "pending" | "running" | "done";
+  detail?: string;
+}
+
+export const AGENT_STAGES: AgentStage[] = ["understand", "load_context", "plan", "execute", "review"];
+
+export const AGENT_STAGE_LABELS: Record<AgentStage, string> = {
+  understand: "理解意图",
+  load_context: "加载上下文",
+  plan: "制定计划",
+  execute: "执行工具",
+  review: "检查结果",
+};
+
 export type AgentStatus =
   | "idle"
   | "thinking"
@@ -40,6 +59,10 @@ interface AgentState {
   tools: AgentToolState[];
   messages: AgentMessage[];
   result: Record<string, unknown> | null;
+  /** C 真流式：思考时间线 + 打字机增量（WS 事件驱动）。 */
+  stages: AgentStageState[];
+  streamText: string;
+  streamDone: boolean;
 
   startRun: (runId: string, userMessage: string) => void;
   setPlan: (objective: string, steps: AgentPlanStep[]) => void;
@@ -47,6 +70,12 @@ interface AgentState {
   toolCompleted: (tool: string, success: boolean, changedFields?: string[], error?: string) => void;
   runCompleted: (result: Record<string, unknown> | null) => void;
   runFailed: (error?: string) => void;
+  /** 阶段事件（intent.resolved / context.loaded / review.started/completed…）。 */
+  stageEvent: (stage: AgentStage, detail?: string) => void;
+  /** run.stream 增量分片：拼接到打字机文本。 */
+  appendStream: (stage: AgentStage, delta: string, done: boolean) => void;
+  /** 取消终态（区别于失败：用户主动中断）。 */
+  runCancelled: () => void;
   /** P7-T019/020: agent is paused awaiting human approval (WAITING_HUMAN). */
   approvalRequired: (runId: string, tool?: string, changes?: unknown) => void;
   /** P7-T020: update badge/status when a proposal change event arrives. */
@@ -58,6 +87,22 @@ interface AgentState {
   reset: () => void;
 }
 
+const freshStages = (): AgentStageState[] => AGENT_STAGES.map((stage) => ({ stage, status: "pending" }));
+
+function markStage(
+  stages: AgentStageState[],
+  stage: AgentStage,
+  status: AgentStageState["status"],
+  detail?: string,
+): AgentStageState[] {
+  const order = AGENT_STAGES.indexOf(stage);
+  return stages.map((s) => {
+    if (AGENT_STAGES.indexOf(s.stage) < order && s.status === "pending") return { ...s, status: "done" };
+    if (s.stage !== stage) return s;
+    return { ...s, status, detail: detail ?? s.detail };
+  });
+}
+
 export const useAgentStore = create<AgentState>((set) => ({
   runId: null,
   status: "idle",
@@ -66,6 +111,9 @@ export const useAgentStore = create<AgentState>((set) => ({
   tools: [],
   messages: [],
   result: null,
+  stages: freshStages(),
+  streamText: "",
+  streamDone: false,
 
   startRun: (runId, userMessage) =>
     set((s) => ({
@@ -75,22 +123,37 @@ export const useAgentStore = create<AgentState>((set) => ({
       steps: [],
       tools: [],
       result: null,
+      stages: markStage(freshStages(), "understand", "running"),
+      streamText: "",
+      streamDone: false,
       messages: [...s.messages, { role: "user", content: userMessage }],
     })),
 
   setPlan: (objective, steps) =>
-    set({
+    set((s) => ({
       status: "planning",
       objective,
       steps,
       tools: steps.map((step) => ({ tool: step.tool, status: "pending" })),
-    }),
+      stages: markStage(markStage(s.stages, "understand", "done"), "plan", "running"),
+    })),
 
   toolStarted: (tool, targetId) =>
-    set((s) => ({
-      status: "executing",
-      tools: s.tools.map((t) => (t.tool === tool ? { ...t, status: "running", detail: targetId } : t)),
-    })),
+    set((s) => {
+      // 同名 tool 并发时只点亮第一个 pending，避免整列一起跑。
+      let lit = false;
+      return {
+        status: "executing",
+        stages: markStage(markStage(s.stages, "plan", "done"), "execute", "running"),
+        tools: s.tools.map((t) => {
+          if (t.tool === tool && t.status === "pending" && !lit) {
+            lit = true;
+            return { ...t, status: "running" as const, detail: targetId ?? t.detail };
+          }
+          return t;
+        }),
+      };
+    }),
 
   toolCompleted: (tool, success, changedFields, error) =>
     set((s) => ({
@@ -108,8 +171,31 @@ export const useAgentStore = create<AgentState>((set) => ({
       const messages = clarification
         ? [...s.messages, { role: "assistant" as const, content: clarification }]
         : [...s.messages, { role: "assistant" as const, content: summary }];
-      return { status: "completed", result, messages };
+      return {
+        status: "completed",
+        result,
+        messages,
+        stages: s.stages.map((st) => ({ ...st, status: "done" as const })),
+        streamDone: true,
+      };
     }),
+
+  stageEvent: (stage, detail) =>
+    set((s) => ({ stages: markStage(s.stages, stage, stage === "execute" ? "running" : "done", detail) })),
+
+  appendStream: (stage, delta, done) =>
+    set((s) => ({
+      stages: markStage(s.stages, stage, done ? "done" : "running"),
+      streamText: s.streamText + delta,
+      streamDone: done ? true : s.streamDone,
+    })),
+
+  runCancelled: () =>
+    set((s) => ({
+      status: "cancelled",
+      streamDone: true,
+      messages: [...s.messages, { role: "assistant" as const, content: "已取消。" }],
+    })),
 
   runFailed: (error) =>
     set((s) => ({
@@ -153,9 +239,25 @@ export const useAgentStore = create<AgentState>((set) => ({
       tools: (run.plan?.steps ?? []).map((s) => ({ tool: s.tool, status: "pending" as const })),
       messages: run.messages ?? [],
       result: run.result ?? null,
+      // 水合的是终态快照：时间线直接收尾，不重放流式。
+      stages: freshStages().map((st) => ({ ...st, status: "done" as const })),
+      streamText: "",
+      streamDone: true,
     }),
 
-  reset: () => set({ runId: null, status: "idle", objective: null, steps: [], tools: [], result: null }),
+  reset: () =>
+    set({
+      runId: null,
+      status: "idle",
+      objective: null,
+      steps: [],
+      tools: [],
+      messages: [],
+      result: null,
+      stages: freshStages(),
+      streamText: "",
+      streamDone: false,
+    }),
 }));
 
 /** 后端 run.status → 前端 store 状态归一（created/running → executing；等待审批统一 waiting_human）。 */

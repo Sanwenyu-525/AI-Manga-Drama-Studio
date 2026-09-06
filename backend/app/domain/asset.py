@@ -64,6 +64,35 @@ class AssetListRead(BaseModel):
 
     total: int
     items: list[AssetListItemRead]
+    # P2-E2-T02: opaque cursor for keyset pagination (None = no further page).
+    next_cursor: str | None = None
+
+
+class AssetIntegrityRead(BaseModel):
+    """文件完整性（P2-E2-T02）：请求时现场校验。
+
+    checksum_match=None 表示无法比对（文件缺失或落库时无 checksum）。
+    """
+
+    file_exists: bool
+    checksum_match: bool | None = None
+    checked_at: str
+
+
+class AssetVersionContextRead(BaseModel):
+    """版本上下文（P2-E2-T02）：是否为某镜头的 active 指针 / 角色·地点 MASTER。"""
+
+    version_number: int | None = None
+    is_active: bool = False
+    is_master: bool = False
+
+
+class AssetShotContextRead(BaseModel):
+    """镜头上下文（P2-E2-T02）：shot 追溯 + scene/episode 回查（已删实体仅返 id）。"""
+
+    shot_id: str
+    scene_id: str | None = None
+    episode_id: str | None = None
 
 
 class AssetDetailRead(BaseModel):
@@ -90,6 +119,18 @@ class AssetDetailRead(BaseModel):
     generation_id: str | None = None
     parent_asset_id: str | None = None
     shot_id: str | None = None  # reference summary via version_group_id
+    # P2-E2-T02: 追溯扩展（Generation 展开复用 /assets/{id}/provenance）。
+    integrity: AssetIntegrityRead | None = None
+    version_context: AssetVersionContextRead | None = None
+    shot_context: AssetShotContextRead | None = None
+
+
+class AssetDeleteRead(BaseModel):
+    """物理删除结果（P2-E2-T02，不可恢复；files_removed 为项目相对路径）。"""
+
+    asset_id: str
+    deleted: bool = True
+    files_removed: list[str]
 
 
 class AssetMissingCheckRead(BaseModel):

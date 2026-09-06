@@ -12,23 +12,45 @@ disappears is marked "missing"; the record and any file are preserved.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import mimetypes
 import os
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from PIL import Image
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.logging import get_logger
-from app.db.models import Asset, Episode, Project, Scene, Shot
-from app.db.models.asset import ASSET_STATUSES, ASSET_TYPES
-from app.events.bus import EVENT_ASSET_CREATED, StudioEvent, bus
+from app.db.models import (
+    Asset,
+    CharacterVersion,
+    Costume,
+    Episode,
+    Generation,
+    GenerationOutput,
+    LocationVersion,
+    Project,
+    Scene,
+    Shot,
+    TimelineClip,
+)
+from app.db.models.asset import ASSET_SOURCE_TYPES, ASSET_STATUSES, ASSET_TYPES
+from app.db.models.columns import utcnow_iso
+from app.events.bus import (
+    EVENT_ASSET_ARCHIVED,
+    EVENT_ASSET_CREATED,
+    EVENT_ASSET_DELETED,
+    EVENT_ASSET_RESTORED,
+    StudioEvent,
+    bus,
+)
 from app.repositories import SceneRepository, ShotRepository
 
 logger = get_logger("assets")
@@ -53,6 +75,40 @@ _FALLBACK_MIME = {"image": "image/png", "video": "video/mp4", "audio": "audio/mp
 
 def project_dir(project_id: str) -> Path:
     return settings.data_dir / "projects" / project_id
+
+
+def _encode_cursor(created_at: str, asset_id: str) -> str:
+    """不透明游标：base64url({c: created_at, i: id})（P2-E2-T02 keyset 分页）。"""
+    raw = json.dumps({"c": created_at, "i": asset_id}, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode()
+
+
+def _decode_cursor(cursor: str) -> tuple[str, str]:
+    """解析游标；格式错误 → 422（不泄露内部结构）。"""
+    try:
+        data = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
+        return str(data["c"]), str(data["i"])
+    except (ValueError, KeyError, TypeError):
+        raise ValidationError("Invalid cursor.", {"cursor": cursor}) from None
+
+
+def _normalize_time_bound(value: str, *, is_end: bool, field: str) -> str:
+    """ISO 时间边界归一化为可比字符串（created_at 是 TEXT ISO8601 UTC，字典序=时间序）。
+
+    纯日期输入：from 取当天 00:00:00，to 取当天 23:59:59.999999；naive 时间按 UTC。
+    """
+    text = value.strip().replace("Z", "+00:00")
+    try:
+        if len(text) == 10:  # YYYY-MM-DD
+            day = datetime.strptime(text, "%Y-%m-%d").replace(tzinfo=UTC)
+            bound = day if not is_end else day.replace(hour=23, minute=59, second=59, microsecond=999999)
+        else:
+            bound = datetime.fromisoformat(text)
+            if bound.tzinfo is None:
+                bound = bound.replace(tzinfo=UTC)
+        return bound.isoformat()
+    except ValueError:
+        raise ValidationError(f"Invalid {field} (expected ISO datetime).", {field: value}) from None
 
 
 def _import_suffix(asset_type: str, original_name: str) -> str:
@@ -180,6 +236,57 @@ class AssetService:
             )
         return asset
 
+    @staticmethod
+    def _clean_import_text(value: str | None, *, field: str, max_len: int) -> str | None:
+        """导入元文本清洗：去首尾空、拒越界路径片段、限长（P2-E2-T02）。"""
+        if value is None:
+            return None
+        text = value.strip()
+        if not text:
+            return None
+        if len(text) > max_len or "/" in text or "\\" in text or ".." in text:
+            raise ValidationError(
+                f"Invalid {field} (path segments and over-long text are rejected).",
+                {field: value, "max_len": max_len},
+            )
+        return text
+
+    @staticmethod
+    def _validated_import_mime(asset_type: str, dest: Path, media: dict) -> str | None:
+        """按真实文件头校验导入类型；伪装/不可识别 → 422 并清理已拷贝文件。
+
+        - image：probe 文件头必须命中已知图片格式（含 PIL 侧校验在缩略图环节 best-effort）。
+        - video：内容是图片头 → 422（类型伪装）；有 ffprobe 却探不出 → 422；
+          无 ffprobe 时放行并由调用方标记 unprobed（诚实未知，不伪造）。
+        """
+        import shutil
+
+        fmt = media.get("format")
+        if asset_type == "image":
+            if fmt is None or fmt not in _IMAGE_MIME_BY_FORMAT:
+                dest.unlink(missing_ok=True)
+                raise ValidationError(
+                    "Uploaded file is not a valid image.",
+                    {"detected_format": fmt},
+                )
+            return _IMAGE_MIME_BY_FORMAT[fmt]
+        # video
+        if fmt is not None and fmt in _IMAGE_MIME_BY_FORMAT:
+            dest.unlink(missing_ok=True)
+            raise ValidationError(
+                "Uploaded file is an image, not a video.",
+                {"detected_format": fmt},
+            )
+        if fmt is None and shutil.which("ffprobe") is not None:
+            dest.unlink(missing_ok=True)
+            raise ValidationError(
+                "Uploaded file is not a recognizable video.",
+                {"detected_format": None},
+            )
+        if fmt is None:
+            media["unprobed"] = True
+        return None
+
     def import_asset(
         self,
         *,
@@ -188,6 +295,7 @@ class AssetService:
         source_path: str | Path,
         purpose: str | None = None,
         source_name: str | None = None,
+        shot_id: str | None = None,
     ) -> Asset:
         """P3-T003: bring an external file into the project and register it as a
         project-scope Asset (no shot / version-group ownership).
@@ -222,6 +330,21 @@ class AssetService:
                 "Imported asset exceeds the 50 MB limit.",
                 {"size": size, "limit": IMPORT_MAX_BYTES},
             )
+        if size == 0:
+            raise ValidationError("Imported asset is empty.", {"size": 0})
+
+        # P2-E2-T02: source_name/purpose 只进 meta（不参与落盘命名），仍做越界
+        # 路径与长度清洗——调用方透传不可信文件名时不把 "../" 带进元数据。
+        clean_source_name = self._clean_import_text(source_name, field="source_name", max_len=255)
+        clean_purpose = self._clean_import_text(purpose, field="purpose", max_len=500)
+
+        # P2-E2-T02: 可选 shot 关联——shot 不存在 → 404，跨项目 → 422。
+        # 关联只记 meta（不占 version_group，保持"导入资产无版本归属"不变量）。
+        if shot_id is not None:
+            shot = self.session.get(Shot, shot_id)
+            if shot is None or shot.deleted_at:
+                raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
+            self._require_shot_in_project(shot, project_id)
 
         seq = self._next_import_seq(project_id)
         dest_name = f"{project_id}_IMP_{seq:03d}{_import_suffix(asset_type, source.name)}"
@@ -253,20 +376,22 @@ class AssetService:
         digest = checksum.hexdigest()
 
         media = probe(dest) or {}
-        mime_type = None
-        if asset_type == "image":
-            fmt = media.get("format") or "png"
-            mime_type = _IMAGE_MIME_BY_FORMAT.get(fmt, f"image/{fmt}")
+        # P2-E2-T02: 伪装 MIME 拒绝——文件头说了算，不信扩展名/客户端 MIME。
+        mime_type = self._validated_import_mime(asset_type, dest, media)
 
         thumbnail_rel = self.create_thumbnail(project_id, dest) if asset_type == "image" else None
 
         meta = {"asset_type": asset_type}
-        if purpose:
-            meta["purpose"] = purpose
-        if source_name:
-            meta["source_name"] = source_name
+        if clean_purpose:
+            meta["purpose"] = clean_purpose
+        if clean_source_name:
+            meta["source_name"] = clean_source_name
+        if shot_id is not None:
+            meta["shot_id"] = shot_id
         if "codec_type" in media:
             meta["codec"] = media.get("codec_name")
+        if media.get("unprobed"):
+            meta["unprobed"] = True
 
         asset = Asset(
             project_id=project_id,
@@ -293,6 +418,214 @@ class AssetService:
         self._publish_asset_created(asset)
         logger.info("asset imported: %s -> %s (%d bytes)", dest_name, project_id, size)
         return asset
+
+    def asset_references(self, asset_id: str, *, include_history: bool = False) -> list[dict]:
+        """引用清单（P2-E2-T02 删除守卫用）。
+
+        默认仅阻断性引用：shot active 指针 / 角色·地点 MASTER（status=active 版本行）/
+        timeline clip（绑定特定版本）/ 生效服装参考图。include_history=True 时追加
+        版本链历史引用——物理删除同样阻断，不切断不可变历史。
+        """
+        refs: list[dict] = []
+        for shot in self.session.scalars(
+            select(Shot).where(
+                Shot.deleted_at.is_(None),
+                or_(
+                    Shot.active_image_asset_id == asset_id,
+                    Shot.active_video_asset_id == asset_id,
+                ),
+            )
+        ):
+            refs.append({"kind": "shot_active", "id": shot.id, "label": f"shot:{shot.id}"})
+        for ver in self.session.scalars(
+            select(CharacterVersion).where(
+                CharacterVersion.asset_id == asset_id,
+                CharacterVersion.deleted_at.is_(None),
+                CharacterVersion.status == "active",
+            )
+        ):
+            refs.append(
+                {"kind": "character_master", "id": ver.id, "label": f"character:{ver.character_id}"}
+            )
+        for ver in self.session.scalars(
+            select(LocationVersion).where(
+                LocationVersion.asset_id == asset_id,
+                LocationVersion.deleted_at.is_(None),
+                LocationVersion.status == "active",
+            )
+        ):
+            refs.append(
+                {"kind": "location_master", "id": ver.id, "label": f"location:{ver.location_id}"}
+            )
+        for clip in self.session.scalars(
+            select(TimelineClip).where(TimelineClip.asset_id == asset_id)
+        ):
+            refs.append(
+                {"kind": "timeline_clip", "id": clip.id, "label": f"timeline:{clip.timeline_id}"}
+            )
+        for costume in self.session.scalars(
+            select(Costume).where(
+                Costume.reference_asset_id == asset_id,
+                Costume.deleted_at.is_(None),
+            )
+        ):
+            refs.append({"kind": "costume_reference", "id": costume.id, "label": costume.name})
+        if include_history:
+            for ver in self.session.scalars(
+                select(CharacterVersion).where(
+                    CharacterVersion.asset_id == asset_id,
+                    CharacterVersion.deleted_at.is_(None),
+                    CharacterVersion.status != "active",
+                )
+            ):
+                refs.append(
+                    {
+                        "kind": "character_version",
+                        "id": ver.id,
+                        "label": f"character:{ver.character_id}",
+                    }
+                )
+            for ver in self.session.scalars(
+                select(LocationVersion).where(
+                    LocationVersion.asset_id == asset_id,
+                    LocationVersion.deleted_at.is_(None),
+                    LocationVersion.status != "active",
+                )
+            ):
+                refs.append(
+                    {
+                        "kind": "location_version",
+                        "id": ver.id,
+                        "label": f"location:{ver.location_id}",
+                    }
+                )
+        return refs
+
+    def archive_asset(self, asset_id: str) -> Asset:
+        """P2-E2-T02: 归档 = 软删除（deleted_at，status 不动；恢复后原状态回来）。
+
+        被阻断性引用 → 409 + 引用清单；已归档 → 幂等返回。提交后发布 asset.archived。
+        """
+        asset = self.session.get(Asset, asset_id)
+        if asset is None:
+            raise NotFoundError("Asset does not exist.", {"asset_id": asset_id})
+        if asset.deleted_at:
+            return asset
+        refs = self.asset_references(asset_id)
+        if refs:
+            raise ConflictError(
+                "Asset is referenced and cannot be archived.",
+                {"asset_id": asset_id, "references": refs},
+            )
+        asset.deleted_at = utcnow_iso()
+        self.session.commit()
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_ASSET_ARCHIVED,
+                entity_type="asset",
+                entity_id=asset.id,
+                project_id=asset.project_id,
+                payload={"type": asset.type},
+            )
+        )
+        return asset
+
+    def restore_asset(self, asset_id: str) -> Asset:
+        """P2-E2-T02: 恢复归档资产；版本组冲突（同组同号 live 行已存在）→ 409。"""
+        asset = self.session.get(Asset, asset_id)
+        if asset is None:
+            raise NotFoundError("Asset does not exist.", {"asset_id": asset_id})
+        if asset.deleted_at is None:
+            return asset
+        if asset.version_group_id is not None and asset.version_number is not None:
+            live = self.session.scalar(
+                select(Asset).where(
+                    Asset.version_group_id == asset.version_group_id,
+                    Asset.version_number == asset.version_number,
+                    Asset.deleted_at.is_(None),
+                    Asset.id != asset.id,
+                )
+            )
+            if live is not None:
+                raise ConflictError(
+                    "A live asset already occupies this version slot.",
+                    {
+                        "asset_id": asset_id,
+                        "version_group_id": asset.version_group_id,
+                        "version_number": asset.version_number,
+                        "live_asset_id": live.id,
+                    },
+                )
+        asset.deleted_at = None
+        self.session.commit()
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_ASSET_RESTORED,
+                entity_type="asset",
+                entity_id=asset.id,
+                project_id=asset.project_id,
+                payload={"type": asset.type},
+            )
+        )
+        return asset
+
+    def delete_asset(self, asset_id: str, *, confirm: bool = False) -> dict:
+        """P2-E2-T02: 物理删除（不可恢复）。
+
+        - 缺 confirm=true → 422；未归档 → 422（必须先归档，两步确认不误删）；
+        - 任何引用（含版本链历史）→ 409 + 引用清单；
+        - 清理：文件 + 缩略图 + generation_outputs Join 行 + generations.output_asset_id 置空
+          （generation 历史行保留；inputs 是文本 provenance 记录，保留）。
+        """
+        if not confirm:
+            raise ValidationError(
+                "Physical delete requires confirm=true.",
+                {"asset_id": asset_id},
+            )
+        asset = self.session.get(Asset, asset_id)
+        if asset is None:
+            raise NotFoundError("Asset does not exist.", {"asset_id": asset_id})
+        if asset.deleted_at is None:
+            raise ValidationError(
+                "Archive the asset before physical delete.",
+                {"asset_id": asset_id},
+            )
+        refs = self.asset_references(asset_id, include_history=True)
+        if refs:
+            raise ConflictError(
+                "Asset is referenced and cannot be physically deleted.",
+                {"asset_id": asset_id, "references": refs},
+            )
+        files_removed: list[str] = []
+        for rel in (asset.file_path, asset.thumbnail_path):
+            if not rel:
+                continue
+            path = project_dir(asset.project_id) / rel
+            try:
+                if path.is_file():
+                    path.unlink()
+                    files_removed.append(rel)
+            except OSError:
+                logger.warning("asset file remove failed: %s", rel)
+        self.session.execute(delete(GenerationOutput).where(GenerationOutput.asset_id == asset_id))
+        self.session.execute(
+            update(Generation)
+            .where(Generation.output_asset_id == asset_id)
+            .values(output_asset_id=None)
+        )
+        project_id, asset_type = asset.project_id, asset.type
+        self.session.delete(asset)
+        self.session.commit()
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_ASSET_DELETED,
+                entity_type="asset",
+                entity_id=asset_id,
+                project_id=project_id,
+                payload={"type": asset_type, "files_removed": files_removed},
+            )
+        )
+        return {"asset_id": asset_id, "deleted": True, "files_removed": files_removed}
 
     def mark_assets_stale(self, asset_ids: list[str]) -> int:
         """P8-T017: mark the given assets as STALE (status change only — never
@@ -395,6 +728,119 @@ class AssetService:
             raise NotFoundError("Asset does not exist.", {"asset_id": asset_id})
         return asset
 
+    def asset_detail(self, asset_id: str) -> dict:
+        """P2-E2-T02: 资产详情追溯包（asset + integrity + version + shot 上下文）。
+
+        Generation 展开不在此（复用 ProvenanceService /assets/{id}/provenance）。
+        """
+        asset = self.get_asset(asset_id)
+        return {
+            "asset": asset,
+            "integrity": self._file_integrity(asset),
+            "version_context": self._version_context(asset),
+            "shot_context": self._shot_context(asset),
+        }
+
+    def _file_integrity(self, asset: Asset) -> dict:
+        """文件完整性：存在性 + 全量 checksum 比对（P2-E2-T02 用户选择：精确但大文件慢）。"""
+        checked_at = utcnow_iso()
+        if not asset.file_path:
+            return {"file_exists": False, "checksum_match": None, "checked_at": checked_at}
+        path = project_dir(asset.project_id) / asset.file_path
+        try:
+            resolved = path.resolve()
+            root = project_dir(asset.project_id).resolve()
+            inside = resolved == root or root in resolved.parents
+        except OSError:
+            inside = False
+        if not inside or not resolved.is_file():
+            return {"file_exists": False, "checksum_match": None, "checked_at": checked_at}
+        if not asset.checksum:
+            return {"file_exists": True, "checksum_match": None, "checked_at": checked_at}
+        digest = hashlib.sha256()
+        with resolved.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(_STREAM_CHUNK), b""):
+                digest.update(chunk)
+        return {
+            "file_exists": True,
+            "checksum_match": digest.hexdigest() == asset.checksum,
+            "checked_at": checked_at,
+        }
+
+    def _version_context(self, asset: Asset) -> dict:
+        """版本上下文：active 指针（shot）/ MASTER（角色·地点版本 active 行）。"""
+        is_active = (
+            self.session.scalar(
+                select(func.count())
+                .select_from(Shot)
+                .where(
+                    Shot.deleted_at.is_(None),
+                    or_(
+                        Shot.active_image_asset_id == asset.id,
+                        Shot.active_video_asset_id == asset.id,
+                    ),
+                )
+            )
+            or 0
+        ) > 0
+        is_master = (
+            self.session.scalar(
+                select(func.count())
+                .select_from(CharacterVersion)
+                .where(
+                    CharacterVersion.asset_id == asset.id,
+                    CharacterVersion.deleted_at.is_(None),
+                    CharacterVersion.status == "active",
+                )
+            )
+            or 0
+        ) > 0 or (
+            self.session.scalar(
+                select(func.count())
+                .select_from(LocationVersion)
+                .where(
+                    LocationVersion.asset_id == asset.id,
+                    LocationVersion.deleted_at.is_(None),
+                    LocationVersion.status == "active",
+                )
+            )
+            or 0
+        ) > 0
+        return {
+            "version_number": asset.version_number,
+            "is_active": is_active,
+            "is_master": is_master,
+        }
+
+    def _shot_context(self, asset: Asset) -> dict | None:
+        """镜头追溯：version_group → import meta → producing generation（逐级回退）。"""
+        shot_id: str | None = None
+        if asset.version_group_id and asset.version_group_id.startswith("vg:shot:"):
+            parts = asset.version_group_id.split(":")
+            shot_id = parts[2] if len(parts) >= 3 else None
+        if shot_id is None and asset.meta_json:
+            try:
+                meta = json.loads(asset.meta_json)
+            except (ValueError, TypeError):
+                meta = None
+            if isinstance(meta, dict) and isinstance(meta.get("shot_id"), str):
+                shot_id = meta["shot_id"]
+        if shot_id is None and asset.generation_id:
+            gen = self.session.get(Generation, asset.generation_id)
+            if gen is not None and not gen.deleted_at:
+                shot_id = gen.shot_id
+        if shot_id is None:
+            return None
+        scene_id: str | None = None
+        episode_id: str | None = None
+        shot = self.session.get(Shot, shot_id)
+        if shot is not None:
+            scene_id = shot.scene_id
+            scene = self.session.get(Scene, shot.scene_id)
+            if scene is not None:
+                episode_id = scene.episode_id
+        return {"shot_id": shot_id, "scene_id": scene_id, "episode_id": episode_id}
+
     def list_assets(
         self,
         *,
@@ -404,12 +850,18 @@ class AssetService:
         asset_type: str | None = None,
         status: str | None = None,
         include_deleted: bool = False,
-    ) -> tuple[int, list[Asset]]:
+        source: str | None = None,
+        shot_id: str | None = None,
+        scene_id: str | None = None,
+        created_from: str | None = None,
+        created_to: str | None = None,
+        cursor: str | None = None,
+    ) -> tuple[int, list[Asset], str | None]:
         """P6-B: paginated, filtered project-scope asset listing (live rows by default).
 
-        Returns (total, rows) ordered by created_at DESC (newest first). Asset-level
-        filter/status validation yields 422 (invalid type/status). Soft-deleted rows
-        are excluded unless include_deleted=True.
+        P2-E2-T02: keyset cursor pagination + source/shot/scene/created_at filters.
+        Returns (total, rows, next_cursor) ordered by created_at DESC (newest first).
+        offset/limit 保留向后兼容；cursor 与 offset 同传 → 422。非法过滤值 → 422。
         """
         if self.session.get(Project, project_id) is None:
             raise NotFoundError("Project does not exist.", {"project_id": project_id})
@@ -424,6 +876,16 @@ class AssetService:
                 "Invalid status filter.",
                 {"status": status, "allowed": sorted(ASSET_STATUSES)},
             )
+        if source is not None and source not in set(ASSET_SOURCE_TYPES):
+            raise ValidationError(
+                "Invalid source filter.",
+                {"source": source, "allowed": sorted(ASSET_SOURCE_TYPES)},
+            )
+        if cursor is not None and offset != 0:
+            raise ValidationError(
+                "cursor and offset are mutually exclusive.",
+                {"cursor": cursor, "offset": offset},
+            )
 
         conds = [Asset.project_id == project_id]
         if not include_deleted:
@@ -432,18 +894,87 @@ class AssetService:
             conds.append(Asset.type == asset_type)
         if status:
             conds.append(Asset.status == status)
-
+        if source:
+            conds.append(Asset.source_type == source)
+        if shot_id is not None or scene_id is not None:
+            conds.append(self._shot_scope_condition(project_id, shot_id=shot_id, scene_id=scene_id))
+        if created_from is not None:
+            conds.append(Asset.created_at >= _normalize_time_bound(created_from, is_end=False, field="created_from"))
+        if created_to is not None:
+            conds.append(Asset.created_at <= _normalize_time_bound(created_to, is_end=True, field="created_to"))
+        # total 只计过滤结果（不计游标位置），前端 "x / total" 才有意义。
         total = self.session.scalar(select(func.count()).select_from(Asset).where(*conds))
-        rows = list(
+        if cursor is not None:
+            cursor_created, cursor_id = _decode_cursor(cursor)
+            conds.append(
+                or_(
+                    Asset.created_at < cursor_created,
+                    (Asset.created_at == cursor_created) & (Asset.id < cursor_id),
+                )
+            )
+
+        # 取 limit+1 行判断是否还有下一页（keyset 分页无重复/漏项）。
+        fetched = list(
             self.session.scalars(
                 select(Asset)
                 .where(*conds)
                 .order_by(Asset.created_at.desc(), Asset.id.desc())
                 .offset(offset)
-                .limit(limit)
+                .limit(limit + 1)
             )
         )
-        return int(total or 0), rows
+        if len(fetched) > limit:
+            rows, next_cursor = fetched[:limit], _encode_cursor(fetched[limit - 1].created_at, fetched[limit - 1].id)
+        else:
+            rows, next_cursor = fetched, None
+        return int(total or 0), rows, next_cursor
+
+    def _shot_scope_condition(self, project_id: str, *, shot_id: str | None, scene_id: str | None):
+        """shot/scene 作用域条件：版本组归属（vg:shot:{id}）或该镜头 generation 产物。
+
+        shot/scene 不存在（或已删）→ 404；归属项目不一致 → 422（防跨项目泄漏）。
+        """
+        if shot_id is not None and scene_id is not None:
+            raise ValidationError(
+                "shot_id and scene_id are mutually exclusive.",
+                {"shot_id": shot_id, "scene_id": scene_id},
+            )
+        if shot_id is not None:
+            shot = self.session.get(Shot, shot_id)
+            if shot is None or shot.deleted_at:
+                raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
+            self._require_shot_in_project(shot, project_id)
+            shot_ids = [shot_id]
+        else:
+            assert scene_id is not None
+            scene = self.session.get(Scene, scene_id)
+            if scene is None or scene.deleted_at:
+                raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
+            episode = self.session.get(Episode, scene.episode_id)
+            if episode is None or episode.project_id != project_id:
+                raise ValidationError("Scene does not belong to this project.", {"scene_id": scene_id})
+            shot_ids = list(
+                self.session.scalars(select(Shot.id).where(Shot.scene_id == scene_id))
+            )
+            if not shot_ids:
+                return Asset.id.is_(None)  # 空场景 → 空结果（永假条件）
+
+        vg_conds = [Asset.version_group_id.like(f"vg:shot:{sid}:%") for sid in shot_ids]
+        produced = (
+            select(GenerationOutput.asset_id)
+            .join(Generation, Generation.id == GenerationOutput.generation_id)
+            .where(Generation.shot_id.in_(shot_ids), Generation.deleted_at.is_(None))
+        )
+        # P2-E2-T02: import 时 meta 关联的 shot（json_extract 对字符串值返无引号 TEXT）。
+        meta_conds = [func.json_extract(Asset.meta_json, "$.shot_id") == sid for sid in shot_ids]
+        return or_(*vg_conds, Asset.id.in_(produced), *meta_conds)
+
+    def _require_shot_in_project(self, shot: Shot, project_id: str) -> None:
+        """shot→scene→episode 回查项目归属；不一致 → 422。"""
+        scene = self.session.get(Scene, shot.scene_id)
+        episode = self.session.get(Episode, scene.episode_id) if scene else None
+        if scene is None or episode is None or episode.project_id != project_id:
+            raise ValidationError("Shot does not belong to this project.", {"shot_id": shot.id})
 
     def absolute_path(self, asset: Asset) -> Path:
         if not asset.file_path:

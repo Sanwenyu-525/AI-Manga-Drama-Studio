@@ -217,6 +217,21 @@ class EventGateway:
 _gateway: EventGateway | None = None
 
 
+def gateway_status() -> dict[str, Any]:
+    """Diagnostic snapshot for /health (P1-E4-T03): started + client counts.
+
+    Cheap, no I/O — safe to call on every health probe.
+    """
+    gateway = _gateway
+    if gateway is None or not gateway._started:
+        return {"started": False, "clients": 0, "dropped_total": 0}
+    return {
+        "started": True,
+        "clients": len(gateway._clients),
+        "dropped_total": sum(client.dropped for client in gateway._clients),
+    }
+
+
 def start_gateway() -> EventGateway:
     """Bind the process-wide gateway to the running loop (idempotent — repeated
     startup calls on the same loop return the existing gateway, never a second

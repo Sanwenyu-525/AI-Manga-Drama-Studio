@@ -62,13 +62,44 @@ class GenerateImageArgs(BaseModel):
 
 class ContinuityFixArgs(BaseModel):
     """P8-T019: fix one continuity warning. patch is a shot field patch (Valid keys
-    follow update_shot); shot_id is optional (resolved from the warning)."""
+    follow update_shot); shot_id is optional (resolved from the warning).
 
-    warning_id: str
+    warning_id is optional so the planner (fake rules or a real LLM that never saw
+    the opaque warning UUIDs) can emit continuity_fix with just a shot_id — the
+    executor resolves the latest open warning for that shot, and fails
+    structurally (NO_OPEN_WARNING) when there is none instead of guessing."""
+
+    warning_id: str | None = None
     shot_id: str | None = None
     patch: dict = Field(
         default_factory=dict,
         description="Valid keys: shot_type, camera_angle, camera_movement, duration, action, emotion, dialogue, image_prompt, status, dirty_state",
+    )
+
+
+class CreateShotArgs(BaseModel):
+    """R1: create one shot in a scene (auto-applied, undoable via delete)."""
+
+    scene_id: str
+    shot: dict = Field(
+        default_factory=dict,
+        description="Valid keys follow ShotCreate: shot_type, camera_angle, camera_movement, duration, action, emotion, dialogue, image_prompt",
+    )
+
+
+class DeleteShotArgs(BaseModel):
+    """R3: delete one shot — always a pending Proposal, applied on human approve."""
+
+    shot_id: str
+
+
+class ReorderShotsArgs(BaseModel):
+    """R1: reorder a scene's shots (auto-applied, undoable via reorder-back)."""
+
+    scene_id: str
+    ordered_ids: list[str] = Field(
+        ...,
+        description="Complete ordered shot id list (exactly the scene's live shots).",
     )
 
 
@@ -108,6 +139,9 @@ TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
     "update_scene": UpdateSceneArgs,
     "generate_image": GenerateImageArgs,
     "continuity_fix": ContinuityFixArgs,
+    "create_shot": CreateShotArgs,
+    "delete_shot": DeleteShotArgs,
+    "reorder_shots": ReorderShotsArgs,
     "check_workflow": CheckWorkflowArgs,
     "inspect_comfy": InspectComfyArgs,
 }
@@ -445,6 +479,236 @@ class ToolExecutor:
             },
         )
 
+    def _create_shot(self, args: dict) -> ToolResult:
+        """R1: create one shot (auto-apply + lifecycle ChangeSet, undo = delete).
+
+        Idempotent on graph resume: a recorded create for (run, scene) with the
+        identical requested payload means the pre-interrupt pass already created
+        it, so the re-run skips instead of double-creating."""
+        from app.agents.risk import approval_needed, classify_tool_operation
+
+        schema = CreateShotArgs.model_validate(args)
+        scene = self._require_scene(schema.scene_id)
+        run = self.session.get(AgentRun, self.run_id) if self.run_id else None
+        if run is None:
+            return ToolResult(
+                success=False,
+                error="create_shot requires a persisted agent run.",
+                data={"code": "AGENT_RUN_REQUIRED"},
+            )
+        assessment = classify_tool_operation("create_shot", args)
+        if approval_needed("create_shot", args):
+            return ToolResult(
+                success=False,
+                error="create_shot risk escalated; manual approval not implemented.",
+                data={"code": "RISK_ESCALATED", "risk_level": assessment.risk_level},
+            )
+        from app.domain.shot import ShotCreate
+        from app.services.change_set_service import ChangeSetService
+
+        requested = {k: v for k, v in schema.shot.items() if v is not None}
+        try:
+            data = ShotCreate.model_validate(requested)
+        except Exception as exc:  # noqa: BLE001 - pydantic error surfaced structurally
+            return ToolResult(success=False, error=str(exc), data={"code": "VALIDATION_ERROR"})
+        existing = self._existing_create_change_set(run.id, requested)
+        if existing is not None:
+            return ToolResult(
+                success=True,
+                entity_id=existing.entity_id,
+                created_entities=[existing.entity_id],
+                data={"message": "already applied", "change_set_id": existing.id},
+            )
+        created = self.shots.create_shot(scene.id, data)
+        change_set = ChangeSetService(self.session).record_shot_lifecycle(
+            project_id=run.project_id,
+            run_id=run.id,
+            tool="create_shot",
+            shot_id=created.id,
+            exists_before=False,
+            exists_after=True,
+            payload=requested,
+            revision_after=created.revision,
+        )
+        return ToolResult(
+            success=True,
+            entity_id=created.id,
+            created_entities=[created.id],
+            data={
+                "applied": True,
+                "change_set_id": change_set.id,
+                "shot_number": created.shot_number,
+                "risk_level": assessment.risk_level,
+            },
+        )
+
+    def _existing_create_change_set(self, run_id: str, requested: dict):
+        """Latest create_shot change set of this run with the identical payload."""
+        from sqlalchemy import select
+
+        from app.db.models import AgentChangeSet
+
+        rows = list(
+            self.session.scalars(
+                select(AgentChangeSet)
+                .where(
+                    AgentChangeSet.run_id == run_id,
+                    AgentChangeSet.tool == "create_shot",
+                    AgentChangeSet.source == "agent",
+                )
+                .order_by(AgentChangeSet.created_at.desc())
+            )
+        )
+        for row in rows:
+            after = json.loads(row.after_json) if row.after_json else {}
+            payload = {k: v for k, v in after.items() if k != "_exists"}
+            if payload == requested:
+                return row
+        return None
+
+    def _delete_shot(self, args: dict) -> ToolResult:
+        """R3: delete one shot — always a pending Proposal, applied on human approve
+        (base_revision guarded). Resume re-runs must not re-propose."""
+        from app.agents.risk import approval_needed, classify_tool_operation
+
+        schema = DeleteShotArgs.model_validate(args)
+        run = self.session.get(AgentRun, self.run_id) if self.run_id else None
+        if run is None:
+            return ToolResult(
+                success=False,
+                error="delete_shot requires a persisted agent run.",
+                data={"code": "AGENT_RUN_REQUIRED"},
+            )
+        # Resume guard FIRST: after an approve the target is soft-deleted, so a
+        # resume re-run must hit the already-decided path before _require_shot
+        # rejects the deleted row (otherwise every approved delete fails the run).
+        existing = self._existing_proposal(run.id, schema.shot_id, "delete_shot")
+        if existing is not None:
+            return ToolResult(
+                success=True,
+                entity_id=schema.shot_id,
+                proposal_created=False,
+                proposal_id=existing.id,
+                data={
+                    "proposal_id": existing.id,
+                    "status": existing.status,
+                    "message": "already decided",
+                    "base_revision": existing.base_revision,
+                },
+            )
+        shot = self._require_shot(schema.shot_id)
+        assessment = classify_tool_operation("delete_shot", args)
+        if not approval_needed("delete_shot", args):
+            # Unreachable under the current policy (R3 always approves) — the
+            # direct path exists only so a future policy change stays explicit.
+            from app.services.change_set_service import ChangeSetService
+
+            revision = shot.revision
+            self.shots.delete_shot(shot.id)
+            change_set = ChangeSetService(self.session).record_shot_lifecycle(
+                project_id=run.project_id,
+                run_id=run.id,
+                tool="delete_shot",
+                shot_id=shot.id,
+                exists_before=True,
+                exists_after=False,
+                revision_before=revision,
+            )
+            return ToolResult(
+                success=True,
+                entity_id=shot.id,
+                data={"applied": True, "change_set_id": change_set.id},
+            )
+        proposal = ProposalService(self.session).create_delete_proposal(
+            run, shot.id, shot.revision, assessment
+        )
+        return ToolResult(
+            success=True,
+            entity_id=shot.id,
+            proposal_created=True,
+            proposal_id=proposal.id,
+            data={
+                "proposal_id": proposal.id,
+                "status": "pending",
+                "base_revision": shot.revision,
+                "risk_level": assessment.risk_level,
+            },
+        )
+
+    def _reorder_shots(self, args: dict) -> ToolResult:
+        """R1: reorder a scene's shots (auto-apply + order ChangeSet on the scene,
+        undo = reorder back). Idempotent on graph resume via the recorded order."""
+        from app.agents.risk import approval_needed, classify_tool_operation
+
+        schema = ReorderShotsArgs.model_validate(args)
+        scene = self._require_scene(schema.scene_id)
+        run = self.session.get(AgentRun, self.run_id) if self.run_id else None
+        if run is None:
+            return ToolResult(
+                success=False,
+                error="reorder_shots requires a persisted agent run.",
+                data={"code": "AGENT_RUN_REQUIRED"},
+            )
+        assessment = classify_tool_operation("reorder_shots", args)
+        if approval_needed("reorder_shots", args):
+            return ToolResult(
+                success=False,
+                error="reorder_shots risk escalated; manual approval not implemented.",
+                data={"code": "RISK_ESCALATED", "risk_level": assessment.risk_level},
+            )
+        from sqlalchemy import select
+
+        from app.db.models import AgentChangeSet
+        from app.services.change_set_service import ChangeSetService
+
+        before_ids = [s.id for s in self.shots.list_shots(scene.id)]
+        if before_ids == schema.ordered_ids:
+            return ToolResult(
+                success=True,
+                entity_id=scene.id,
+                data={"applied": False, "message": "order unchanged"},
+            )
+        existing = self.session.scalar(
+            select(AgentChangeSet)
+            .where(
+                AgentChangeSet.run_id == run.id,
+                AgentChangeSet.tool == "reorder_shots",
+                AgentChangeSet.entity_id == scene.id,
+                AgentChangeSet.source == "agent",
+            )
+            .order_by(AgentChangeSet.created_at.desc())
+            .limit(1)
+        )
+        if existing is not None:
+            after = json.loads(existing.after_json) if existing.after_json else {}
+            if after.get("shot_order") == schema.ordered_ids:
+                return ToolResult(
+                    success=True,
+                    entity_id=scene.id,
+                    data={"message": "already applied", "change_set_id": existing.id},
+                )
+        try:
+            self.shots.reorder_shots(scene.id, schema.ordered_ids)
+        except StudioError as exc:
+            return ToolResult(success=False, error=exc.message, data={"code": exc.code})
+        change_set = ChangeSetService(self.session).record_shot_order(
+            project_id=run.project_id,
+            run_id=run.id,
+            tool="reorder_shots",
+            scene_id=scene.id,
+            before_ids=before_ids,
+            after_ids=schema.ordered_ids,
+        )
+        return ToolResult(
+            success=True,
+            entity_id=scene.id,
+            data={
+                "applied": True,
+                "change_set_id": change_set.id,
+                "risk_level": assessment.risk_level,
+            },
+        )
+
     def _generate_image(self, args: dict) -> ToolResult:
         """R2 (P2-E3-T02): generation is expensive — by default NO Generation row is
         created before a human approves a pending proposal carrying the risk
@@ -544,29 +808,30 @@ class ToolExecutor:
             .limit(1)
         )
 
+    def _open_warning_for_shot(self, shot_id: str):
+        """Latest open warning for a shot (None when there is nothing to fix)."""
+        from sqlalchemy import select
+
+        from app.db.models import ContinuityWarning
+
+        return self.session.scalar(
+            select(ContinuityWarning)
+            .where(ContinuityWarning.shot_id == shot_id, ContinuityWarning.status == "open")
+            .order_by(ContinuityWarning.created_at.desc())
+            .limit(1)
+        )
+
     def _continuity_fix(self, args: dict) -> ToolResult:
         """P8-T019: create a continuity fix PROPOSAL (never a direct write). The
         proposal parks the run in WAITING_HUMAN; on human approve it applies via
-        ShotService and marks the warning fixed."""
+        ShotService and marks the warning fixed.
+
+        Idempotent on graph resume (same guard pattern as update_shot): a proposal
+        already recorded for (run, target) means the pre-interrupt pass ran, so a
+        resume re-run must not propose twice."""
         from app.db.models import AgentRun, ContinuityWarning
 
         schema = ContinuityFixArgs.model_validate(args)
-        warning = self.session.get(ContinuityWarning, schema.warning_id)
-        if warning is None:
-            return ToolResult(
-                success=False,
-                error="Continuity warning does not exist.",
-                data={"code": "ENTITY_NOT_FOUND"},
-            )
-        if warning.status in ("acknowledged", "fixed"):
-            return ToolResult(
-                success=False,
-                error="Warning is not open; no fix required.",
-                data={"code": "VALIDATION_ERROR", "status": warning.status},
-            )
-        shot_id = schema.shot_id or warning.shot_id
-        if shot_id:
-            self._require_shot(shot_id)
         run = self.session.get(AgentRun, self.run_id) if self.run_id else None
         if run is None:
             return ToolResult(
@@ -574,9 +839,67 @@ class ToolExecutor:
                 error="continuity_fix requires a persisted agent run.",
                 data={"code": "AGENT_RUN_REQUIRED"},
             )
+        warning: ContinuityWarning | None = None
+        if schema.warning_id:
+            warning = self.session.get(ContinuityWarning, schema.warning_id)
+            if warning is None:
+                return ToolResult(
+                    success=False,
+                    error="Continuity warning does not exist.",
+                    data={"code": "ENTITY_NOT_FOUND"},
+                )
+        shot_id = schema.shot_id or self.resolved_shot_id or (warning.shot_id if warning else None)
+        if warning is None:
+            if not shot_id:
+                return ToolResult(
+                    success=False,
+                    error="请先选中一个镜头，或说明要修复哪一镜的连续性。",
+                    data={"code": "NO_TARGET"},
+                )
+            self._require_shot(shot_id)
+            warning = self._open_warning_for_shot(shot_id)
+            if warning is None:
+                return ToolResult(
+                    success=False,
+                    error="该镜头暂无开放的连续性警告，可先运行连续性检查。",
+                    data={"code": "NO_OPEN_WARNING", "shot_id": shot_id},
+                )
+        if warning.status in ("acknowledged", "fixed"):
+            return ToolResult(
+                success=False,
+                error="Warning is not open; no fix required.",
+                data={"code": "VALIDATION_ERROR", "status": warning.status},
+            )
+        # P1-E3-T01 defense in depth: the warning must belong to the run's project.
+        if self.project_id and warning.project_id != self.project_id:
+            from app.core.errors import ValidationError
+
+            raise ValidationError(
+                "Continuity warning does not belong to the run's project.",
+                {"warning_id": warning.id, "project_id": self.project_id},
+            )
+        self._require_scene(warning.scene_id)
+        shot_id = schema.shot_id or warning.shot_id
+        if shot_id:
+            self._require_shot(shot_id)
+        # Resume re-run guard: do not re-propose an already-decided fix.
+        existing = self._existing_proposal(run.id, shot_id or warning.scene_id, "continuity_fix")
+        if existing is not None:
+            return ToolResult(
+                success=True,
+                entity_id=existing.id,
+                proposal_created=False,
+                proposal_id=existing.id,
+                data={
+                    "proposal_id": existing.id,
+                    "status": existing.status,
+                    "warning_id": warning.id,
+                    "message": "already decided",
+                },
+            )
         proposal = ProposalService(self.session).create_continuity_fix_proposal(
             run,
-            schema.warning_id,
+            warning.id,
             warning.scene_id,
             shot_id,
             schema.patch,

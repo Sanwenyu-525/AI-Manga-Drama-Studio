@@ -114,3 +114,74 @@ describe("AssetBrowserView", () => {
     expect(await screen.findByText("查看溯源")).toBeTruthy();
   });
 });
+
+// --- P2-E2-T02: Empty / Loading / Error / Pagination -------------------------
+
+function mockEmpty() {
+  vi.spyOn(client.api, "get").mockImplementation((path: string) => {
+    if (path.startsWith("/projects/proj_1/assets")) {
+      return Promise.resolve({ total: 0, items: [], next_cursor: null });
+    }
+    return Promise.resolve(shotAsset);
+  });
+}
+
+describe("AssetBrowserView states (P2-E2-T02)", () => {
+  it("shows the empty state when the project has no assets", async () => {
+    mockEmpty();
+    const { wrapper } = makeWrapper();
+    render(<AssetBrowserView projectId="proj_1" />, { wrapper });
+    expect(await screen.findByText("这个视图还没有资产")).toBeTruthy();
+  });
+
+  it("shows a loading state while the first page is in flight", async () => {
+    vi.spyOn(client.api, "get").mockImplementation(() => new Promise(() => {}));
+    const { wrapper } = makeWrapper();
+    render(<AssetBrowserView projectId="proj_1" />, { wrapper });
+    expect(await screen.findByText(/正在加载项目资产/)).toBeTruthy();
+  });
+
+  it("shows the error state with retry after a list failure", async () => {
+    const { ApiError } = await import("../api/client");
+    const failure = new ApiError(500, {
+      error: { code: "STUDIO_ERROR", message: "资产列表读取失败", details: {} },
+    });
+    const get = vi.spyOn(client.api, "get");
+    get.mockImplementation((path: string) => {
+      if (path.startsWith("/projects/proj_1/assets")) return Promise.reject(failure);
+      return Promise.resolve(shotAsset);
+    });
+    const { wrapper } = makeWrapper();
+    render(<AssetBrowserView projectId="proj_1" />, { wrapper });
+    expect(await screen.findByText("资产列表读取失败")).toBeTruthy();
+    const retry = await screen.findByText("重试");
+    // retry refetches the list (second wave succeeds)
+    get.mockImplementation((path: string) => {
+      if (path.startsWith("/projects/proj_1/assets")) return Promise.resolve(list());
+      return Promise.resolve(shotAsset);
+    });
+    fireEvent.click(retry);
+    expect(await screen.findByText(/EP01 · SC01 · SH001/)).toBeTruthy();
+  });
+
+  it("pages through cursor results with 加载更多", async () => {
+    const page1 = { total: 3, items: [shotAsset, charMaster], next_cursor: "cursor_1" };
+    const page2 = { total: 3, items: [video], next_cursor: null };
+    vi.spyOn(client.api, "get").mockImplementation((path: string) => {
+      if (path.startsWith("/projects/proj_1/assets")) {
+        return Promise.resolve(path.includes("cursor=") ? page2 : page1);
+      }
+      const m = /^\/assets\/(.+)$/.exec(path);
+      if (m) return Promise.resolve(list().items.find((a) => a.id === m[1]) ?? shotAsset);
+      return Promise.resolve([]);
+    });
+    const { wrapper } = makeWrapper();
+    render(<AssetBrowserView projectId="proj_1" />, { wrapper });
+    expect(await screen.findByText(/EP01 · SC01 · SH001/)).toBeTruthy();
+    expect(screen.queryByText(/clip vid/)).toBeNull();
+    fireEvent.click(await screen.findByText(/加载更多/));
+    // second cursor page merges in (no dup/loss)
+    expect(await screen.findByText(/clip vid/)).toBeTruthy();
+    expect(screen.getByText(/EP01 · SC01 · SH001/)).toBeTruthy();
+  });
+});

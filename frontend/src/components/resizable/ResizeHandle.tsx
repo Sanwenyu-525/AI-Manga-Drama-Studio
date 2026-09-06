@@ -21,8 +21,8 @@ interface ResizeHandleProps {
   /** Called once when a drag ends (for e.g. a debounced persist flush). */
   onDragEnd?: () => void;
   disabled?: boolean;
-  /** v2 renders on the right gutter (between workspace and right-panel). */
-  variant?: "default" | "right";
+  /** edge renders as an invisible strip over a panel boundary line (the line itself is the handle). */
+  variant?: "default" | "edge";
 }
 
 export function ResizeHandle({
@@ -94,7 +94,7 @@ export function ResizeHandle({
       aria-label={label}
       aria-orientation={axis === "vertical" ? "vertical" : "horizontal"}
       aria-disabled={disabled || undefined}
-      className={`resize-handle resize-handle--${axis}${variant === "right" ? " resize-handle--v2" : ""}${dragging ? " is-dragging" : ""}`}
+      className={`resize-handle resize-handle--${axis}${variant === "edge" ? " resize-handle--edge" : ""}${dragging ? " is-dragging" : ""}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={stop}

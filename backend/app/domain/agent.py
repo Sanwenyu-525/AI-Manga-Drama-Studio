@@ -40,7 +40,7 @@ RISK_LEVELS = (RISK_R0, RISK_R1, RISK_R2, RISK_R3)
 class ToolOperation(BaseModel):
     """One deterministic tool call planned by the LLM (agent-director §28-31)."""
 
-    tool: Literal["get_shot", "update_shot", "update_scene", "generate_image", "get_scene_shots"]
+    tool: Literal["get_shot", "update_shot", "update_scene", "generate_image", "get_scene_shots", "continuity_fix", "check_workflow", "inspect_comfy", "create_shot", "delete_shot", "reorder_shots"]
     arguments: dict = Field(default_factory=dict)  # strictly typed per tool (schema in tools.py)
 
 

@@ -151,31 +151,35 @@ export function StudioPage() {
         <Outlet context={{ projectId, activeEpisode } satisfies StudioContext} />
       </main>
 
-      <ResizeHandle
-        axis="vertical"
-        label="调整右侧面板宽度"
-        onDelta={onRightDelta}
-        onDragStart={beginPanelDrag}
-        onDragEnd={endPanelDrag}
-        disabled={rightPanelHidden}
-        variant="right"
-      />
-
       {/* Agent Dock（DESIGN.md §4：右侧固定 Agent 容器，页面 Inspector 作为 Tab）
-          外壳统管 tab 切换与收起；面板内容各自滚动。 */}
+          外壳统管 tab 切换与收起；面板内容各自滚动。
+          右侧无独立拖拽列：分界线本身就是拖拽条（压在左边框上的透明热区）。 */}
       <aside className="right-panel agent-dock">
+        <ResizeHandle
+          axis="vertical"
+          label="调整右侧面板宽度"
+          onDelta={onRightDelta}
+          onDragStart={beginPanelDrag}
+          onDragEnd={endPanelDrag}
+          disabled={rightPanelHidden}
+          variant="edge"
+        />
         {rightPanelHidden ? (
           <button
             type="button"
             className="panel-rail-btn"
-            title="展开面板"
+            title="展开右侧面板"
             aria-label="展开右侧面板"
+            aria-expanded="false"
             onClick={() => {
               setRightPanelCollapsed(false);
               if (compactLayout) setCompactPanel("right");
             }}
           >
-            <CaretLineLeft size={16} />
+            <CaretLineLeft size={16} aria-hidden />
+            <span className="panel-rail-label" aria-hidden>
+              展开面板
+            </span>
           </button>
         ) : (
           <>

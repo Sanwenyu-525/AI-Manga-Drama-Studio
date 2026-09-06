@@ -2,7 +2,7 @@
 
 AI 原生漫剧制作 Studio —— 以 AI Agent 为核心交互方式，以结构化项目系统（Project State）为记忆，以 Workflow Engine 为执行系统，以 ComfyUI 和生成模型为渲染后端的 AI 原生漫剧生产平台。
 
-> 当前阶段：**MVP+ / Alpha 功能闭环（2026-08）** —— MVP 四阶段（A–D）与 P1–P10 全部落地：小说导入 → AI 分析 → Scene/Shot → 分镜 → AI Director 修改（审批流）→ 图片生成/版本 → 时间线排片 → 配音/混音/字幕 → 整集渲染导出。真实 LLM/ComfyUI 链路仍待实测验证。详见 [AGENTS.md](./AGENTS.md) 与 [项目现状报告](./docs/PROJECT_STATUS_AND_OPTIMIZATION.md)。
+> 当前阶段：**MVP+ / Alpha 功能闭环（2026-08）** —— MVP 四阶段（A–D）与 P1–P10 全部落地：小说导入 → AI 分析 → Scene/Shot → 分镜 → AI Director 修改（审批流）→ 图片生成/版本 → 时间线排片 → 配音/混音/字幕 → 整集渲染导出。真实链路已做 Sprint 04 双引擎对跑验证（Agnes/ComfyUI Z-Image-Turbo，见 `docs/reports/real-chain-validation-report.md`）；默认仍为 fake/mock，生产需显式配置。详见 [AGENTS.md](./AGENTS.md) 与 [项目现状报告](./docs/PROJECT_STATUS_AND_OPTIMIZATION.md)。
 
 ---
 
@@ -94,8 +94,19 @@ uv run pytest tests -q
 ### 工程
 
 - ✅ CI（backend ruff+pytest / frontend build+vitest / desktop cargo check）
-- ✅ 测试：后端 pytest 314+ / 前端 vitest 157+
-- ⬜ 真实 LLM / ComfyUI 链路实测（默认 fake/mock）、音频混音与字幕烧录、E2E、桌面发行工程
+- ✅ 测试：后端 pytest 682 / 前端 vitest 299（2026-09-06 全绿）
+- ✅ 真实链路 Sprint 04 验证：Agnes 云端 + 本地 ComfyUI（Z-Image-Turbo）对跑可用；音频混音与字幕烧录已落地（P10）
+- ⬜ E2E、桌面发行工程（见 Post-MVP 路线图 Phase 5）
+
+### 外部能力默认模式与验证状态
+
+| 能力 | 默认 | 真实验证 |
+|---|---|---|
+| LLM | `fake`（确定性 FakeLLM） | Sprint 04 通过 Agnes `agnes-2.5-flash`（`STUDIO_LLM_MODE=openai`） |
+| 图片 | `mock`（确定性测试图） | Sprint 04 通过 Agnes + 本地 ComfyUI（Z-Image-Turbo int8）；生产拒 mock（fail-closed） |
+| 视频 | `mock`（fail-fast 占位） | Agnes `agnes-video-2.5-flash` 已接线；mock 仅占位 |
+| 音频 | `mock`（确定性 WAV） | `edge-tts` 在线神经音色（dev/原型）；生产默认留给云 API/本地模型 |
+| ComfyUI | 用户自启外部 Server | workflow catalog + preflight + live 诊断（Sprint 05 / P2-E4-T02） |
 
 > ⚠️ 真实验证缺口见 [项目现状报告](./docs/PROJECT_STATUS_AND_OPTIMIZATION.md) §五/§八。
 

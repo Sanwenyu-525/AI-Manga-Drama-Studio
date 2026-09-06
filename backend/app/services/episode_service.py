@@ -12,6 +12,7 @@ from app.domain.episode import EpisodeCreate, EpisodeRead, EpisodeUpdate
 from app.events.bus import (
     EVENT_EPISODE_CREATED,
     EVENT_EPISODE_DELETED,
+    EVENT_EPISODE_RESTORED,
     EVENT_EPISODE_UPDATED,
     StudioEvent,
     bus,
@@ -166,3 +167,67 @@ class EpisodeService:
                 project_id=episode.project_id,
             )
         )
+
+    def restore_episode(self, episode_id: str) -> EpisodeRead:
+        """P2-E2-T01: restore a soft-deleted episode + its cascade set.
+
+        Only rows sharing the episode's own deleted_at timestamp are revived —
+        scenes/shots deleted independently (before or after) stay deleted.
+        Parent project deleted → 409 (restore the project first). A live sibling
+        reusing the episode_number → 409 NUMBER_CONFLICT.
+        """
+        from app.repositories import ProjectRepository
+
+        episode = self.session.get(Episode, episode_id)
+        if episode is None:
+            raise NotFoundError("Episode does not exist.", {"episode_id": episode_id})
+        if episode.deleted_at is None:
+            return self.get_episode(episode_id)
+        project = ProjectRepository(self.session).get(episode.project_id)
+        if project is None:
+            raise ConflictError(
+                "Parent project is deleted. Restore the project first.",
+                {"episode_id": episode_id, "project_id": episode.project_id, "recovery": "restore_project"},
+            )
+        taker = self.session.scalar(
+            select(Episode.id).where(
+                Episode.project_id == episode.project_id,
+                Episode.episode_number == episode.episode_number,
+                Episode.deleted_at.is_(None),
+            )
+        )
+        if taker is not None:
+            raise ConflictError(
+                f"Episode number {episode.episode_number} is taken by a live episode. "
+                "Delete or renumber it first, then restore.",
+                {
+                    "episode_id": episode_id,
+                    "conflict": "number",
+                    "episode_number": episode.episode_number,
+                    "live_episode_id": taker,
+                },
+            )
+        cascade_ts = episode.deleted_at
+        episode.deleted_at = None
+        scenes = self.session.scalars(
+            select(Scene).where(Scene.episode_id == episode_id, Scene.deleted_at == cascade_ts)
+        ).all()
+        for scene in scenes:
+            scene.deleted_at = None
+        for shot in self.session.scalars(
+            select(Shot).where(
+                Shot.scene_id.in_([s.id for s in scenes]) if scenes else Shot.id == "",
+                Shot.deleted_at == cascade_ts,
+            )
+        ).all():
+            shot.deleted_at = None
+        self.session.commit()
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_EPISODE_RESTORED,
+                entity_type="episode",
+                entity_id=episode.id,
+                project_id=episode.project_id,
+            )
+        )
+        return self.get_episode(episode_id)

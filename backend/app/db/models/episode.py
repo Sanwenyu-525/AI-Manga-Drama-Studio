@@ -1,6 +1,6 @@
 """Episode model (database-v0.1 §4)."""
 
-from sqlalchemy import ForeignKey, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -12,7 +12,15 @@ EPISODE_STATUSES = ("draft", "analyzed", "planned", "generating", "done")
 class Episode(Base):
     __tablename__ = "episodes"
     __table_args__ = (
-        UniqueConstraint("project_id", "episode_number", name="uq_episodes_project_number"),
+        # P2-E2-T01: one live episode_number per project (soft-deleted rows
+        # excluded — same partial-index pattern as scenes/shots, P1-E1-T02).
+        Index(
+            "uq_episodes_project_number",
+            "project_id",
+            "episode_number",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
     )
 
     id: Mapped[str] = uuid_pk()

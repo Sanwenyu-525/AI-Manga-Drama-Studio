@@ -822,6 +822,8 @@ Advanced
 
 # 26. Asset Library
 
+> P2-E2-T02（2026-09-06）：项目媒体库（`/projects/:projectId/assets`）= 服务端分页（cursor，`next_cursor` 翻页/加载更多）+ 服务端筛选（type/source）+ 四态（Loading/Empty/Error/分页中）+ Inspector（详情 integrity/version/shot 上下文 + 溯源抽屉）。全局 `/assets`（Recent Generations）语义不变。
+
 资产库建议分：
 
 ```text

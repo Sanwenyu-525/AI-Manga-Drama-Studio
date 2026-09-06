@@ -314,6 +314,18 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
     };
   }, [readiness]);
 
+  // B+C：KPI 行全部来自真实 Project State（progress/readiness/attention），无趋势伪造。
+  const gapTarget = !readinessReady
+    ? `/projects/${pid}/continuity`
+    : !readinessReady.charReady
+      ? `/projects/${pid}/characters`
+      : !readinessReady.sceneReady
+        ? `/projects/${pid}/storyboard`
+        : `/projects/${pid}/continuity`;
+  const gapCount = readinessReady?.missingAny ?? null;
+  const failedTotal = progress.failedCount + failedRecent;
+  const runningTotal = activeGens + activeRuns;
+
   if (!pid) return <div className="workspace-loading">未打开项目</div>;
 
   return (
@@ -363,9 +375,13 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
             </span>
             <span className="mono small ws-status-pct">{imagePct}%</span>
           </div>
-          <ol className="ws-stage-strip">
+          <ol className="ws-stage-strip" aria-label="生产管线阶段">
             {pipeline.map((stage) => (
-              <li key={stage.key} className={`ws-stage-chip ${stage.state}`}>
+              <li
+                key={stage.key}
+                className={`ws-stage-chip ${stage.state}`}
+                aria-current={stage.state === "running" ? "step" : undefined}
+              >
                 <Link to={stageTarget(stage.key)} title={`打开「${stage.label}」`}>
                   <span className="ws-stage-icon">
                     {stage.state === "done" ? (
@@ -382,6 +398,78 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
               </li>
             ))}
           </ol>
+        </section>
+
+        {/* ---- C：关键指标行（无面板外框，卡片直接裸排） ---- */}
+        <section className="ws-panel-kpi" aria-label="关键指标">
+          <ul className="ws-kpi-grid">
+            <li className="ws-kpi-card">
+              <Link
+                to={stageTarget("image")}
+                className="ws-kpi-link"
+                aria-label={`指标：出图进度${imagePct}%，${progress.imageReadyCount}/${progress.shotCount}镜头`}
+              >
+                <FilmStrip size={16} aria-hidden />
+                <span className="ws-kpi-value mono">{imagePct}%</span>
+                <span className="ws-kpi-label">出图进度</span>
+                <span className="ws-kpi-sub muted">
+                  {progress.imageReadyCount}/{progress.shotCount} 镜头
+                </span>
+              </Link>
+            </li>
+            <li className="ws-kpi-card">
+              <Link
+                to={`/projects/${pid}/script`}
+                className="ws-kpi-link"
+                aria-label={`指标：${progress.episodes.length}集${progress.sceneCount}场，${progress.shotCount}镜头`}
+              >
+                <Scroll size={16} aria-hidden />
+                <span className="ws-kpi-value mono">
+                  {progress.episodes.length}集 · {progress.sceneCount}场
+                </span>
+                <span className="ws-kpi-label">剧集规模</span>
+                <span className="ws-kpi-sub muted">{progress.shotCount} 镜头</span>
+              </Link>
+            </li>
+            <li className="ws-kpi-card">
+              <Link
+                to={gapTarget}
+                className="ws-kpi-link"
+                aria-label={
+                  gapCount == null
+                    ? "指标：缺口读取中"
+                    : gapCount === 0
+                      ? "指标：待补缺口0项，一致性资产就绪"
+                      : `指标：待补缺口${gapCount}项`
+                }
+              >
+                <ShieldCheck size={16} aria-hidden />
+                <span className="ws-kpi-value mono">{gapCount == null ? "…" : gapCount}</span>
+                <span className="ws-kpi-label">待补缺口</span>
+                <span className="ws-kpi-sub muted">
+                  {gapCount == null ? "读取中" : gapCount === 0 ? "缺口为 0 · 可放心生成" : "角色 / 地点 / 连续性"}
+                </span>
+              </Link>
+            </li>
+            <li className="ws-kpi-card">
+              <Link
+                to={`/projects/${pid}/production-log`}
+                className="ws-kpi-link"
+                aria-label={
+                  failedTotal === 0 && runningTotal === 0
+                    ? "指标：无失败，空闲"
+                    : `指标：失败${failedTotal}项，运行中${runningTotal}项`
+                }
+              >
+                <Warning size={16} aria-hidden />
+                <span className="ws-kpi-value mono">{failedTotal}</span>
+                <span className="ws-kpi-label">失败</span>
+                <span className="ws-kpi-sub muted">
+                  {runningTotal === 0 ? "无运行中任务" : `${runningTotal} 运行中`}
+                </span>
+              </Link>
+            </li>
+          </ul>
         </section>
 
         {/* ---- 最近生成（视觉产出缩略图流，点击直达镜头/资产） ---- */}
@@ -460,7 +548,8 @@ export function WorkspaceOverviewPage({ projectId }: { projectId?: string }) {
                         <span className="ws-ep-name">
                           EP{String(ep.episodeNumber).padStart(2, "0")} · {ep.title || "未命名"}
                         </span>
-                        <span className={`btn tiny ${isCurrent ? "primary" : "secondary"}`}>{action.label}</span>
+                        {/* 全页唯一 Primary 留给顶部状态区；卡片按钮一律 secondary（single-primary-CTA） */}
+                        <span className="btn tiny secondary">{action.label}</span>
                       </span>
                       <span className="ws-ep-row muted small">
                         <span>

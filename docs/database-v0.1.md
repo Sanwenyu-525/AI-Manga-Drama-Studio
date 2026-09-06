@@ -618,6 +618,7 @@ failed
 业务不变量由 Service 与数据库共同保护（软删除行不参与唯一性，编号可复用）：
 
 ```text
+episodes:        UNIQUE (project_id, episode_number) WHERE deleted_at IS NULL  （P2-E2-T01：原全量约束改为部分索引，删除后可重建同号）
 scenes:          UNIQUE (episode_id, scene_number)  WHERE deleted_at IS NULL
 shots:           UNIQUE (scene_id, shot_number)     WHERE deleted_at IS NULL
                  UNIQUE (scene_id, shot_order)      WHERE deleted_at IS NULL
@@ -1764,7 +1765,7 @@ agent_proposals
 ```text
 id              -- PK
 run_id          -- FK → agent_runs.id
-tool            -- 'update_shot' | 'generate_image' | 'continuity_fix'
+tool            -- 'update_shot' | 'generate_image' | 'continuity_fix' | 'delete_shot'
 target_type     -- 'shot' | 'continuity'
 target_id       -- shot id / scene id
 base_revision   -- 提案时 shot.revision（乐观并发守卫，T016）
@@ -1806,12 +1807,14 @@ id                        -- PK
 project_id                -- FK → projects.id（项目作用域检索）
 run_id                    -- FK → agent_runs.id（可空：非 run 来源）
 source                    -- 'agent' | 'undo'
-tool                      -- update_shot | generate_image | undo:{原tool}
-entity_type               -- 'shot'
-entity_id                 -- shot id
-revision_before/after     -- 该次变更前后 shot.revision（active 切换时相等）
+tool                      -- update_shot | generate_image | create_shot | delete_shot | reorder_shots | undo:{原tool}
+entity_type               -- 'shot'（create/delete/patch/active 切换）| 'scene'（reorder_shots 顺序）
+entity_id                 -- shot id / scene id（reorder 时）
+revision_before/after     -- 该次变更前后 shot.revision（active 切换时相等；
+                             生命周期缺席侧与 reorder 时为 0）
 before_json / after_json  -- 最小 {field: value} patch（active 切换为伪字段
-                            active_image_asset_id）
+                             active_image_asset_id；create/delete 为伪字段 _exists；
+                             reorder 为伪字段 shot_order=全序 id 表）
 undone                    -- 是否已被撤销（幂等终态：再 undo → 409）
 undone_at
 undone_by_change_set_id   -- 补偿 ChangeSet id（自引用）
@@ -2373,6 +2376,23 @@ deleted_at
 因为 AI 很可能误删。
 
 用户必须可以 Undo。
+
+## 41.1 生命周期矩阵（P2-E2-T01：active → deleted → restored）
+
+物理删除不存在（资产 GC 是独立候选任务）；归档 = 软删除 + 回收站审阅。
+
+| 实体 | 删除 | 级联 | 恢复 | 恢复冲突 |
+|---|---|---|---|---|
+| Project | `DELETE /projects/{id}` | 同 `deleted_at` 时间戳：episodes/scenes/shots/characters + locations/costumes/documents；生产记录（generations/assets/versions/timelines/pipelines/snapshots）**不级联**，作为历史保留 | `POST /projects/{id}/restore`（同时间戳行；独立删除的行保持删除） | 无（项目无编号） |
+| Episode | `DELETE /episodes/{id}` | scenes + shots（同时间戳） | `POST /episodes/{id}/restore`；父项目已删 → 409（先恢复项目） | live 同号剧集 → 409（`uq_episodes_project_number` 仅约束 live 行，P2-E2-T01 迁移） |
+| Scene | `DELETE /scenes/{id}` | 不级联（镜头按 P1-E1-T02 父删子隐：读/写/删一律 404） | `POST /scenes/{id}/restore`；父剧集已删 → 409 | live 同号场景 → 409 |
+| Shot | `DELETE /shots/{id}`（含批量） | 无 | `POST /shots/{id}/restore`；父场景已删 → 409（先恢复场景）；Agent delete 的撤销经同一路径 | live 同号/同序镜头 → 409（附 `live_shot_id`） |
+| Character | `DELETE /characters/{id}` | 无（`shot_characters` 链接保留为历史） | `POST /characters/{id}/restore`（链接自动复活；名不唯一故永不冲突） | 无 |
+| Asset | `POST /assets/{id}/archive`（归档=软删除；`DELETE /assets/{id}?confirm=true` 物理删除，不可恢复） | 无（资产是叶子文件登记；引用方指针不跟删） | `POST /assets/{id}/restore` | 同组同号 live 行已存在（`uq_assets_version` 部分唯一）→ 409 |
+
+资产归档不进项目回收站（`GET /projects/{id}/trash` 仍为四类实体，资产量级大经列表 `include_deleted=true` 表达）；被 active 引用（shot active 指针/角色·地点 MASTER/timeline clip）→ 409 `ASSET_REFERENCED`（P2-E2-T02，零 Schema 变更：复用 `status=archived` + `deleted_at`）。
+
+父删子不可见：读路径一律经 live 过滤（Repository `get`/`list_*` 排除软删除行；镜头额外校验父场景 live）。回收站：`GET /projects/{id}/trash`（四类删除行，时间倒序）+ `GET /projects?include_deleted=true`（项目级）。事件：`*.restored`（§143）。
 
 ---
 

@@ -44,6 +44,7 @@ def _project_read(p: Project) -> ProjectRead:
         revision=p.revision,
         created_at=p.created_at,
         updated_at=p.updated_at,
+        deleted_at=p.deleted_at,
     )
 
 

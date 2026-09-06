@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from app.agents.fake_planner import parse_director_plan, parse_production_intent
 from app.core.logging import get_logger
 from app.domain.agent import DirectorPlan, ProductionIntent
-from app.domain.analysis import ScenePlan, ShotPlan
+from app.domain.analysis import CharacterCandidate, ScenePlan, ShotPlan
 from app.domain.continuity import SemanticWarning
 from app.llm.messages import ChatMessage, ChatOptions, ChatResponse, TokenUsage
 
@@ -106,6 +106,8 @@ class FakeLLMGateway:
     async def structured_list(self, schema: type[T], system: str, prompt: str) -> list[T]:
         if schema is ScenePlan:
             return self._scene_plans(prompt)  # type: ignore[return-value]
+        if schema is CharacterCandidate:
+            return self._character_candidates()  # type: ignore[return-value]
         if schema is ShotPlan:
             return self._shot_plans(prompt)  # type: ignore[return-value]
         if schema is SemanticWarning:
@@ -171,6 +173,14 @@ class FakeLLMGateway:
                 mood=_MOODS[i % len(_MOODS)],
             )
             for i in range(n_scenes)
+        ]
+
+    def _character_candidates(self) -> list[CharacterCandidate]:
+        """P2-E1-T02 fake: deterministic candidates so the review/merge flow is
+        testable without a key (names fixed — matching, not extraction, is under test)."""
+        return [
+            CharacterCandidate(name="沈亦", description="主角，执着于篮球的天台少年。"),
+            CharacterCandidate(name="顾言", description="队友，冷静的三分射手。"),
         ]
 
     def _shot_plans(self, prompt: str) -> list[ShotPlan]:

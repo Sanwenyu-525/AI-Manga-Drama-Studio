@@ -20,6 +20,7 @@ from app.domain.character import (
 from app.events.bus import (
     EVENT_CHARACTER_CREATED,
     EVENT_CHARACTER_DELETED,
+    EVENT_CHARACTER_RESTORED,
     EVENT_CHARACTER_UPDATED,
     StudioEvent,
     bus,
@@ -202,6 +203,30 @@ class CharacterService:
                 project_id=character.project_id,
             )
         )
+
+    def restore_character(self, character_id: str) -> CharacterRead:
+        """P2-E2-T01: restore a soft-deleted character.
+
+        No parent, no numbering — names are not unique, so restore never
+        conflicts. Shot links were kept as history and revive automatically.
+        Already live → no-op (idempotent).
+        """
+        character = self.session.get(Character, character_id)
+        if character is None:
+            raise NotFoundError("Character does not exist.", {"character_id": character_id})
+        if character.deleted_at is None:
+            return self.get_character(character_id)
+        character.deleted_at = None
+        self.session.commit()
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_CHARACTER_RESTORED,
+                entity_type="character",
+                entity_id=character.id,
+                project_id=character.project_id,
+            )
+        )
+        return self.get_character(character_id)
 
     # --- helpers ---
 

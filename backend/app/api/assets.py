@@ -19,7 +19,17 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.domain.asset import AssetDetailRead, AssetListRead, AssetListItemRead, AssetMissingCheckRead, AssetRead
+from app.domain.asset import (
+    AssetDeleteRead,
+    AssetDetailRead,
+    AssetIntegrityRead,
+    AssetListRead,
+    AssetListItemRead,
+    AssetMissingCheckRead,
+    AssetRead,
+    AssetShotContextRead,
+    AssetVersionContextRead,
+)
 from app.services.asset_service import AssetService
 
 router = APIRouter(prefix="/assets", tags=["assets"])
@@ -75,14 +85,6 @@ def _asset_dimensions(asset) -> tuple[int | None, int | None]:
     return width, height
 
 
-def _shot_ref(asset) -> str | None:
-    """Reference summary: shot_id carried in version_group_id (vg:shot:{id}:{PURPOSE})."""
-    if not asset.version_group_id or not asset.version_group_id.startswith("vg:shot:"):
-        return None
-    parts = asset.version_group_id.split(":")
-    return parts[2] if len(parts) >= 3 else None
-
-
 def _to_asset_list_item(asset) -> AssetListItemRead:
     width, height = _asset_dimensions(asset)
     return AssetListItemRead(
@@ -103,7 +105,7 @@ def _to_asset_list_item(asset) -> AssetListItemRead:
     )
 
 
-def _to_asset_detail(asset) -> AssetDetailRead:
+def _to_asset_detail(asset, integrity: dict, version_context: dict, shot_context: dict | None) -> AssetDetailRead:
     width, height = _asset_dimensions(asset)
     return AssetDetailRead(
         id=asset.id,
@@ -122,7 +124,10 @@ def _to_asset_detail(asset) -> AssetDetailRead:
         meta_json=asset.meta_json,
         generation_id=asset.generation_id,
         parent_asset_id=asset.parent_asset_id,
-        shot_id=_shot_ref(asset),
+        shot_id=shot_context["shot_id"] if shot_context else None,
+        integrity=AssetIntegrityRead(**integrity),
+        version_context=AssetVersionContextRead(**version_context),
+        shot_context=AssetShotContextRead(**shot_context) if shot_context else None,
     )
 
 
@@ -154,12 +159,16 @@ def import_asset(
     asset_type: Literal["image", "video"] = Form(...),
     purpose: str | None = Form(default=None),
     source_name: str | None = Form(default=None),
+    shot_id: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> AssetRead:
     """P3-T003: import a single file as a project-scope Asset (multipart).
 
     FastAPI validates the form fields (an invalid asset_type is a 422 through
     the standard RequestValidationError handler); AssetService owns the rest.
+
+    P2-E2-T02: optional `shot_id` links the import to a shot (meta-only, no
+    version-group ownership); unknown shot → 404, cross-project shot → 422.
     """
     suffix = Path(file.filename or "").suffix
     # Stream to the temp file in chunks — the multipart body must never be fully
@@ -175,6 +184,7 @@ def import_asset(
             source_path=tmp_path,
             purpose=purpose,
             source_name=source_name or (file.filename or None),
+            shot_id=shot_id,
         )
     finally:
         tmp_path.unlink(missing_ok=True)
@@ -199,27 +209,77 @@ def list_project_assets(
     asset_type: str | None = Query(default=None),
     status: str | None = Query(default=None),
     include_deleted: bool = Query(default=False),
+    source: str | None = Query(default=None),
+    shot_id: str | None = Query(default=None),
+    scene_id: str | None = Query(default=None),
+    created_from: str | None = Query(default=None),
+    created_to: str | None = Query(default=None),
+    cursor: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> AssetListRead:
     """P6-B: paginated, filtered project-scope asset list ({total, items}).
 
     Live (non-deleted) rows only by default; filters are validated in
-    AssetService (invalid type/status → 422). Order: created_at DESC.
+    AssetService (invalid type/status/source → 422). Order: created_at DESC.
+
+    P2-E2-T02: keyset cursor pagination (opaque `cursor` + `next_cursor`,
+    mutually exclusive with offset) + source/shot/scene/created_at filters.
+    `asset_type` 即 AC 所说 media_type；shot/scene 跨项目 → 422，不存在 → 404。
     """
     service = AssetService(db)
-    total, rows = service.list_assets(
+    total, rows, next_cursor = service.list_assets(
         project_id=project_id,
         limit=limit,
         offset=offset,
         asset_type=asset_type,
         status=status,
         include_deleted=include_deleted,
+        source=source,
+        shot_id=shot_id,
+        scene_id=scene_id,
+        created_from=created_from,
+        created_to=created_to,
+        cursor=cursor,
     )
-    return AssetListRead(total=total, items=[_to_asset_list_item(a) for a in rows])
+    return AssetListRead(
+        total=total, items=[_to_asset_list_item(a) for a in rows], next_cursor=next_cursor
+    )
+
+
+@router.post("/{asset_id}/archive", response_model=AssetRead)
+def archive_asset(asset_id: str, db: Session = Depends(get_db)) -> AssetRead:
+    """P2-E2-T02: 归档（软删除；已归档幂等）。被 active 引用 → 409 + 引用清单。"""
+    return _to_asset_read(AssetService(db).archive_asset(asset_id))
+
+
+@router.post("/{asset_id}/restore", response_model=AssetRead)
+def restore_asset(asset_id: str, db: Session = Depends(get_db)) -> AssetRead:
+    """P2-E2-T02: 恢复归档资产；版本槽被占 → 409。"""
+    return _to_asset_read(AssetService(db).restore_asset(asset_id))
+
+
+@router.delete("/{asset_id}", response_model=AssetDeleteRead)
+def delete_asset(
+    asset_id: str,
+    confirm: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> AssetDeleteRead:
+    """P2-E2-T02: 物理删除（不可恢复）。
+
+    缺 confirm=true → 422；未归档 → 422（两步确认）；任何引用 → 409。
+    """
+    result = AssetService(db).delete_asset(asset_id, confirm=confirm)
+    return AssetDeleteRead(**result)
 
 
 @router.get("/{asset_id}", response_model=AssetDetailRead)
 def get_asset_detail(asset_id: str, db: Session = Depends(get_db)) -> AssetDetailRead:
-    """P6-B: single-asset full detail (Inspector). 404 when absent or soft-deleted."""
-    asset = AssetService(db).get_asset(asset_id)
-    return _to_asset_detail(asset)
+    """P6-B: single-asset full detail (Inspector). 404 when absent or soft-deleted.
+
+    P2-E2-T02: + integrity (现场文件校验) / version_context (active/MASTER) /
+    shot_context (shot→scene→episode 回查)；Generation 展开走 /assets/{id}/provenance。
+    """
+    detail = AssetService(db).asset_detail(asset_id)
+    return _to_asset_detail(
+        detail["asset"], detail["integrity"], detail["version_context"], detail["shot_context"]
+    )

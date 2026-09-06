@@ -11,6 +11,8 @@ export interface Project {
   revision: number;
   created_at: string;
   updated_at: string;
+  /** P2-E2-T01: set only on ?include_deleted=true trash rows. None = live. */
+  deleted_at?: string | null;
 }
 
 export interface Episode {
@@ -439,6 +441,52 @@ export interface ShotPlan {
   image_prompt: string | null;
 }
 
+// --- P2-E2-T01: lifecycle trash ---
+
+export type TrashEntityType = "episode" | "scene" | "shot" | "character";
+
+export interface TrashItem {
+  entity_type: TrashEntityType;
+  id: string;
+  name: string;
+  number: number | null;
+  parent_id: string;
+  deleted_at: string | null;
+}
+
+// --- P2-E1-T02: chunked analysis scope + character candidates ---
+
+export interface CharacterCandidate {
+  name: string;
+  description: string;
+  existing_character_id: string | null;
+  existing_character_name: string | null;
+}
+
+export interface AnalysisScope {
+  source_chars: number;
+  analyzed_chars: number;
+  chunk_count: number;
+  llm_calls: number;
+  max_chars: number;
+}
+
+export type CharacterDecisionAction = "create" | "merge" | "skip";
+
+export interface CharacterDecision {
+  name: string;
+  action: CharacterDecisionAction;
+  character_id?: string | null;
+}
+
+export interface CharacterDecisionResult {
+  name: string;
+  action: string;
+  status: "created" | "merged" | "skipped" | "conflict" | "failed";
+  character_id: string | null;
+  message: string | null;
+}
+
 export type OperationStatus = "queued" | "running" | "completed" | "failed";
 
 export interface Operation {
@@ -819,6 +867,10 @@ export interface AssetRead {
   generation_id: string | null;
   parent_asset_id: string | null;
   created_at: string;
+  /** P2-E2-T02：仅详情端点返回（列表项为 undefined）。 */
+  integrity?: AssetIntegrity;
+  version_context?: AssetVersionContext;
+  shot_context?: AssetShotContext;
 }
 
 // --- P2-T011 / P6-T016: project tree (asset browser aggregation source) ---
@@ -909,6 +961,27 @@ export interface JobCreate {
 export interface AssetListRead {
   total: number;
   items: AssetRead[];
+  /** P2-E2-T02：keyset 翻页游标（null/缺失 = 无下一页）。 */
+  next_cursor?: string | null;
+}
+
+/** P2-E2-T02：资产详情追溯（GET /assets/{id} 扩展字段，列表项无则缺省）。 */
+export interface AssetIntegrity {
+  file_exists: boolean;
+  checksum_match: boolean | null;
+  checked_at: string;
+}
+
+export interface AssetVersionContext {
+  version_number: number | null;
+  is_active: boolean;
+  is_master: boolean;
+}
+
+export interface AssetShotContext {
+  shot_id: string;
+  scene_id: string | null;
+  episode_id: string | null;
 }
 
 // --- P8-T020: Continuity state + warnings DTOs.
