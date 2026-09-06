@@ -70,7 +70,7 @@ function mockApi(overrides: Record<string, unknown> = {}) {
     "/shots/shot_1/reference-images": REFS,
     "/providers": PROVIDERS,
     "/image/config": { provider: "comfyui" },
-    "/projects/proj_1/assets?asset_type=image": ASSET_LIBRARY,
+    "/projects/proj_1/assets?asset_type=image&limit=50": ASSET_LIBRARY,
   };
   const table = { ...defaults, ...overrides };
   return vi.fn().mockImplementation((path: string) => {
