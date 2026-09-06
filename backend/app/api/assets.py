@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.domain.asset import (
+    AssetDeleteRead,
     AssetDetailRead,
     AssetIntegrityRead,
     AssetListRead,
@@ -243,6 +244,32 @@ def list_project_assets(
     return AssetListRead(
         total=total, items=[_to_asset_list_item(a) for a in rows], next_cursor=next_cursor
     )
+
+
+@router.post("/{asset_id}/archive", response_model=AssetRead)
+def archive_asset(asset_id: str, db: Session = Depends(get_db)) -> AssetRead:
+    """P2-E2-T02: 归档（软删除；已归档幂等）。被 active 引用 → 409 + 引用清单。"""
+    return _to_asset_read(AssetService(db).archive_asset(asset_id))
+
+
+@router.post("/{asset_id}/restore", response_model=AssetRead)
+def restore_asset(asset_id: str, db: Session = Depends(get_db)) -> AssetRead:
+    """P2-E2-T02: 恢复归档资产；版本槽被占 → 409。"""
+    return _to_asset_read(AssetService(db).restore_asset(asset_id))
+
+
+@router.delete("/{asset_id}", response_model=AssetDeleteRead)
+def delete_asset(
+    asset_id: str,
+    confirm: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> AssetDeleteRead:
+    """P2-E2-T02: 物理删除（不可恢复）。
+
+    缺 confirm=true → 422；未归档 → 422（两步确认）；任何引用 → 409。
+    """
+    result = AssetService(db).delete_asset(asset_id, confirm=confirm)
+    return AssetDeleteRead(**result)
 
 
 @router.get("/{asset_id}", response_model=AssetDetailRead)

@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from PIL import Image
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -31,6 +31,7 @@ from app.core.logging import get_logger
 from app.db.models import (
     Asset,
     CharacterVersion,
+    Costume,
     Episode,
     Generation,
     GenerationOutput,
@@ -38,10 +39,18 @@ from app.db.models import (
     Project,
     Scene,
     Shot,
+    TimelineClip,
 )
 from app.db.models.asset import ASSET_SOURCE_TYPES, ASSET_STATUSES, ASSET_TYPES
 from app.db.models.columns import utcnow_iso
-from app.events.bus import EVENT_ASSET_CREATED, StudioEvent, bus
+from app.events.bus import (
+    EVENT_ASSET_ARCHIVED,
+    EVENT_ASSET_CREATED,
+    EVENT_ASSET_DELETED,
+    EVENT_ASSET_RESTORED,
+    StudioEvent,
+    bus,
+)
 from app.repositories import SceneRepository, ShotRepository
 
 logger = get_logger("assets")
@@ -409,6 +418,214 @@ class AssetService:
         self._publish_asset_created(asset)
         logger.info("asset imported: %s -> %s (%d bytes)", dest_name, project_id, size)
         return asset
+
+    def asset_references(self, asset_id: str, *, include_history: bool = False) -> list[dict]:
+        """引用清单（P2-E2-T02 删除守卫用）。
+
+        默认仅阻断性引用：shot active 指针 / 角色·地点 MASTER（status=active 版本行）/
+        timeline clip（绑定特定版本）/ 生效服装参考图。include_history=True 时追加
+        版本链历史引用——物理删除同样阻断，不切断不可变历史。
+        """
+        refs: list[dict] = []
+        for shot in self.session.scalars(
+            select(Shot).where(
+                Shot.deleted_at.is_(None),
+                or_(
+                    Shot.active_image_asset_id == asset_id,
+                    Shot.active_video_asset_id == asset_id,
+                ),
+            )
+        ):
+            refs.append({"kind": "shot_active", "id": shot.id, "label": f"shot:{shot.id}"})
+        for ver in self.session.scalars(
+            select(CharacterVersion).where(
+                CharacterVersion.asset_id == asset_id,
+                CharacterVersion.deleted_at.is_(None),
+                CharacterVersion.status == "active",
+            )
+        ):
+            refs.append(
+                {"kind": "character_master", "id": ver.id, "label": f"character:{ver.character_id}"}
+            )
+        for ver in self.session.scalars(
+            select(LocationVersion).where(
+                LocationVersion.asset_id == asset_id,
+                LocationVersion.deleted_at.is_(None),
+                LocationVersion.status == "active",
+            )
+        ):
+            refs.append(
+                {"kind": "location_master", "id": ver.id, "label": f"location:{ver.location_id}"}
+            )
+        for clip in self.session.scalars(
+            select(TimelineClip).where(TimelineClip.asset_id == asset_id)
+        ):
+            refs.append(
+                {"kind": "timeline_clip", "id": clip.id, "label": f"timeline:{clip.timeline_id}"}
+            )
+        for costume in self.session.scalars(
+            select(Costume).where(
+                Costume.reference_asset_id == asset_id,
+                Costume.deleted_at.is_(None),
+            )
+        ):
+            refs.append({"kind": "costume_reference", "id": costume.id, "label": costume.name})
+        if include_history:
+            for ver in self.session.scalars(
+                select(CharacterVersion).where(
+                    CharacterVersion.asset_id == asset_id,
+                    CharacterVersion.deleted_at.is_(None),
+                    CharacterVersion.status != "active",
+                )
+            ):
+                refs.append(
+                    {
+                        "kind": "character_version",
+                        "id": ver.id,
+                        "label": f"character:{ver.character_id}",
+                    }
+                )
+            for ver in self.session.scalars(
+                select(LocationVersion).where(
+                    LocationVersion.asset_id == asset_id,
+                    LocationVersion.deleted_at.is_(None),
+                    LocationVersion.status != "active",
+                )
+            ):
+                refs.append(
+                    {
+                        "kind": "location_version",
+                        "id": ver.id,
+                        "label": f"location:{ver.location_id}",
+                    }
+                )
+        return refs
+
+    def archive_asset(self, asset_id: str) -> Asset:
+        """P2-E2-T02: 归档 = 软删除（deleted_at，status 不动；恢复后原状态回来）。
+
+        被阻断性引用 → 409 + 引用清单；已归档 → 幂等返回。提交后发布 asset.archived。
+        """
+        asset = self.session.get(Asset, asset_id)
+        if asset is None:
+            raise NotFoundError("Asset does not exist.", {"asset_id": asset_id})
+        if asset.deleted_at:
+            return asset
+        refs = self.asset_references(asset_id)
+        if refs:
+            raise ConflictError(
+                "Asset is referenced and cannot be archived.",
+                {"asset_id": asset_id, "references": refs},
+            )
+        asset.deleted_at = utcnow_iso()
+        self.session.commit()
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_ASSET_ARCHIVED,
+                entity_type="asset",
+                entity_id=asset.id,
+                project_id=asset.project_id,
+                payload={"type": asset.type},
+            )
+        )
+        return asset
+
+    def restore_asset(self, asset_id: str) -> Asset:
+        """P2-E2-T02: 恢复归档资产；版本组冲突（同组同号 live 行已存在）→ 409。"""
+        asset = self.session.get(Asset, asset_id)
+        if asset is None:
+            raise NotFoundError("Asset does not exist.", {"asset_id": asset_id})
+        if asset.deleted_at is None:
+            return asset
+        if asset.version_group_id is not None and asset.version_number is not None:
+            live = self.session.scalar(
+                select(Asset).where(
+                    Asset.version_group_id == asset.version_group_id,
+                    Asset.version_number == asset.version_number,
+                    Asset.deleted_at.is_(None),
+                    Asset.id != asset.id,
+                )
+            )
+            if live is not None:
+                raise ConflictError(
+                    "A live asset already occupies this version slot.",
+                    {
+                        "asset_id": asset_id,
+                        "version_group_id": asset.version_group_id,
+                        "version_number": asset.version_number,
+                        "live_asset_id": live.id,
+                    },
+                )
+        asset.deleted_at = None
+        self.session.commit()
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_ASSET_RESTORED,
+                entity_type="asset",
+                entity_id=asset.id,
+                project_id=asset.project_id,
+                payload={"type": asset.type},
+            )
+        )
+        return asset
+
+    def delete_asset(self, asset_id: str, *, confirm: bool = False) -> dict:
+        """P2-E2-T02: 物理删除（不可恢复）。
+
+        - 缺 confirm=true → 422；未归档 → 422（必须先归档，两步确认不误删）；
+        - 任何引用（含版本链历史）→ 409 + 引用清单；
+        - 清理：文件 + 缩略图 + generation_outputs Join 行 + generations.output_asset_id 置空
+          （generation 历史行保留；inputs 是文本 provenance 记录，保留）。
+        """
+        if not confirm:
+            raise ValidationError(
+                "Physical delete requires confirm=true.",
+                {"asset_id": asset_id},
+            )
+        asset = self.session.get(Asset, asset_id)
+        if asset is None:
+            raise NotFoundError("Asset does not exist.", {"asset_id": asset_id})
+        if asset.deleted_at is None:
+            raise ValidationError(
+                "Archive the asset before physical delete.",
+                {"asset_id": asset_id},
+            )
+        refs = self.asset_references(asset_id, include_history=True)
+        if refs:
+            raise ConflictError(
+                "Asset is referenced and cannot be physically deleted.",
+                {"asset_id": asset_id, "references": refs},
+            )
+        files_removed: list[str] = []
+        for rel in (asset.file_path, asset.thumbnail_path):
+            if not rel:
+                continue
+            path = project_dir(asset.project_id) / rel
+            try:
+                if path.is_file():
+                    path.unlink()
+                    files_removed.append(rel)
+            except OSError:
+                logger.warning("asset file remove failed: %s", rel)
+        self.session.execute(delete(GenerationOutput).where(GenerationOutput.asset_id == asset_id))
+        self.session.execute(
+            update(Generation)
+            .where(Generation.output_asset_id == asset_id)
+            .values(output_asset_id=None)
+        )
+        project_id, asset_type = asset.project_id, asset.type
+        self.session.delete(asset)
+        self.session.commit()
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_ASSET_DELETED,
+                entity_type="asset",
+                entity_id=asset_id,
+                project_id=project_id,
+                payload={"type": asset_type, "files_removed": files_removed},
+            )
+        )
+        return {"asset_id": asset_id, "deleted": True, "files_removed": files_removed}
 
     def mark_assets_stale(self, asset_ids: list[str]) -> int:
         """P8-T017: mark the given assets as STALE (status change only — never

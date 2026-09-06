@@ -125,6 +125,14 @@ class AssetDetailRead(BaseModel):
     shot_context: AssetShotContextRead | None = None
 
 
+class AssetDeleteRead(BaseModel):
+    """物理删除结果（P2-E2-T02，不可恢复；files_removed 为项目相对路径）。"""
+
+    asset_id: str
+    deleted: bool = True
+    files_removed: list[str]
+
+
 class AssetMissingCheckRead(BaseModel):
     """Summary of a missing-asset scan (P3-T005):
 

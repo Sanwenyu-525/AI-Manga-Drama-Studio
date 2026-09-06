@@ -367,3 +367,113 @@ def test_detail_shot_context_from_import_link(client: TestClient) -> None:
     detail = client.get(f"/api/v1/assets/{resp.json()['id']}").json()
     assert detail["shot_context"]["shot_id"] == shot["id"]
     assert detail["shot_context"]["scene_id"] == scene["id"]
+
+
+# --- 归档 / 恢复 / 物理删除 + 引用守卫 ----------------------------------------
+
+def test_archive_restore_roundtrip(client: TestClient) -> None:
+    project = _project(client)
+    asset = _upload(client, project["id"])
+
+    archived = client.post(f"/api/v1/assets/{asset['id']}/archive").json()
+    assert archived["id"] == asset["id"]
+
+    # 归档后：列表默认不可见，详情 404，include_deleted 可见
+    assert client.get(f"/api/v1/assets/{asset['id']}").status_code == 404
+    assert client.get(f"/api/v1/projects/{project['id']}/assets").json()["total"] == 0
+    assert client.get(
+        f"/api/v1/projects/{project['id']}/assets", params={"include_deleted": "true"}
+    ).json()["total"] == 1
+
+    # 归档幂等
+    assert client.post(f"/api/v1/assets/{asset['id']}/archive").status_code == 200
+
+    restored = client.post(f"/api/v1/assets/{asset['id']}/restore").json()
+    assert restored["id"] == asset["id"]
+    assert client.get(f"/api/v1/assets/{asset['id']}").status_code == 200
+    # 恢复幂等
+    assert client.post(f"/api/v1/assets/{asset['id']}/restore").status_code == 200
+
+
+def test_archive_unknown_404(client: TestClient) -> None:
+    assert client.post("/api/v1/assets/does-not-exist/archive").status_code == 404
+    assert client.post("/api/v1/assets/does-not-exist/restore").status_code == 404
+
+
+def test_archive_blocked_by_shot_active_reference(client: TestClient) -> None:
+    project = _project(client)
+    _, shot = _shot(client, project["id"])
+    g = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"}).json()
+    asyncio.run(run_generation(g["id"]))
+    done = client.get(f"/api/v1/generations/{g['id']}").json()
+    assert done["status"] == "completed"
+
+    # 新生成即 active → 归档被拒，引用清单含 shot_active
+    resp = client.post(f"/api/v1/assets/{done['output_asset_id']}/archive")
+    assert resp.status_code == 409
+    body = resp.json()["error"]
+    assert body["code"] == "CONFLICT"
+    kinds = {r["kind"] for r in body["details"]["references"]}
+    assert "shot_active" in kinds
+
+
+def test_physical_delete_requires_confirm_and_archive(client: TestClient) -> None:
+    project = _project(client)
+    asset = _upload(client, project["id"])
+
+    # 未归档 + 无 confirm → 422（两步确认缺一不可）
+    assert client.delete(f"/api/v1/assets/{asset['id']}").status_code == 422
+    assert client.delete(f"/api/v1/assets/{asset['id']}", params={"confirm": "true"}).status_code == 422
+
+    client.post(f"/api/v1/assets/{asset['id']}/archive")
+    assert client.delete(f"/api/v1/assets/{asset['id']}").status_code == 422
+
+    result = client.delete(
+        f"/api/v1/assets/{asset['id']}", params={"confirm": "true"}
+    ).json()
+    assert result["deleted"] is True
+    assert result["asset_id"] == asset["id"]
+    assert any(p.endswith(".png") for p in result["files_removed"])
+
+    # 文件落盘删除 + 记录删除（恢复也 404）
+    from app.services.asset_service import project_dir
+
+    assert not (project_dir(project["id"]) / asset["file_path"]).exists()
+    assert client.post(f"/api/v1/assets/{asset['id']}/restore").status_code == 404
+    assert client.get(f"/api/v1/assets/{asset['id']}").status_code == 404
+
+
+def test_physical_delete_blocked_by_timeline_clip(client: TestClient) -> None:
+    from app.db import session as db_session_module
+    from app.db.models import TimelineClip
+
+    project = _project(client)
+    asset = _upload(client, project["id"])
+    asset_id = asset["id"]
+    client.post(f"/api/v1/assets/{asset_id}/archive")
+
+    # 归档后绑一个 timeline clip（绕过 API 的 live 校验，直写行模拟回填/历史状态）
+    episode = client.post(f"/api/v1/projects/{project['id']}/episodes", json={"title": "E1"}).json()
+    timeline = client.post(f"/api/v1/episodes/{episode['id']}/timeline").json()
+    track_id = timeline["tracks"][0]["id"]
+    with db_session_module.session_factory_provider()() as s:
+        s.add(
+            TimelineClip(
+                timeline_id=timeline["id"],
+                track_id=track_id,
+                asset_id=asset_id,
+                start_time=0,
+                end_time=1,
+            )
+        )
+        s.commit()
+
+    resp = client.delete(f"/api/v1/assets/{asset_id}", params={"confirm": "true"})
+    assert resp.status_code == 409
+    kinds = {r["kind"] for r in resp.json()["error"]["details"]["references"]}
+    assert "timeline_clip" in kinds
+    # 记录与文件完好（保护性拒绝不产生副作用）
+    assert client.get(f"/api/v1/assets/{asset_id}").status_code == 404  # 仍归档态
+    from app.services.asset_service import project_dir
+
+    assert (project_dir(project["id"]) / asset["file_path"]).exists()
