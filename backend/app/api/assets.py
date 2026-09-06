@@ -199,23 +199,41 @@ def list_project_assets(
     asset_type: str | None = Query(default=None),
     status: str | None = Query(default=None),
     include_deleted: bool = Query(default=False),
+    source: str | None = Query(default=None),
+    shot_id: str | None = Query(default=None),
+    scene_id: str | None = Query(default=None),
+    created_from: str | None = Query(default=None),
+    created_to: str | None = Query(default=None),
+    cursor: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> AssetListRead:
     """P6-B: paginated, filtered project-scope asset list ({total, items}).
 
     Live (non-deleted) rows only by default; filters are validated in
-    AssetService (invalid type/status → 422). Order: created_at DESC.
+    AssetService (invalid type/status/source → 422). Order: created_at DESC.
+
+    P2-E2-T02: keyset cursor pagination (opaque `cursor` + `next_cursor`,
+    mutually exclusive with offset) + source/shot/scene/created_at filters.
+    `asset_type` 即 AC 所说 media_type；shot/scene 跨项目 → 422，不存在 → 404。
     """
     service = AssetService(db)
-    total, rows = service.list_assets(
+    total, rows, next_cursor = service.list_assets(
         project_id=project_id,
         limit=limit,
         offset=offset,
         asset_type=asset_type,
         status=status,
         include_deleted=include_deleted,
+        source=source,
+        shot_id=shot_id,
+        scene_id=scene_id,
+        created_from=created_from,
+        created_to=created_to,
+        cursor=cursor,
     )
-    return AssetListRead(total=total, items=[_to_asset_list_item(a) for a in rows])
+    return AssetListRead(
+        total=total, items=[_to_asset_list_item(a) for a in rows], next_cursor=next_cursor
+    )
 
 
 @router.get("/{asset_id}", response_model=AssetDetailRead)

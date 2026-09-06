@@ -64,6 +64,8 @@ class AssetListRead(BaseModel):
 
     total: int
     items: list[AssetListItemRead]
+    # P2-E2-T02: opaque cursor for keyset pagination (None = no further page).
+    next_cursor: str | None = None
 
 
 class AssetDetailRead(BaseModel):

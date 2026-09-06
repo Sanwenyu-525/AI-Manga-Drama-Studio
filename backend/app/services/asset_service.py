@@ -12,22 +12,24 @@ disappears is marked "missing"; the record and any file are preserved.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import mimetypes
 import os
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from PIL import Image
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.logging import get_logger
-from app.db.models import Asset, Episode, Project, Scene, Shot
-from app.db.models.asset import ASSET_STATUSES, ASSET_TYPES
+from app.db.models import Asset, Episode, Generation, GenerationOutput, Project, Scene, Shot
+from app.db.models.asset import ASSET_SOURCE_TYPES, ASSET_STATUSES, ASSET_TYPES
 from app.events.bus import EVENT_ASSET_CREATED, StudioEvent, bus
 from app.repositories import SceneRepository, ShotRepository
 
@@ -53,6 +55,40 @@ _FALLBACK_MIME = {"image": "image/png", "video": "video/mp4", "audio": "audio/mp
 
 def project_dir(project_id: str) -> Path:
     return settings.data_dir / "projects" / project_id
+
+
+def _encode_cursor(created_at: str, asset_id: str) -> str:
+    """不透明游标：base64url({c: created_at, i: id})（P2-E2-T02 keyset 分页）。"""
+    raw = json.dumps({"c": created_at, "i": asset_id}, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode()
+
+
+def _decode_cursor(cursor: str) -> tuple[str, str]:
+    """解析游标；格式错误 → 422（不泄露内部结构）。"""
+    try:
+        data = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
+        return str(data["c"]), str(data["i"])
+    except (ValueError, KeyError, TypeError):
+        raise ValidationError("Invalid cursor.", {"cursor": cursor}) from None
+
+
+def _normalize_time_bound(value: str, *, is_end: bool, field: str) -> str:
+    """ISO 时间边界归一化为可比字符串（created_at 是 TEXT ISO8601 UTC，字典序=时间序）。
+
+    纯日期输入：from 取当天 00:00:00，to 取当天 23:59:59.999999；naive 时间按 UTC。
+    """
+    text = value.strip().replace("Z", "+00:00")
+    try:
+        if len(text) == 10:  # YYYY-MM-DD
+            day = datetime.strptime(text, "%Y-%m-%d").replace(tzinfo=UTC)
+            bound = day if not is_end else day.replace(hour=23, minute=59, second=59, microsecond=999999)
+        else:
+            bound = datetime.fromisoformat(text)
+            if bound.tzinfo is None:
+                bound = bound.replace(tzinfo=UTC)
+        return bound.isoformat()
+    except ValueError:
+        raise ValidationError(f"Invalid {field} (expected ISO datetime).", {field: value}) from None
 
 
 def _import_suffix(asset_type: str, original_name: str) -> str:
@@ -404,12 +440,18 @@ class AssetService:
         asset_type: str | None = None,
         status: str | None = None,
         include_deleted: bool = False,
-    ) -> tuple[int, list[Asset]]:
+        source: str | None = None,
+        shot_id: str | None = None,
+        scene_id: str | None = None,
+        created_from: str | None = None,
+        created_to: str | None = None,
+        cursor: str | None = None,
+    ) -> tuple[int, list[Asset], str | None]:
         """P6-B: paginated, filtered project-scope asset listing (live rows by default).
 
-        Returns (total, rows) ordered by created_at DESC (newest first). Asset-level
-        filter/status validation yields 422 (invalid type/status). Soft-deleted rows
-        are excluded unless include_deleted=True.
+        P2-E2-T02: keyset cursor pagination + source/shot/scene/created_at filters.
+        Returns (total, rows, next_cursor) ordered by created_at DESC (newest first).
+        offset/limit 保留向后兼容；cursor 与 offset 同传 → 422。非法过滤值 → 422。
         """
         if self.session.get(Project, project_id) is None:
             raise NotFoundError("Project does not exist.", {"project_id": project_id})
@@ -424,6 +466,16 @@ class AssetService:
                 "Invalid status filter.",
                 {"status": status, "allowed": sorted(ASSET_STATUSES)},
             )
+        if source is not None and source not in set(ASSET_SOURCE_TYPES):
+            raise ValidationError(
+                "Invalid source filter.",
+                {"source": source, "allowed": sorted(ASSET_SOURCE_TYPES)},
+            )
+        if cursor is not None and offset != 0:
+            raise ValidationError(
+                "cursor and offset are mutually exclusive.",
+                {"cursor": cursor, "offset": offset},
+            )
 
         conds = [Asset.project_id == project_id]
         if not include_deleted:
@@ -432,18 +484,85 @@ class AssetService:
             conds.append(Asset.type == asset_type)
         if status:
             conds.append(Asset.status == status)
-
+        if source:
+            conds.append(Asset.source_type == source)
+        if shot_id is not None or scene_id is not None:
+            conds.append(self._shot_scope_condition(project_id, shot_id=shot_id, scene_id=scene_id))
+        if created_from is not None:
+            conds.append(Asset.created_at >= _normalize_time_bound(created_from, is_end=False, field="created_from"))
+        if created_to is not None:
+            conds.append(Asset.created_at <= _normalize_time_bound(created_to, is_end=True, field="created_to"))
+        # total 只计过滤结果（不计游标位置），前端 "x / total" 才有意义。
         total = self.session.scalar(select(func.count()).select_from(Asset).where(*conds))
-        rows = list(
+        if cursor is not None:
+            cursor_created, cursor_id = _decode_cursor(cursor)
+            conds.append(
+                or_(
+                    Asset.created_at < cursor_created,
+                    (Asset.created_at == cursor_created) & (Asset.id < cursor_id),
+                )
+            )
+
+        # 取 limit+1 行判断是否还有下一页（keyset 分页无重复/漏项）。
+        fetched = list(
             self.session.scalars(
                 select(Asset)
                 .where(*conds)
                 .order_by(Asset.created_at.desc(), Asset.id.desc())
                 .offset(offset)
-                .limit(limit)
+                .limit(limit + 1)
             )
         )
-        return int(total or 0), rows
+        if len(fetched) > limit:
+            rows, next_cursor = fetched[:limit], _encode_cursor(fetched[limit - 1].created_at, fetched[limit - 1].id)
+        else:
+            rows, next_cursor = fetched, None
+        return int(total or 0), rows, next_cursor
+
+    def _shot_scope_condition(self, project_id: str, *, shot_id: str | None, scene_id: str | None):
+        """shot/scene 作用域条件：版本组归属（vg:shot:{id}）或该镜头 generation 产物。
+
+        shot/scene 不存在（或已删）→ 404；归属项目不一致 → 422（防跨项目泄漏）。
+        """
+        if shot_id is not None and scene_id is not None:
+            raise ValidationError(
+                "shot_id and scene_id are mutually exclusive.",
+                {"shot_id": shot_id, "scene_id": scene_id},
+            )
+        if shot_id is not None:
+            shot = self.session.get(Shot, shot_id)
+            if shot is None or shot.deleted_at:
+                raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
+            self._require_shot_in_project(shot, project_id)
+            shot_ids = [shot_id]
+        else:
+            assert scene_id is not None
+            scene = self.session.get(Scene, scene_id)
+            if scene is None or scene.deleted_at:
+                raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
+            episode = self.session.get(Episode, scene.episode_id)
+            if episode is None or episode.project_id != project_id:
+                raise ValidationError("Scene does not belong to this project.", {"scene_id": scene_id})
+            shot_ids = list(
+                self.session.scalars(select(Shot.id).where(Shot.scene_id == scene_id))
+            )
+            if not shot_ids:
+                return Asset.id.is_(None)  # 空场景 → 空结果（永假条件）
+
+        vg_conds = [Asset.version_group_id.like(f"vg:shot:{sid}:%") for sid in shot_ids]
+        produced = (
+            select(GenerationOutput.asset_id)
+            .join(Generation, Generation.id == GenerationOutput.generation_id)
+            .where(Generation.shot_id.in_(shot_ids), Generation.deleted_at.is_(None))
+        )
+        return or_(*vg_conds, Asset.id.in_(produced))
+
+    def _require_shot_in_project(self, shot: Shot, project_id: str) -> None:
+        """shot→scene→episode 回查项目归属；不一致 → 422。"""
+        scene = self.session.get(Scene, shot.scene_id)
+        episode = self.session.get(Episode, scene.episode_id) if scene else None
+        if scene is None or episode is None or episode.project_id != project_id:
+            raise ValidationError("Shot does not belong to this project.", {"shot_id": shot.id})
 
     def absolute_path(self, asset: Asset) -> Path:
         if not asset.file_path:

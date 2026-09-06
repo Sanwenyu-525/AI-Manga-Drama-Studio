@@ -1,0 +1,233 @@
+"""P2-E2-T02 项目作用域 Asset Library（docs/roadmap/phase-2-core-product.md）.
+
+覆盖（按 commit 增量追加）：
+- cursor 分页：往返无重复/漏项、非法 cursor 422、cursor+offset 互斥 422、offset 向后兼容
+- 筛选：source / shot_id / scene_id / created_from~to、跨项目 422、不存在 404、非法值 422
+"""
+
+import asyncio
+import io
+
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from app.generations.worker import run_generation
+
+
+def _png(seed: int = 0) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), ((seed * 37) % 256, 80, 40)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _project(client: TestClient, name: str = "P2E2T02Lib") -> dict:
+    return client.post("/api/v1/projects", json={"name": name}).json()
+
+
+def _upload(client: TestClient, project_id: str, seed: int = 0, filename: str = "img.png") -> dict:
+    resp = client.post(
+        f"/api/v1/projects/{project_id}/assets/import",
+        files={"file": (filename, _png(seed), "image/png")},
+        data={"asset_type": "image"},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def _shot(client: TestClient, project_id: str, scene_name: str = "S1") -> tuple[dict, dict]:
+    episode = client.post(f"/api/v1/projects/{project_id}/episodes", json={"title": "E1"}).json()
+    scene = client.post(f"/api/v1/episodes/{episode['id']}/scenes", json={"name": scene_name}).json()
+    shot = client.post(
+        f"/api/v1/scenes/{scene['id']}/shots",
+        json={"shot_type": "medium", "image_prompt": "manga, street"},
+    ).json()
+    return scene, shot
+
+
+# --- cursor 分页 ------------------------------------------------------------
+
+def test_cursor_pagination_roundtrip_no_dup_no_loss(client: TestClient) -> None:
+    project = _project(client)
+    for i in range(5):
+        _upload(client, project["id"], seed=i, filename=f"f{i}.png")
+
+    seen: list[str] = []
+    cursor: str | None = None
+    pages = 0
+    while True:
+        params: dict = {"limit": 2}
+        if cursor:
+            params["cursor"] = cursor
+        body = client.get(f"/api/v1/projects/{project['id']}/assets", params=params).json()
+        assert body["total"] == 5
+        seen.extend(it["id"] for it in body["items"])
+        pages += 1
+        cursor = body.get("next_cursor")
+        if not cursor:
+            break
+        assert pages < 10  # 防死循环
+
+    assert pages == 3  # 2+2+1
+    assert len(set(seen)) == 5  # 无重复、无漏项
+
+
+def test_cursor_last_page_next_cursor_none(client: TestClient) -> None:
+    project = _project(client)
+    _upload(client, project["id"], seed=1)
+    body = client.get(f"/api/v1/projects/{project['id']}/assets", params={"limit": 50}).json()
+    assert body["total"] == 1
+    assert body.get("next_cursor") is None
+
+
+def test_cursor_invalid_422(client: TestClient) -> None:
+    project = _project(client)
+    _upload(client, project["id"])
+    resp = client.get(f"/api/v1/projects/{project['id']}/assets", params={"cursor": "not-a-cursor!!"})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_cursor_offset_mutually_exclusive_422(client: TestClient) -> None:
+    project = _project(client)
+    _upload(client, project["id"], seed=1)
+    _upload(client, project["id"], seed=2)
+    first = client.get(f"/api/v1/projects/{project['id']}/assets", params={"limit": 1}).json()
+    assert first["next_cursor"]
+    resp = client.get(
+        f"/api/v1/projects/{project['id']}/assets",
+        params={"cursor": first["next_cursor"], "offset": 1},
+    )
+    assert resp.status_code == 422
+
+
+def test_offset_still_works_backward_compatible(client: TestClient) -> None:
+    project = _project(client)
+    for i in range(3):
+        _upload(client, project["id"], seed=i, filename=f"c{i}.png")
+    page = client.get(
+        f"/api/v1/projects/{project['id']}/assets", params={"limit": 1, "offset": 1}
+    ).json()
+    assert page["total"] == 3
+    assert len(page["items"]) == 1
+    # offset 语义不变：与 limit=50 全量相比取到第 2 行
+    full = client.get(f"/api/v1/projects/{project['id']}/assets", params={"limit": 50}).json()
+    assert page["items"][0]["id"] == full["items"][1]["id"]
+
+
+# --- 筛选 -------------------------------------------------------------------
+
+def test_filter_source(client: TestClient) -> None:
+    project = _project(client)
+    _upload(client, project["id"])
+    imported = client.get(
+        f"/api/v1/projects/{project['id']}/assets", params={"source": "imported"}
+    ).json()
+    assert imported["total"] == 1
+    generated = client.get(
+        f"/api/v1/projects/{project['id']}/assets", params={"source": "generated"}
+    ).json()
+    assert generated["total"] == 0
+
+
+def test_filter_source_invalid_422(client: TestClient) -> None:
+    project = _project(client)
+    resp = client.get(f"/api/v1/projects/{project['id']}/assets", params={"source": "bogus"})
+    assert resp.status_code == 422
+
+
+def test_filter_shot_id_generated_asset(client: TestClient) -> None:
+    project = _project(client)
+    _, shot = _shot(client, project["id"])
+    g = client.post(f"/api/v1/shots/{shot['id']}/generations", json={"type": "image"}).json()
+    asyncio.run(run_generation(g["id"]))
+    done = client.get(f"/api/v1/generations/{g['id']}").json()
+    assert done["status"] == "completed"
+
+    body = client.get(
+        f"/api/v1/projects/{project['id']}/assets", params={"shot_id": shot["id"]}
+    ).json()
+    assert body["total"] >= 1
+    assert {it["id"] for it in body["items"]} >= {done["output_asset_id"]}
+
+
+def test_filter_shot_id_404_unknown(client: TestClient) -> None:
+    project = _project(client)
+    resp = client.get(
+        f"/api/v1/projects/{project['id']}/assets", params={"shot_id": "does-not-exist"}
+    )
+    assert resp.status_code == 404
+
+
+def test_filter_shot_id_cross_project_422(client: TestClient) -> None:
+    p_a = _project(client, "ProjA")
+    p_b = _project(client, "ProjB")
+    _, shot_b = _shot(client, p_b["id"])
+    resp = client.get(
+        f"/api/v1/projects/{p_a['id']}/assets", params={"shot_id": shot_b["id"]}
+    )
+    assert resp.status_code == 422
+
+
+def test_filter_scene_id(client: TestClient) -> None:
+    project = _project(client)
+    scene1, shot1 = _shot(client, project["id"], scene_name="S1")
+    _shot(client, project["id"], scene_name="S2")
+    g = client.post(f"/api/v1/shots/{shot1['id']}/generations", json={"type": "image"}).json()
+    asyncio.run(run_generation(g["id"]))
+    done = client.get(f"/api/v1/generations/{g['id']}").json()
+    assert done["status"] == "completed"
+
+    body = client.get(
+        f"/api/v1/projects/{project['id']}/assets", params={"scene_id": scene1["id"]}
+    ).json()
+    assert done["output_asset_id"] in {it["id"] for it in body["items"]}
+
+
+def test_filter_scene_id_404_unknown(client: TestClient) -> None:
+    project = _project(client)
+    resp = client.get(
+        f"/api/v1/projects/{project['id']}/assets", params={"scene_id": "does-not-exist"}
+    )
+    assert resp.status_code == 404
+
+
+def test_filter_shot_and_scene_mutually_exclusive_422(client: TestClient) -> None:
+    project = _project(client)
+    scene, shot = _shot(client, project["id"])
+    resp = client.get(
+        f"/api/v1/projects/{project['id']}/assets",
+        params={"shot_id": shot["id"], "scene_id": scene["id"]},
+    )
+    assert resp.status_code == 422
+
+
+def test_filter_created_range(client: TestClient) -> None:
+    project = _project(client)
+    asset = _upload(client, project["id"])
+    created = asset["created_at"]
+
+    inside = client.get(
+        f"/api/v1/projects/{project['id']}/assets",
+        params={"created_from": "2020-01-01", "created_to": "2030-01-01"},
+    ).json()
+    assert asset["id"] in {it["id"] for it in inside["items"]}
+
+    # 精确到秒的窄窗口仍命中同一资产（同一 created_at 上下各 1 秒）
+    narrow = client.get(
+        f"/api/v1/projects/{project['id']}/assets",
+        params={"created_from": created, "created_to": created},
+    ).json()
+    assert asset["id"] in {it["id"] for it in narrow["items"]}
+
+    outside = client.get(
+        f"/api/v1/projects/{project['id']}/assets", params={"created_from": "2030-01-02"}
+    ).json()
+    assert outside["total"] == 0
+
+
+def test_filter_created_invalid_422(client: TestClient) -> None:
+    project = _project(client)
+    resp = client.get(
+        f"/api/v1/projects/{project['id']}/assets", params={"created_from": "not-a-date"}
+    )
+    assert resp.status_code == 422
