@@ -45,6 +45,20 @@ class ProjectRead(BaseModel):
     revision: int
     created_at: str
     updated_at: str
+    # P2-E2-T01: set only — lets ?include_deleted=true callers tell trash rows
+    # apart without a second round-trip. None = live.
+    deleted_at: str | None = None
+
+
+class TrashItem(BaseModel):
+    """P2-E2-T01: one soft-deleted row for review + per-row restore."""
+
+    entity_type: str  # episode | scene | shot | character
+    id: str
+    name: str
+    number: int | None = None
+    parent_id: str
+    deleted_at: str | None = None
 
 
 class EpisodeSummary(BaseModel):

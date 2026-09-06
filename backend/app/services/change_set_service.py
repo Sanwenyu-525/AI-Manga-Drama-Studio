@@ -188,6 +188,97 @@ class ChangeSetService:
         )
         return change_set
 
+    # Lifecycle / order pseudo-fields (shot structure ops): "_exists" marks a
+    # create/delete on the shot entity; "shot_order" marks a full reorder on the
+    # scene entity. The shared undo machinery branches on these before the
+    # field-patch paths below.
+    LIFECYCLE_FIELD = "_exists"
+    ORDER_FIELD = "shot_order"
+
+    def record_shot_lifecycle(
+        self,
+        *,
+        project_id: str,
+        run_id: str | None,
+        tool: str,
+        shot_id: str,
+        exists_before: bool,
+        exists_after: bool,
+        payload: dict | None = None,
+        revision_before: int = 0,
+        revision_after: int = 0,
+    ) -> AgentChangeSet:
+        """Record a shot create/delete (revisions are 0 on the absent side —
+        there is no before-revision for a creation, no after-revision for a
+        deletion). payload carries the create request for resume idempotency."""
+        if exists_before == exists_after:
+            raise ValidationError(
+                "Lifecycle record requires a before/after existence flip.",
+                {"exists_before": exists_before, "exists_after": exists_after},
+            )
+        before: dict = {self.LIFECYCLE_FIELD: exists_before}
+        after: dict = {self.LIFECYCLE_FIELD: exists_after, **(payload or {})}
+        change_set = AgentChangeSet(
+            project_id=project_id,
+            run_id=run_id,
+            source="agent",
+            tool=tool,
+            entity_type="shot",
+            entity_id=shot_id,
+            revision_before=int(revision_before),
+            revision_after=int(revision_after),
+            before_json=json.dumps(before, ensure_ascii=False),
+            after_json=json.dumps(after, ensure_ascii=False),
+            created_at=_now(),
+        )
+        self.session.add(change_set)
+        self.session.commit()
+        self._publish_created(change_set)
+        logger.info(
+            "change_set %s recorded (shot %s lifecycle %s→%s, run %s)",
+            change_set.id, shot_id, exists_before, exists_after, run_id,
+        )
+        return change_set
+
+    def record_shot_order(
+        self,
+        *,
+        project_id: str,
+        run_id: str | None,
+        tool: str,
+        scene_id: str,
+        before_ids: list[str],
+        after_ids: list[str],
+    ) -> AgentChangeSet:
+        """Record a full scene reorder (reorder_shots rewrites numbers in place
+        without bumping revisions, so both revision markers stay 0)."""
+        if not before_ids or before_ids == after_ids:
+            raise ValidationError(
+                "Order record requires a non-empty changed order.",
+                {"scene_id": scene_id},
+            )
+        change_set = AgentChangeSet(
+            project_id=project_id,
+            run_id=run_id,
+            source="agent",
+            tool=tool,
+            entity_type="scene",
+            entity_id=scene_id,
+            revision_before=0,
+            revision_after=0,
+            before_json=json.dumps({self.ORDER_FIELD: before_ids}, ensure_ascii=False),
+            after_json=json.dumps({self.ORDER_FIELD: after_ids}, ensure_ascii=False),
+            created_at=_now(),
+        )
+        self.session.add(change_set)
+        self.session.commit()
+        self._publish_created(change_set)
+        logger.info(
+            "change_set %s recorded (scene %s reorder %d shots, run %s)",
+            change_set.id, scene_id, len(after_ids), run_id,
+        )
+        return change_set
+
     def record_timeline_clip_patch(
         self,
         *,
@@ -257,11 +348,144 @@ class ChangeSetService:
 
         if original.entity_type == "timeline_clip":
             return self._undo_timeline_clip(original, before, after, force=force)
+        if set(before) == {self.LIFECYCLE_FIELD} or set(after) == {self.LIFECYCLE_FIELD}:
+            return self._undo_shot_lifecycle(original, before, after)
         if original.entity_type == "scene":
+            if self.ORDER_FIELD in before:
+                return self._undo_shot_order(original, before, after, force=force)
             return self._undo_scene_patch(original, before, after, force=force)
         if any(f in ACTIVE_FIELDS for f in before):
             return self._undo_active_version(original, before, after, force=force)
         return self._undo_shot_patch(original, before, after, force=force)
+
+    def _undo_shot_lifecycle(self, original: AgentChangeSet, before: dict, after: dict) -> AgentChangeSet:
+        """Undo a shot create (compensating delete) or a shot delete
+        (compensating restore via ShotService.restore_shot, P2-E2-T01).
+
+        Restore conflicts (scene deleted since / number reused) surface as 409
+        with the recovery hint — same contract as the trash-view restore.
+        """
+        if not after.get(self.LIFECYCLE_FIELD):
+            shot = self.session.get(Shot, original.entity_id)
+            if shot is None:
+                raise ConflictError(
+                    "Deleted shot no longer exists — nothing to undo.",
+                    {"change_set_id": original.id, "shot_id": original.entity_id},
+                )
+            if shot.deleted_at is None:
+                raise ConflictError(
+                    "Shot is already live — nothing to undo.",
+                    {"change_set_id": original.id, "shot_id": original.entity_id},
+                )
+            revision_before = shot.revision
+            restored = self.shots.restore_shot(shot.id)
+            compensating = AgentChangeSet(
+                project_id=original.project_id,
+                run_id=original.run_id,
+                source="undo",
+                tool=f"undo:{original.tool}",
+                entity_type="shot",
+                entity_id=original.entity_id,
+                revision_before=revision_before,
+                revision_after=restored.revision,
+                before_json=json.dumps(after, ensure_ascii=False),
+                after_json=json.dumps(before, ensure_ascii=False),
+                created_at=_now(),
+            )
+            self.session.add(compensating)
+            original.undone = True
+            original.undone_at = _now()
+            self.session.flush()
+            original.undone_by_change_set_id = compensating.id
+            self.session.commit()
+
+            self._publish_created(compensating)
+            self._publish_undone(original, compensating)
+            logger.info("change_set %s undone by %s (deleted shot %s restored)",
+                        original.id, compensating.id, shot.id)
+            return compensating
+        shot = self.session.get(Shot, original.entity_id)
+        if shot is None or shot.deleted_at:
+            raise ConflictError(
+                "Created shot is already deleted — nothing to undo.",
+                {"change_set_id": original.id, "shot_id": original.entity_id},
+            )
+        revision_before = shot.revision
+        self.shots.delete_shot(shot.id)
+        compensating = AgentChangeSet(
+            project_id=original.project_id,
+            run_id=original.run_id,
+            source="undo",
+            tool=f"undo:{original.tool}",
+            entity_type="shot",
+            entity_id=original.entity_id,
+            revision_before=revision_before,
+            revision_after=0,
+            before_json=json.dumps(after, ensure_ascii=False),
+            after_json=json.dumps(before, ensure_ascii=False),
+            created_at=_now(),
+        )
+        self.session.add(compensating)
+        original.undone = True
+        original.undone_at = _now()
+        self.session.flush()
+        original.undone_by_change_set_id = compensating.id
+        self.session.commit()
+
+        self._publish_created(compensating)
+        self._publish_undone(original, compensating)
+        logger.info("change_set %s undone by %s (created shot %s deleted)",
+                    original.id, compensating.id, shot.id)
+        return compensating
+
+    def _undo_shot_order(self, original: AgentChangeSet, before: dict, after: dict, *, force: bool) -> AgentChangeSet:
+        """Undo a scene reorder by reordering back. Membership changes
+        (shots added/deleted since) always conflict — an order of a different
+        set cannot be restored."""
+        scene = self.session.get(Scene, original.entity_id)
+        if scene is None or scene.deleted_at:
+            raise ConflictError(
+                "Target scene no longer exists — cannot undo.",
+                {"change_set_id": original.id, "scene_id": original.entity_id, "recovery": before},
+            )
+        current = [s.id for s in self.shots.list_shots(scene.id)]
+        if set(current) != set(before[self.ORDER_FIELD]):
+            raise ConflictError(
+                "Scene shots changed since this reorder — order cannot be restored.",
+                {"change_set_id": original.id, "recovery": before},
+            )
+        if not force and current != after[self.ORDER_FIELD]:
+            raise ConflictError(
+                "Scene was reordered after this change — undo would overwrite it. "
+                "Retry with force=true to restore the recorded order anyway.",
+                {"change_set_id": original.id, "recovery": before},
+            )
+        self.shots.reorder_shots(scene.id, before[self.ORDER_FIELD])
+        compensating = AgentChangeSet(
+            project_id=original.project_id,
+            run_id=original.run_id,
+            source="undo",
+            tool=f"undo:{original.tool}",
+            entity_type="scene",
+            entity_id=original.entity_id,
+            revision_before=0,
+            revision_after=0,
+            before_json=json.dumps(after, ensure_ascii=False),
+            after_json=json.dumps(before, ensure_ascii=False),
+            created_at=_now(),
+        )
+        self.session.add(compensating)
+        original.undone = True
+        original.undone_at = _now()
+        self.session.flush()
+        original.undone_by_change_set_id = compensating.id
+        self.session.commit()
+
+        self._publish_created(compensating)
+        self._publish_undone(original, compensating)
+        logger.info("change_set %s undone by %s (scene %s order restored)",
+                    original.id, compensating.id, scene.id)
+        return compensating
 
     def _undo_shot_patch(self, original: AgentChangeSet, before: dict, after: dict, *, force: bool) -> AgentChangeSet:
         shot = self.session.get(Shot, original.entity_id)

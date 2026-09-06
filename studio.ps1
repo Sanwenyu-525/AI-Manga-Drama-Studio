@@ -90,8 +90,15 @@ function Test-HttpReady([int]$port, [int]$timeoutSeconds = 3) {
 function Kill-ProcessTree([int]$processId) {
     if ($processId -gt 0 -and (Test-PidAlive $processId)) {
         Write-Host "  结束进程树 PID $processId ..."
-        # 2>&1 合并到成功流：2>$null 在 $ErrorActionPreference=Stop 下会把 stderr 变成终止性错误
-        & taskkill.exe /PID $processId /T /F 2>&1 | Out-Null
+        $oldEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & taskkill.exe /PID $processId /T /F *> $null
+            if ($LASTEXITCODE -ne 0) {
+                Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+            }
+        } catch {}
+        finally { $ErrorActionPreference = $oldEAP }
     }
 }
 

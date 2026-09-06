@@ -49,6 +49,12 @@ def delete_character(character_id: str, db: Session = Depends(get_db)) -> dict:
     return {"id": character_id, "deleted": True}
 
 
+@router.post("/characters/{character_id}/restore", response_model=CharacterRead)
+def restore_character(character_id: str, db: Session = Depends(get_db)) -> CharacterRead:
+    """P2-E2-T01: restore a soft-deleted character (links revive automatically)."""
+    return CharacterService(db).restore_character(character_id)
+
+
 # --- P2-T007/T008: CharacterVersion -------------------------------------
 
 @router.get("/characters/{character_id}/versions", response_model=list[CharacterVersionRead])

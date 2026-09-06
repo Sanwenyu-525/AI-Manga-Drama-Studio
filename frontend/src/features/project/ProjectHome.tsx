@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowCounterClockwise,
   Camera,
   Check,
   Circle,
@@ -18,6 +19,8 @@ import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../api/queryKeys";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { TrashPanel } from "./TrashPanel";
 import { formatDateTime, formatMonthDay } from "../../lib/format";
 import { mediaUrl } from "../../lib/mediaUrl";
 import type { Episode, Project, ProjectBootstrap, ProjectTreeRead, ProjectUpdateRequest } from "../../api/types";
@@ -39,6 +42,7 @@ export function ProjectHome() {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Project | null>(null);
   const filterRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -169,9 +173,27 @@ export function ProjectHome() {
     mutationFn: (id: string) => api.delete<{ deleted: boolean }>(`/projects/${id}`),
     onSuccess: () => {
       invalidateProjects();
+      setPendingDelete(null);
       if (activeProject && deleteProject.variables === activeProject.id) {
         setActiveId(null); // 重新落到第一个项目
       }
+    },
+  });
+
+  // P2-E2-T01: 已删除项目列表 + 逐项恢复（?include_deleted=true，live 查询不动）。
+  const { data: trashedProjects } = useQuery({
+    queryKey: ["projects", "deleted"],
+    queryFn: async () => {
+      const all = await api.get<Project[]>("/projects?include_deleted=true");
+      return all.filter((p) => p.deleted_at);
+    },
+  });
+  const restoreProject = useMutation({
+    mutationFn: (id: string) => api.post<Project>(`/projects/${id}/restore`),
+    onSuccess: () => {
+      invalidateProjects();
+      void queryClient.invalidateQueries({ queryKey: ["projects", "deleted"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.trash });
     },
   });
 
@@ -187,12 +209,12 @@ export function ProjectHome() {
 
   const confirmDelete = (project: Project) => {
     setMenuOpenId(null);
-    if (
-      window.confirm(`删除项目《${project.name}》？
-其剧集、场景、镜头与角色将一并软删除，不可恢复。`)
-    ) {
-      deleteProject.mutate(project.id);
-    }
+    setPendingDelete(project);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!pendingDelete) return;
+    deleteProject.mutate(pendingDelete.id);
   };
 
   return (
@@ -252,8 +274,10 @@ export function ProjectHome() {
 
         {isLoading && <div className="home-loading">正在读取项目…</div>}
         {isError && <div className="error-banner">项目读取失败，请确认 Studio Service 已启动。</div>}
-        {(uploadCover.error || renameProject.error || deleteProject.error) && (
-          <ApiErrorPanel error={uploadCover.error ?? renameProject.error ?? deleteProject.error} />
+        {(uploadCover.error || renameProject.error || deleteProject.error || restoreProject.error) && (
+          <ApiErrorPanel
+            error={uploadCover.error ?? renameProject.error ?? deleteProject.error ?? restoreProject.error}
+          />
         )}
 
         {!isLoading && projects?.length === 0 && (
@@ -467,7 +491,45 @@ export function ProjectHome() {
             </section>
           </div>
         )}
+        {activeProject && <TrashPanel projectId={activeProject.id} />}
+        {trashedProjects && trashedProjects.length > 0 && (
+          <section className="trash-panel" aria-label="已删除项目">
+            <div className="section-kicker">
+              <Trash size={14} /> 已删除项目 · {trashedProjects.length} 个
+            </div>
+            <ul className="trash-list">
+              {trashedProjects.map((project) => (
+                <li key={project.id} className="trash-row">
+                  <span className="trash-badge">项目</span>
+                  <span className="trash-name">{project.name}</span>
+                  <button
+                    type="button"
+                    className="btn secondary compact"
+                    disabled={restoreProject.isPending}
+                    title={`恢复项目《${project.name}》`}
+                    onClick={() => restoreProject.mutate(project.id)}
+                  >
+                    <ArrowCounterClockwise size={13} />
+                    {restoreProject.isPending ? "恢复中…" : "恢复"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </main>
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title={`删除项目《${pendingDelete?.name ?? ""}》？`}
+        description="项目及其剧集、场景、镜头、角色、地点与设定文档将一并软删除，可在回收站逐项恢复。"
+        details={["Project State 仍保留删除记录以便追溯", "已生成的媒体与版本不会自动清理"]}
+        confirmLabel="删除项目"
+        cancelLabel="保留"
+        variant="danger"
+        loading={deleteProject.isPending}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

@@ -204,6 +204,26 @@ class ProposalService:
             assessment=assessment,
         )
 
+    def create_delete_proposal(
+        self,
+        run: AgentRun,
+        shot_id: str,
+        base_revision: int,
+        assessment: RiskAssessment,
+    ) -> AgentProposal:
+        """R3: a shot delete is destructive — nothing is removed before a human
+        approves this proposal. changes carries only a delete marker; the
+        approval card labels the tool (delete_shot → 删除镜头)."""
+        return self._create_proposal(
+            run,
+            tool="delete_shot",
+            target_type="shot",
+            target_id=shot_id,
+            base_revision=base_revision,
+            changes={"_delete": True},
+            assessment=assessment,
+        )
+
     def create_generation_proposal(
         self,
         run: AgentRun,
@@ -304,6 +324,8 @@ class ProposalService:
             return self._approve_continuity_fix(proposal)
         if proposal.tool == "generate_image":
             return self._approve_generation(proposal)
+        if proposal.tool == "delete_shot":
+            return self._approve_delete(proposal)
 
         shot = self.session.get(Shot, proposal.target_id)
         if shot is None or shot.deleted_at:
@@ -352,6 +374,45 @@ class ProposalService:
             payload={"run_id": proposal.run_id, "status": PROPOSAL_STATUS_APPLIED, "target_id": proposal.target_id, "changes": changes},
         ))
         logger.info("proposal %s applied (shot %s)", proposal.id, proposal.target_id)
+        return proposal
+
+    def _approve_delete(self, proposal: AgentProposal) -> AgentProposal:
+        """R3 apply: base_revision guarded soft-delete + lifecycle ChangeSet.
+
+        Undo of a delete compensates via ShotService.restore_shot (P2-E2-T01);
+        restore conflicts surface as 409 (ChangeSetService._undo_shot_lifecycle)."""
+        shot = self.session.get(Shot, proposal.target_id)
+        if shot is None or shot.deleted_at:
+            return self._conflict(proposal, "Target shot no longer exists.", "shot missing/deleted")
+        if shot.revision != proposal.base_revision:
+            return self._conflict(
+                proposal,
+                "Shot revision changed since proposal.",
+                f"expected_revision={proposal.base_revision}, current_revision={shot.revision}",
+            )
+        revision = shot.revision
+        self.shots.delete_shot(proposal.target_id)
+        proposal.status = PROPOSAL_STATUS_APPLIED
+        run = self.session.get(AgentRun, proposal.run_id)
+        if run is not None:
+            self.change_sets.record_shot_lifecycle(
+                project_id=run.project_id,
+                run_id=proposal.run_id,
+                tool="delete_shot",
+                shot_id=proposal.target_id,
+                exists_before=True,
+                exists_after=False,
+                revision_before=revision,
+            )
+        self.session.commit()
+        bus.publish(StudioEvent(
+            event_type=EVENT_AGENT_PROPOSAL_APPROVED,
+            entity_type="agent_proposal",
+            entity_id=proposal.id,
+            project_id=proposal_run_project(self.session, proposal),
+            payload={"run_id": proposal.run_id, "tool": "delete_shot", "status": PROPOSAL_STATUS_APPLIED, "target_id": proposal.target_id},
+        ))
+        logger.info("proposal %s applied (shot %s deleted)", proposal.id, proposal.target_id)
         return proposal
 
     def _approve_generation(self, proposal: AgentProposal) -> AgentProposal:

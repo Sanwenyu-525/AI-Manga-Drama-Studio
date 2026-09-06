@@ -9,7 +9,14 @@ from sqlalchemy.orm import Session
 from app.core.errors import ConflictError, NotFoundError
 from app.db.models import Episode, Scene, Shot
 from app.domain.scene import SceneCreate, SceneRead, SceneUpdate
-from app.events.bus import EVENT_SCENE_CREATED, EVENT_SCENE_DELETED, EVENT_SCENE_UPDATED, StudioEvent, bus
+from app.events.bus import (
+    EVENT_SCENE_CREATED,
+    EVENT_SCENE_DELETED,
+    EVENT_SCENE_RESTORED,
+    EVENT_SCENE_UPDATED,
+    StudioEvent,
+    bus,
+)
 from app.repositories import EpisodeRepository, SceneRepository
 
 _UUID_RE = re.compile(
@@ -233,6 +240,55 @@ class SceneService:
                 project_id=episode.project_id if episode else None,
             )
         )
+
+    def restore_scene(self, scene_id: str) -> SceneRead:
+        """P2-E2-T01: restore a soft-deleted scene.
+
+        Parent episode deleted/missing → 409 (restore the episode first). A live
+        sibling reusing the scene_number → 409 NUMBER_CONFLICT (never overwrite).
+        Shots keep their own deleted_at: scene delete never cascades, so nothing
+        is auto-revived here; live-hidden shots simply reappear.
+        """
+        scene = self.session.get(Scene, scene_id)
+        if scene is None:
+            raise NotFoundError("Scene does not exist.", {"scene_id": scene_id})
+        if scene.deleted_at is None:
+            return self.get_scene(scene_id)
+        episode = self.episodes.get(scene.episode_id)
+        if episode is None:
+            raise ConflictError(
+                "Parent episode is deleted. Restore the episode first.",
+                {"scene_id": scene_id, "episode_id": scene.episode_id, "recovery": "restore_episode"},
+            )
+        taker = self.session.scalar(
+            select(Scene.id).where(
+                Scene.episode_id == scene.episode_id,
+                Scene.scene_number == scene.scene_number,
+                Scene.deleted_at.is_(None),
+            )
+        )
+        if taker is not None:
+            raise ConflictError(
+                f"Scene number {scene.scene_number} is taken by a live scene. "
+                "Delete or renumber it first, then restore.",
+                {
+                    "scene_id": scene_id,
+                    "conflict": "number",
+                    "scene_number": scene.scene_number,
+                    "live_scene_id": taker,
+                },
+            )
+        scene.deleted_at = None
+        self.session.commit()
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_SCENE_RESTORED,
+                entity_type="scene",
+                entity_id=scene.id,
+                project_id=episode.project_id,
+            )
+        )
+        return self.get_scene(scene_id)
 
     def _validate_location(self, location_id: str, project_id: str | None) -> None:
         """P2-T009: validate a Location REFERENCE on scenes.location_id.

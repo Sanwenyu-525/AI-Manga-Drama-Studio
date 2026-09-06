@@ -419,12 +419,32 @@ GET /api/v1/projects/{project_id}/cover
 DELETE /api/v1/projects/{project_id}
 ```
 
-软删除（`deleted_at`，database-v0.1 §41）并级联其 Episode / Scene / Shot / Character；
+软删除（`deleted_at`，database-v0.1 §41/§41.1）并级联其 Episode / Scene / Shot /
+Character + Location / Costume / Document（同时间戳；生产记录不级联）；
 删除后列表与各子资源不可见。返回：
 
 ```json
 { "id": "project_001", "deleted": true }
 ```
+
+# 12.3 生命周期恢复与回收站（P2-E2-T01）
+
+```http
+POST /api/v1/projects/{project_id}/restore
+POST /api/v1/episodes/{episode_id}/restore
+POST /api/v1/scenes/{scene_id}/restore
+POST /api/v1/shots/{shot_id}/restore
+POST /api/v1/characters/{character_id}/restore
+GET  /api/v1/projects/{project_id}/trash
+GET  /api/v1/projects?include_deleted=true
+```
+
+- 恢复已 live 行 = 幂等 no-op；未知 id = 404。
+- 父级已删 → 409（`recovery` 指引先恢复父级：`restore_project/scene/episode`）。
+- live 同号行占用 → 409（`conflict: "number"` + 冲突行 id），永不覆盖。
+- 级联恢复按时间戳划界：仅同 `deleted_at` 的行复活，独立删除的行保持删除。
+- trash 返回四类删除行（时间倒序）：`{entity_type, id, name, number, parent_id, deleted_at}`。
+- 事件：`project/episode/scene/shot/character.restored`（§143）。
 
 ---
 
@@ -509,9 +529,42 @@ Response（原为裸 ScenePlan[]，现为信封）：
   "source_hash": "9f86d081884c7d65",
   "plans": [ { "scene_number": 1, "title": "...", "location": "...", "time": "...", "description": "...", "mood": "..." } ],
   "model": "deepseek-chat",
-  "status": "pending"
+  "status": "pending",
+  "source_chars": 13000,
+  "analyzed_chars": 13000,
+  "chunk_count": 3,
+  "llm_calls": 4,
+  "max_chars": 24000,
+  "character_candidates": [ { "name": "...", "description": "...", "existing_character_id": null, "existing_character_name": null } ]
 }
 ```
+
+## 14.2 分块分析与角色候选（P2-E1-T02）
+
+- **分块**：原文按段落贪心切分为 ≤6000 字块（单巨段硬切），逐块顺序调用
+  LLM 后合并、场景全局重编号。`source_hash` = 设定摘要 + 全文 hash
+  （v1 快照哈希截断输入，prompt_version 已 bump 至 v2，旧 pending 快照
+  confirm 时过期，需重新预览）。
+- **上限**：单次分析上限 24000 字（4 块）；超出 → 422（`请拆分成多集后
+  分别导入分析`），不落快照。UI 用 `source_chars/chunk_count/llm_calls`
+  展示范围与成本（每块 1 次场景调用 + 全预览共 1 次人物提取）。
+- **失败语义**：某块失败则整个 preview 失败、零落库；重试同一原文得到
+  相同分块与一致快照。
+- **角色候选**：仅审阅、不自动创建。候选存于快照行（`latest` 水合同源），
+  同名已有人物附带合并建议。
+
+```http
+POST /api/v1/episodes/{episode_id}/analyze/characters
+```
+
+```json
+{ "snapshot_id": "b630637c-...", "decisions": [ { "name": "...", "action": "create|merge|skip", "character_id": "..." } ] }
+```
+
+候选身份以快照为准（客户端只选动作）。永 200，逐项结果
+（`created/merged/skipped/conflict/failed`）：重名新建→`conflict`（附已
+有人物 id）；合并需同项目 `character_id`（空 appearance 由候选描述回填，
+revision 乐观并发）；未知候选名→`failed`。
 
 ```http
 GET /api/v1/episodes/{episode_id}/analysis-snapshots/latest
@@ -1052,18 +1105,24 @@ status = waiting_human（或等待审批时的 waiting_approval）
 P2-E3-T02 风险分级后只有需要审批的工具会进入此状态：
 
 - **R0**（get_shot / get_scene_shots / check_workflow / inspect_comfy）：只读，自动执行。
-- **R1**（update_shot / update_scene）：可逆编辑，**自动执行**并记录 ChangeSet（可撤销），
-  不再为每次近景修改打断用户。update_scene 修改场景环境（时段/光照/天气/氛围/描述），
-  走 SceneService（触发 P8-T017 连续性重算 + 活跃资产 stale 标记），scene_id 由
-  selection.scene_id 解析（自主迭代 07）。
+- **R1**（update_shot / update_scene / create_shot / reorder_shots）：可逆编辑，
+  **自动执行**并记录 ChangeSet（可撤销），不再为每次近景修改打断用户。
+  update_scene 修改场景环境（时段/光照/天气/氛围/描述），走 SceneService
+  （触发 P8-T017 连续性重算 + 活跃资产 stale 标记），scene_id 由
+  selection.scene_id 解析（自主迭代 07）。create_shot 记录 `_exists` 生命周期
+  ChangeSet（撤销=删除）；reorder_shots 记录 `shot_order` 顺序 ChangeSet
+ （entity=scene，撤销=排回原序）。
 - **R2**（generate_image）：昂贵操作，**审批前不创建任何 Generation**，
   产生 pending AgentProposal（含 risk_level/reason/estimated_tasks/
   estimated_cost/irreversible/expires_at），run 进入 WAITING_HUMAN 并发出
   `agent.approval.required`。
-- **R3**（破坏性，MVP 暂无工具映射）：必须审批，分类器对未知工具一律按 R3 处理。
+- **R3**（delete_shot）：破坏性，**必须审批**；approve 经 base_revision 守卫后软删除
+  并记录 `_exists` 生命周期 ChangeSet；分类器对未知工具一律按 R3 处理。
+  删除的撤销经 `POST /shots/{id}/restore` 补偿（P2-E2-T01；冲突 409）。
 
 approve 语义：R2 proposal 的 approve 才创建 Generation（base_revision 冲突则 conflict，
-不创建）；R1 审批版（如 continuity_fix）approve 经 ShotService 应用并记录 ChangeSet。
+不创建）；R1 审批版（如 continuity_fix）approve 经 ShotService 应用并记录 ChangeSet；
+R3（delete_shot）approve 经 base_revision 守卫后软删除并记录 ChangeSet。
 
 proposal 具有有效期（`expires_at`，默认 24h，`STUDIO_AGENT_PROPOSAL_TTL_HOURS`）：
 过期后 approve/reject 返回 409（status=expired，终态、不可再决策），
@@ -2538,6 +2597,8 @@ scene.updated
 
 scene.deleted
 
+scene.restored   （P2-E2-T01）
+
 scene.reordered
 ```
 
@@ -2551,6 +2612,8 @@ shot.created
 shot.updated
 
 shot.deleted
+
+shot.restored   （P2-E2-T01）
 
 shot.reordered
 
@@ -2644,6 +2707,8 @@ agent.run.completed
 agent.run.failed
 
 agent.run.cancelled
+
+agent.run.stream
 ```
 
 ---
@@ -2680,6 +2745,32 @@ agent.run.cancelled
 ```text
 显示 Agent Plan Card
 ```
+
+---
+
+# 60.1 agent.run.stream（C 真流式）
+
+阶段增量流：graph 节点 publish 的诚实状态文本分片（structured planner 无
+LLM token 流，不冒充思考内容）。前端按序拼接成打字机 + 点亮思考时间线。
+
+```json
+{
+  "event_type": "agent.run.stream",
+
+  "payload": {
+    "run_id": "run_abc123",
+
+    "stage": "understand",
+
+    "delta": "已理解意图：改成近景。",
+
+    "done": true
+  }
+}
+```
+
+`stage` ∈ understand / load_context / plan / execute / review。`done=true`
+表示该阶段文本结束。取消后不再产生任何事件。
 
 ---
 
@@ -4783,6 +4874,10 @@ Response：
 }
 ```
 
+字段语义（P1-E4-T03）：`status` 为 `healthy` 仅当全部组件健康；worker 停（`stopped`，心跳超 15s）、gateway 未启动（`degraded`）、已配置 ComfyUI 缓存不可用（`unavailable`，无网络探测，只读缓存）任一成立则 `degraded`；数据库不可用则 `unhealthy`。生产环境带 fake/mock 提供器同样 `degraded`（启动期另有 fail-closed 拒绝）。
+
+日志关联字段（P1-E4-T03）：每行携带 `correlation_id / project_id / run_id / generation_id`（缺省 `-`），HTTP 绑定 request_id、Worker 绑定 `gen:{id}`+generation/project、Agent 绑定 `run:{id}`+run/project；绝不记录 session token、api key、完整原文与非必要 Prompt。
+
 ---
 
 # 141. API Contract 核心规则
@@ -5004,6 +5099,16 @@ GET /assets/{id}                     （P6-B-02：单资产完整详情，供 In
 DTO：AssetListItemRead{id,type,status,version_group_id,version_number,checksum,file_size,width,height,_
 created_at,file_path(项目相对路径),thumbnail_url} · AssetListRead{total,items[]} · AssetDetailRead{Id=AssetListItemRead 字段 + project_id + meta_json + generation_id + parent_asset_id + shot_id}
 
+--- P2-E2-T02（项目作用域 Asset Library，2026-09-06）---
+
+GET /projects/{id}/assets            （P2-E2-T02 扩展：offset/limit 保留向后兼容；新增不透明 cursor（base64 `{created_at,id}`）+ `next_cursor` 回包，cursor 与 offset 同传 → 422；新增过滤 `source`（=source_type）、`shot_id`（经 `vg:shot:{id}` + generation 回查）、`scene_id`（经 shot→scene）、`created_from/created_to`（ISO 时间）；非法 source → 422；`asset_type` 即 AC 所说 media_type，不另设双参数）
+POST /projects/{id}/assets/import     （P2-E2-T02 扩展：伪装 MIME 拒绝——image 经 probe+PIL 双失败 → 422 `INVALID_MIME`；video 无 ffprobe 时放行但 `meta.unprobed=true`；`source_name/purpose` 长度 + `..`/`/` 清洗；新增可选 `shot_id` 表单字段→Shot ownership 校验，跨项目/已删 shot → 422/404）
+GET /assets/{id}                     （P2-E2-T02 扩展：新增 `integrity{file_exists,checksum_match,checked_at}`（请求时全量重算，大文件可慢）、`version_context{is_active,is_master,version_number}`、`shot_context{shot_id,scene_id,episode_id?}`；Generation 展开复用 `/assets/{id}/provenance`）
+POST /assets/{id}/archive            （P2-E2-T02：归档=软删除 `deleted_at`，P2-E2-T01 语义；被 active 引用——shot active 指针/角色·地点 MASTER/timeline clip——→ 409 `ASSET_REFERENCED` + 引用清单；纯历史版本放行）
+POST /assets/{id}/restore            （P2-E2-T02：恢复归档资产；`version_group_id` 冲突（同组同号 live 行已存在）→ 409）
+DELETE /assets/{id}?confirm=true     （P2-E2-T02：物理删除，需 confirm=true（缺 confirm → 422）；被引用一律 409；文件 + DB 行删除，不可恢复）
+事件：`asset.archived` · `asset.restored` · `asset.deleted`（§143；payload 含引用摘要/删除范围）
+
 --- P5（Job / JobTask，P5-E1/E2/E3）---
 
 POST /projects/{id}/jobs         （body {scene_id, name?} → 201 JobRead，含 tasks 摘要）
@@ -5080,6 +5185,12 @@ generation.failed
 generation.interrupted
 
 asset.created
+
+asset.archived                 （P2-E2-T02：资产归档，payload: {reason?, references?}）
+
+asset.restored                 （P2-E2-T02：资产恢复）
+
+asset.deleted                  （P2-E2-T02：资产物理删除，payload: {files_removed}，不可恢复）
 
 character.created
 

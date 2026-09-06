@@ -48,6 +48,13 @@ def delete_shot(shot_id: str, db: Session = Depends(get_db)) -> dict:
     return {"id": shot_id, "deleted": True}
 
 
+@router.post("/shots/{shot_id}/restore", response_model=ShotRead)
+def restore_shot(shot_id: str, db: Session = Depends(get_db)) -> ShotRead:
+    """P2-E2-T01: restore a soft-deleted shot (409 when the parent scene is
+    deleted or a live sibling reuses the number/order)."""
+    return ShotService(db).restore_shot(shot_id)
+
+
 @router.patch("/scenes/{scene_id}/shots/reorder", response_model=list[ShotRead])
 def reorder_shots(scene_id: str, ordered_ids: list[str], db: Session = Depends(get_db)) -> list[ShotRead]:
     return ShotService(db).reorder_shots(scene_id, ordered_ids)

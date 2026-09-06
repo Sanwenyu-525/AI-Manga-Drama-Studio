@@ -3,14 +3,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, Circle, X } from "@phosphor-icons/react";
+import { ArrowUp, Check, Circle, Stop, X } from "@phosphor-icons/react";
 import { api } from "../../api/client";
 import { ApiErrorPanel } from "../../components/ApiErrorPanel";
-import { useAgentStore } from "../../stores/agentStore";
+import { AGENT_STAGE_LABELS, useAgentStore } from "../../stores/agentStore";
 import { useSelectionStore } from "../../stores/selectionStore";
 import type { AgentRunRead, Shot } from "../../api/types";
 import { queryKeys } from "../../api/queryKeys";
-import { isWaitingHuman } from "../../lib/agentProposals";
+import { changeSetToolLabel, isWaitingHuman } from "../../lib/agentProposals";
 import { ProposalReview } from "./ProposalReview";
 import { ChangeSetPanel } from "./ChangeSetPanel";
 import { useDirectorContext } from "./useDirectorContext";
@@ -48,11 +48,15 @@ export function AIDirectorPanel() {
   });
 
   useEffect(() => {
-    // jsdom (tests) has no scrollTo on elements; guard so the effect is a no-op there.
-    if (typeof listRef.current?.scrollTo === "function") {
-      listRef.current.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
-    }
-  }, [agent.messages.length, agent.status]);
+    // 智能跟随：仅当用户已在底部附近才自动滚（不抢夺历史阅读）；
+    // 尊重 prefers-reduced-motion；jsdom 无 scrollTo 时 no-op。
+    const el = listRef.current;
+    if (typeof el?.scrollTo !== "function") return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (!nearBottom) return;
+    const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduced ? "auto" : "smooth" });
+  }, [agent.messages.length, agent.status, agent.streamText]);
 
   // P2-E3-T03: jump-to-shot requests (e.g. ChangeSetPanel rows) drive the shared
   // selection store so the ShotInspector context follows the referenced shot.
@@ -100,7 +104,24 @@ export function AIDirectorPanel() {
     submitRun.mutate(message);
   };
 
+  const cancelRun = useMutation({
+    mutationFn: () => api.post<AgentRunRead>(`/agent/runs/${agent.runId}/cancel`),
+    onSuccess: () => useAgentStore.getState().runCancelled(),
+  });
+
+  const handleRetry = () => {
+    const lastUser = [...agent.messages].reverse().find((m) => m.role === "user");
+    if (lastUser && !submitRun.isPending) submitRun.mutate(lastUser.content);
+  };
+
+  const handleNewSession = () => {
+    useAgentStore.getState().reset();
+    setInput("");
+    setSubmitError(null);
+  };
+
   const busy = submitRun.isPending || ["thinking", "planning", "executing", "reviewing"].includes(agent.status);
+  const terminal = ["completed", "failed", "cancelled"].includes(agent.status);
   // P7-T019: true when the run is paused awaiting human approval (either backend casing).
   const waitingHuman = isWaitingHuman(agent.status);
   const shotLabel = shot
@@ -143,15 +164,33 @@ export function AIDirectorPanel() {
   return (
     <div className="panel-tab-content director-tab">
       <div className="director">
-        {hasShotSelection ? (
+        {hasShotSelection || context.scene_id ? (
           <>
             <div className="director-context">
               <div className="director-context-identity">
                 <span className="eyebrow">当前</span>
                 <strong>{contextLine}</strong>
               </div>
-              <span className={`agent-status ${waitingHuman ? "waiting_human" : agent.status}`}>
-                {STATUS_LABELS[waitingHuman ? "WAITING_HUMAN" : agent.status] ?? agent.status}
+              <span className="director-head-actions">
+                <span className={`agent-status ${waitingHuman ? "waiting_human" : agent.status}`}>
+                  {STATUS_LABELS[waitingHuman ? "WAITING_HUMAN" : agent.status] ?? agent.status}
+                </span>
+                {busy && agent.runId && (
+                  <button
+                    type="button"
+                    className="btn tiny danger"
+                    onClick={() => cancelRun.mutate()}
+                    disabled={cancelRun.isPending}
+                    title="中断本次运行（已提交的修改不回滚，可到变更记录撤销）"
+                  >
+                    <Stop size={12} weight="fill" /> {cancelRun.isPending ? "取消中…" : "取消"}
+                  </button>
+                )}
+                {terminal && (
+                  <button type="button" className="btn tiny" onClick={handleNewSession} title="清空对话开始新会话">
+                    新会话
+                  </button>
+                )}
               </span>
             </div>
             <div className="director-brief">
@@ -159,13 +198,9 @@ export function AIDirectorPanel() {
                 <span className="director-brief-label">画面意图</span>
                 <p>{shot?.action || shot?.emotion || "镜头意图待补充"}</p>
               </div>
-              <div>
-                <span className="director-brief-label">AI 建议</span>
-                <p>加强主体动作与镜头构图之间的视觉关联。</p>
-              </div>
               <div className="director-quick-actions">
                 {["优化镜头描述", "优化生成提示词", "创建变体", "检查连续性"].map((action) => (
-                  <button key={action} type="button" onClick={() => quickAction(action)}>
+                  <button key={action} type="button" onClick={() => quickAction(action)} disabled={busy}>
                     {action}
                   </button>
                 ))}
@@ -175,11 +210,29 @@ export function AIDirectorPanel() {
         ) : (
           <div className="director-empty">
             <span className="director-empty-mark">—</span>
-            <strong>未选择镜头</strong>
-            <p>选择一个 Shot 后，AI 导演会基于当前镜头提供建议。</p>
+            <strong>未选择场景</strong>
+            <p>选中场景或镜头后下达指令；场景级如「把这场戏改成夜晚」不需要选中镜头。</p>
             {agent.status !== "idle" && (
-              <span className={`agent-status ${waitingHuman ? "waiting_human" : agent.status}`}>
-                {STATUS_LABELS[waitingHuman ? "WAITING_HUMAN" : agent.status] ?? agent.status}
+              <span className="director-head-actions">
+                <span className={`agent-status ${waitingHuman ? "waiting_human" : agent.status}`}>
+                  {STATUS_LABELS[waitingHuman ? "WAITING_HUMAN" : agent.status] ?? agent.status}
+                </span>
+                {busy && agent.runId && (
+                  <button
+                    type="button"
+                    className="btn tiny danger"
+                    onClick={() => cancelRun.mutate()}
+                    disabled={cancelRun.isPending}
+                    title="中断本次运行"
+                  >
+                    <Stop size={12} weight="fill" /> {cancelRun.isPending ? "取消中…" : "取消"}
+                  </button>
+                )}
+                {terminal && (
+                  <button type="button" className="btn tiny" onClick={handleNewSession} title="清空对话开始新会话">
+                    新会话
+                  </button>
+                )}
               </span>
             )}
           </div>
@@ -198,14 +251,36 @@ export function AIDirectorPanel() {
           </div>
         )}
 
-        {/* message + plan stream */}
-        <div className="director-stream" ref={listRef}>
-          {hasShotSelection && agent.messages.length === 0 && agent.status === "idle" && (
+        {/* message + plan stream：思考时间线 + 打字机增量对读屏可见 */}
+        <div className="director-stream" ref={listRef} role="log" aria-live="polite" aria-label="AI Director 会话">
+          {(hasShotSelection || context.scene_id) && agent.messages.length === 0 && agent.status === "idle" && (
             <p className="muted small">
-              选中一个镜头后对我说，例如：
+              对我说，例如：
               <br />
-              「改成近景」「重新生成」「改成近景然后重新生成」
+              「改成近景」「重新生成」「把这场戏改成夜晚」
             </p>
+          )}
+
+          {(busy || agent.streamText) && (
+            <div className="director-thinking">
+              <div className="thinking-steps">
+                {agent.stages
+                  .filter((s) => s.status !== "pending")
+                  .map((s) => (
+                    <span key={s.stage} className={`thinking-step ${s.status}`} title={s.detail}>
+                      {AGENT_STAGE_LABELS[s.stage]}
+                    </span>
+                  ))}
+              </div>
+              {agent.streamText && (
+                <p className="thinking-stream">
+                  {agent.streamText}
+                  {!agent.streamDone && <span className="thinking-caret" aria-hidden="true">
+                    ▍
+                  </span>}
+                </p>
+              )}
+            </div>
           )}
 
           {agent.messages.map((m, i) => (
@@ -219,7 +294,7 @@ export function AIDirectorPanel() {
               <div className="plan-title">计划：{agent.objective}</div>
               {agent.tools.map((tool, i) => (
                 <div key={i} className={`plan-step ${tool.status}`}>
-                  <span className="plan-icon">
+                  <span className="plan-icon" aria-hidden="true">
                     {tool.status === "done" ? (
                       <Check size={12} weight="bold" />
                     ) : tool.status === "failed" ? (
@@ -228,31 +303,46 @@ export function AIDirectorPanel() {
                       <Circle size={12} weight={tool.status === "running" ? "fill" : "regular"} />
                     )}
                   </span>
-                  <span className="plan-tool">{tool.tool}</span>
-                  {tool.detail && <span className="muted small">{tool.detail}</span>}
+                  <span className="plan-tool">{changeSetToolLabel(tool.tool)}</span>
+                  {tool.detail && <span className="muted small">{tool.detail.slice(-4)}</span>}
                 </div>
               ))}
             </div>
           )}
 
+          {agent.status === "failed" && (
+            <button type="button" className="btn tiny" onClick={handleRetry} disabled={submitRun.isPending}>
+              重试上一次指令
+            </button>
+          )}
+
           {submitError && <ApiErrorPanel error={submitError} />}
         </div>
 
-        {/* input (frontend-ux §83) */}
+        {/* input (frontend-ux §83)：发送按钮收进输入框右端 */}
         <div className="director-input">
-          <input
-            value={input}
-            aria-label="发送给 AI Director 的指令"
-            placeholder="例如：把这个改成近景然后重新生成"
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleSubmit();
-            }}
-            disabled={busy}
-          />
-          <button className="btn primary" onClick={handleSubmit} disabled={busy || !input.trim()}>
-            {busy ? "执行中…" : "发送"}
-          </button>
+          <div className="director-input-box">
+            <input
+              value={input}
+              aria-label="发送给 AI Director 的指令"
+              placeholder="例如：把这个改成近景然后重新生成"
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSubmit();
+              }}
+              disabled={busy}
+            />
+            <button
+              type="button"
+              className="director-send"
+              aria-label="发送"
+              title="发送"
+              onClick={handleSubmit}
+              disabled={busy || !input.trim()}
+            >
+              <ArrowUp size={15} weight="bold" aria-hidden />
+            </button>
+          </div>
         </div>
       </div>
     </div>

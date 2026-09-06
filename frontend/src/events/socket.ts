@@ -196,8 +196,33 @@ export class EventRouter {
         agent.runFailed(event.payload.error as string | undefined);
         break;
       case "agent.run.cancelled":
-        agent.runFailed("已取消");
+        agent.runCancelled();
         break;
+
+      // ---- C 真流式：阶段事件 + run.stream 增量 → 思考时间线 + 打字机 ----
+      case "agent.intent.resolved":
+        agent.stageEvent("understand", event.payload.instruction as string | undefined);
+        break;
+      case "agent.context.loaded":
+        agent.stageEvent("load_context");
+        break;
+      case "agent.review.started":
+        agent.stageEvent("review");
+        break;
+      case "agent.review.completed":
+        agent.stageEvent("review", event.payload.summary as string | undefined);
+        break;
+      case "agent.run.stream": {
+        const stage = (event.payload.stage as string | undefined) ?? "understand";
+        agent.appendStream(
+          ["understand", "load_context", "plan", "execute", "review"].includes(stage)
+            ? (stage as "understand" | "load_context" | "plan" | "execute" | "review")
+            : "understand",
+          (event.payload.delta as string | undefined) ?? "",
+          Boolean(event.payload.done),
+        );
+        break;
+      }
 
       // ---- P7-T019/020/021: proposal + human-interrupt events ----
       // approval/proposal payloads carry run_id (and possibly proposal_id); when
@@ -287,9 +312,18 @@ export class EventRouter {
         break;
       case "asset.created":
         void this.queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.projectAssets });
+        break;
+      // ---- P2-E2-T02：资产归档/恢复/物理删除 → 刷新资产库列表 + 详情 ----
+      case "asset.archived":
+      case "asset.restored":
+      case "asset.deleted":
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.projectAssets });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.trash });
         break;
       case "shot.updated":
       case "shot.active_version.changed":
+      case "shot.restored":
         if (event.project_id) {
           void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.storyboard });
           void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.shots });
@@ -298,6 +332,7 @@ export class EventRouter {
       case "character.created":
       case "character.updated":
       case "character.deleted":
+      case "character.restored":
         if (event.project_id) {
           void this.queryClient.invalidateQueries({ queryKey: queryKeys.characters(event.project_id) });
         }
@@ -362,6 +397,33 @@ export class EventRouter {
       }
       case "scene.created":
         void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.scenes });
+        break;
+      // ---- P2-E2-T01: lifecycle restore/delete → refresh lists + trash view ----
+      case "scene.restored":
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.scenes });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.storyboard });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.trash });
+        break;
+      case "episode.restored":
+        if (event.project_id) {
+          void this.queryClient.invalidateQueries({ queryKey: queryKeys.episodes(event.project_id) });
+        }
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.scenes });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.storyboard });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.trash });
+        break;
+      case "project.restored":
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.trash });
+        break;
+      case "shot.deleted":
+      case "shot.created":
+      case "scene.deleted":
+      case "episode.deleted":
+      case "episode.created":
+      case "project.deleted":
+      case "project.created":
+        void this.queryClient.invalidateQueries({ queryKey: queryKeys.prefixes.trash });
         break;
       // ---- P-LLM-Fallback: 降级大声宣告（不静默掩盖模型故障）→ 刷新连接面并提示 ----
       case "llm.fallback.used": {

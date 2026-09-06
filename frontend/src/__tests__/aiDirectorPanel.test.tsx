@@ -154,3 +154,36 @@ describe("AIDirectorPanel（自主迭代 05：刷新恢复水合）", () => {
     expect(useAgentStore.getState().status).toBe("idle");
   });
 });
+
+describe("AIDirectorPanel（C 真流式）", () => {
+  it("busy 时显示思考时间线 + 打字机增量 + 取消按钮", async () => {
+    useAgentStore.getState().startRun("run_ui_1", "改成近景");
+    useAgentStore.getState().appendStream("understand", "已理解意图", false);
+    vi.spyOn(client.api, "get").mockImplementation(() => Promise.reject(new Error("nope")));
+    const { W } = wrapper();
+    render(
+      <MemoryRouter initialEntries={["/projects/p1/episodes/e1/script"]}>
+        <AIDirectorPanel />
+      </MemoryRouter>,
+      { wrapper: W },
+    );
+    expect(await screen.findByText("理解意图")).toBeTruthy();
+    expect(screen.getByText("已理解意图")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /取消/ })).toBeTruthy();
+  });
+
+  it("terminal 时显示新会话按钮；失败时显示重试", async () => {
+    useAgentStore.getState().startRun("run_ui_2", "改");
+    useAgentStore.getState().runFailed("炸了");
+    vi.spyOn(client.api, "get").mockImplementation(() => Promise.reject(new Error("nope")));
+    const { W } = wrapper();
+    render(
+      <MemoryRouter initialEntries={["/projects/p1/episodes/e1/script"]}>
+        <AIDirectorPanel />
+      </MemoryRouter>,
+      { wrapper: W },
+    );
+    expect(await screen.findByRole("button", { name: "新会话" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "重试上一次指令" })).toBeTruthy();
+  });
+});

@@ -23,10 +23,12 @@ Subscriber = Callable[["StudioEvent"], None]
 EVENT_SHOT_UPDATED = "shot.updated"
 EVENT_SHOT_CREATED = "shot.created"
 EVENT_SHOT_DELETED = "shot.deleted"
+EVENT_SHOT_RESTORED = "shot.restored"  # P2-E2-T01: lifecycle restore
 EVENT_SHOT_ACTIVE_VERSION_CHANGED = "shot.active_version.changed"
 EVENT_CHARACTER_CREATED = "character.created"
 EVENT_CHARACTER_UPDATED = "character.updated"
 EVENT_CHARACTER_DELETED = "character.deleted"
+EVENT_CHARACTER_RESTORED = "character.restored"  # P2-E2-T01
 EVENT_CHARACTER_VERSION_CREATED = "character.version.created"
 EVENT_CHARACTER_VERSION_ACTIVATED = "character.version.activated"
 EVENT_LOCATION_CREATED = "location.created"
@@ -43,14 +45,20 @@ EVENT_DOCUMENT_DELETED = "document.deleted"
 EVENT_SCENE_CREATED = "scene.created"
 EVENT_SCENE_UPDATED = "scene.updated"
 EVENT_SCENE_DELETED = "scene.deleted"
+EVENT_SCENE_RESTORED = "scene.restored"  # P2-E2-T01
 EVENT_EPISODE_CREATED = "episode.created"
 EVENT_EPISODE_UPDATED = "episode.updated"
 EVENT_EPISODE_DELETED = "episode.deleted"
+EVENT_EPISODE_RESTORED = "episode.restored"  # P2-E2-T01
 EVENT_PROJECT_CREATED = "project.created"
 EVENT_PROJECT_UPDATED = "project.updated"
 EVENT_PROJECT_DELETED = "project.deleted"
+EVENT_PROJECT_RESTORED = "project.restored"  # P2-E2-T01
 
 EVENT_ASSET_CREATED = "asset.created"
+EVENT_ASSET_ARCHIVED = "asset.archived"  # P2-E2-T02: archive (soft delete)
+EVENT_ASSET_RESTORED = "asset.restored"  # P2-E2-T02: restore from archive
+EVENT_ASSET_DELETED = "asset.deleted"  # P2-E2-T02: physical delete (irreversible)
 
 EVENT_GENERATION_CREATED = "generation.created"
 EVENT_GENERATION_QUEUED = "generation.queued"
@@ -81,6 +89,9 @@ EVENT_AGENT_RUN_COMPLETED = "agent.run.completed"
 EVENT_AGENT_RUN_FAILED = "agent.run.failed"
 EVENT_AGENT_RUN_CANCELLED = "agent.run.cancelled"
 EVENT_AGENT_RUN_AWAITING_APPROVAL = "agent.run.awaiting_approval"
+# C 真流式：graph 节点内的阶段增量（状态文本分片，非 LLM token 冒充——structured
+# planner 本就没有 token 流）。前端拼成打字机 + 思考时间线。
+EVENT_AGENT_RUN_STREAM = "agent.run.stream"
 # P7-T012/13/15/16: proposal lifecycle events.
 EVENT_AGENT_PROPOSAL_CREATED = "agent.proposal.created"
 EVENT_AGENT_PROPOSAL_APPROVED = "agent.proposal.approved"

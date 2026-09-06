@@ -26,7 +26,15 @@ from sqlalchemy import func, or_, select, update
 
 from app.core.config import settings
 from app.core.errors import StudioError
-from app.core.logging import get_logger, reset_correlation_id, set_correlation_id
+from app.core.logging import (
+    get_logger,
+    reset_correlation_id,
+    reset_generation_id,
+    reset_project_id,
+    set_correlation_id,
+    set_generation_id,
+    set_project_id,
+)
 from app.db import session as db_session_module
 from app.db.models import Asset, Generation, GenerationInput, GenerationOutput
 from app.events.bus import (
@@ -362,9 +370,13 @@ async def worker_loop() -> None:
             for generation in pending:
                 # Correlate every log line emitted during this generation's run.
                 corr_token = set_correlation_id(f"gen:{generation.id}")
+                gen_token = set_generation_id(generation.id)
+                proj_token = set_project_id(generation.project_id)
                 try:
                     await run_generation(generation.id)
                 finally:
+                    reset_project_id(proj_token)
+                    reset_generation_id(gen_token)
                     reset_correlation_id(corr_token)
         except Exception:  # noqa: BLE001 — worker must never die
             logger.exception("worker poll iteration failed")

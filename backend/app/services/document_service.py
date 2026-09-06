@@ -51,7 +51,7 @@ NULLABLE_LINK_FIELDS = ("character_id", "location_id", "costume_id")
 _SOURCE_HASH_LENGTH = 16
 
 # Budgeted digest cap for Agent injection (mvp-spec DOC-004) — keep the analysis
-# prompt lean; the source text has its own cap (_ANALYSIS_SOURCE_CAP in ScriptService).
+# prompt lean; the source text is chunked in ScriptService (_ANALYSIS_CHUNK_CHARS).
 DOCUMENT_DIGEST_CAP = 2000
 
 _ELISION = "...[truncated]..."

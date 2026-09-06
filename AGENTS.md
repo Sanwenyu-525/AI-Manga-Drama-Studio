@@ -129,7 +129,7 @@ GenerationService → Provider Interface → ComfyUI / API
 - **Frontend**：React + TypeScript + Vite + Zustand（UI 状态）+ TanStack Query（Server State）+ WebSocket（事件）
 - **Backend**：Python + FastAPI + Pydantic v2 + SQLAlchemy 2.0 + Alembic + SQLite（WAL）+ httpx + asyncio
 - **AI**：LangChain（模型/Tool/Structured Output）+ LangGraph（Agent 编排，SQLite Checkpointer）
-- **Generation**：asyncio.Queue + Generation Worker + ComfyUI Provider（外部 ComfyUI Server，用户自启）
+- **Generation**：DB-poll Worker（`generations` 表即队列，原子认领 + 租约恢复，asyncio.Queue 跨线程不安全故弃用）+ ComfyUI Provider（外部 ComfyUI Server，用户自启）
 - **不引入**（MVP）：Redis / Celery / Temporal / 多 Agent / MCP
 
 ---

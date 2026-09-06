@@ -105,6 +105,14 @@ export function changeSetToolLabel(tool: string | undefined | null): string {
       return "修改场景";
     case "generate_image":
       return "生成图片（版本切换）";
+    case "continuity_fix":
+      return "修复连续性";
+    case "create_shot":
+      return "新建镜头";
+    case "delete_shot":
+      return "删除镜头";
+    case "reorder_shots":
+      return "重排镜头";
     case "get_shot":
       return "读取镜头";
     default:
@@ -132,6 +140,14 @@ export function proposalToolLabel(tool: string | undefined | null): string {
       return "读取镜头";
     case "generate_image":
       return "生成图片";
+    case "continuity_fix":
+      return "修复连续性";
+    case "create_shot":
+      return "新建镜头";
+    case "delete_shot":
+      return "删除镜头";
+    case "reorder_shots":
+      return "重排镜头";
     default:
       return tool ?? "未知工具";
   }
@@ -153,6 +169,9 @@ export const SHOT_FIELD_LABELS: Record<string, string> = {
   dirty_state: "脏状态",
   character_ids: "出场角色",
   shot_number: "镜头号",
+  // 结构操作伪字段（create/delete 生命周期 diff、reorder 顺序 diff）。
+  _exists: "存在",
+  shot_order: "镜头顺序",
   // 自主迭代 07：场景环境字段（update_scene diff 表）。
   name: "名称",
   time_of_day: "时段",

@@ -76,7 +76,7 @@ export function CharactersSection({ projectId }: { projectId: string }) {
               onToggle={() => setExpandedId(expandedId === character.id ? null : character.id)}
               onSave={(patch) => updateCharacter.mutate({ id: character.id, revision: character.revision, patch })}
               onDelete={() => {
-                if (window.confirm("删除角色「" + character.name + "」？历史镜头引用会保留，但不再出现在角色列表。")) {
+                if (window.confirm("删除角色「" + character.name + "」？历史镜头引用会保留，可在回收站恢复。")) {
                   deleteCharacter.mutate(character.id);
                 }
               }}

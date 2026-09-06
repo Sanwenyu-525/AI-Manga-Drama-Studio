@@ -16,7 +16,8 @@ from app.db.models.columns import ts_created, uuid_pk
 SNAPSHOT_STATUSES = ("pending", "confirmed", "expired")
 
 # provenance 版本标签（prompt/schema 变更时 bump，保证快照可追溯）。
-ANALYSIS_PROMPT_VERSION = "v1"
+# v2 (P2-E1-T02): chunked analysis (no silent truncation) + character candidates.
+ANALYSIS_PROMPT_VERSION = "v2"
 ANALYSIS_SCHEMA_VERSION = "scene_plan_v1"
 
 
@@ -41,6 +42,9 @@ class AnalysisSnapshot(Base):
     schema_version: Mapped[str] = mapped_column(Text, nullable=False, default=ANALYSIS_SCHEMA_VERSION)
 
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    # P2-E1-T02: LLM-extracted character candidates (JSON) — immutable like plans,
+    # so refresh rehydration and the decisions endpoint share one server truth.
+    character_candidates_json: Mapped[str | None] = mapped_column(Text)
     created_scene_ids_json: Mapped[str | None] = mapped_column(Text)  # confirm 结果（幂等重放）
     created_at: Mapped[str] = ts_created()
     confirmed_at: Mapped[str | None] = mapped_column(Text)

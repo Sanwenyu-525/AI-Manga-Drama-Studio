@@ -26,6 +26,7 @@ from app.domain.shot import (
 from app.events.bus import (
     EVENT_SHOT_CREATED,
     EVENT_SHOT_DELETED,
+    EVENT_SHOT_RESTORED,
     EVENT_SHOT_UPDATED,
     StudioEvent,
     bus,
@@ -394,6 +395,56 @@ class ShotService:
                 project_id=self._project_id_of(shot),
             )
         )
+
+    def restore_shot(self, shot_id: str) -> ShotRead:
+        """P2-E2-T01: restore a soft-deleted shot (trash → storyboard).
+
+        - Already live → no-op returning the row (idempotent).
+        - Parent scene deleted/missing → 409 PARENT_DELETED (restore the scene
+          first — never silently reparent).
+        - A live sibling reuses the number/order → 409 NUMBER_CONFLICT with the
+          conflicting number and live row (never overwrite — AC: 恢复冲突).
+        """
+        shot = self.session.get(Shot, shot_id)
+        if shot is None:
+            raise NotFoundError("Shot does not exist.", {"shot_id": shot_id})
+        if shot.deleted_at is None:
+            return self.get_shot(shot_id)
+        scene = self.scenes.get(shot.scene_id)
+        if scene is None:
+            raise ConflictError(
+                "Parent scene is deleted. Restore the scene first.",
+                {"shot_id": shot_id, "scene_id": shot.scene_id, "recovery": "restore_scene"},
+            )
+        live_numbers = {
+            (s.shot_number, s.shot_order, s.id)
+            for s in self.session.scalars(
+                select(Shot).where(Shot.scene_id == shot.scene_id, Shot.deleted_at.is_(None))
+            )
+        }
+        for number, order, live_id in live_numbers:
+            if number == shot.shot_number or order == shot.shot_order:
+                raise ConflictError(
+                    f"Shot number {shot.shot_number} is taken by a live shot. "
+                    "Delete or renumber it first, then restore.",
+                    {
+                        "shot_id": shot_id,
+                        "conflict": "number",
+                        "shot_number": shot.shot_number,
+                        "live_shot_id": live_id,
+                    },
+                )
+        shot.deleted_at = None
+        self.session.commit()
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_SHOT_RESTORED,
+                entity_type="shot",
+                entity_id=shot.id,
+                project_id=self._project_id_of(shot),
+            )
+        )
+        return self.get_shot(shot_id)
 
     def reorder_shots(self, scene_id: str, ordered_ids: list[str]) -> list[ShotRead]:
         """Safe reorder (P1-E1-T02): the list must contain EXACTLY the scene's live

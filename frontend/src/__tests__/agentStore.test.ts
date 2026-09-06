@@ -67,3 +67,45 @@ describe("agentStore.hydrate（刷新恢复）", () => {
     expect(state.objective).toBeNull();
   });
 });
+
+describe("agentStore.C 真流式（阶段 + 增量 + 取消）", () => {
+  it("startRun → understand running；stageEvent 推进时间线", () => {
+    const s = useAgentStore.getState();
+    s.startRun("run_1", "改成近景");
+    expect(useAgentStore.getState().stages.find((x) => x.stage === "understand")?.status).toBe("running");
+    useAgentStore.getState().stageEvent("understand", "改成近景");
+    useAgentStore.getState().stageEvent("load_context");
+    const stages = useAgentStore.getState().stages;
+    expect(stages.find((x) => x.stage === "understand")?.status).toBe("done");
+    expect(stages.find((x) => x.stage === "load_context")?.status).toBe("done");
+  });
+
+  it("appendStream 拼接增量；done 收尾；同名 tool 只点亮第一个 pending", () => {
+    const s = useAgentStore.getState();
+    s.startRun("run_2", "改");
+    s.setPlan("改", [
+      { tool: "get_shot", args: {} },
+      { tool: "get_shot", args: {} },
+    ]);
+    s.appendStream("understand", "已理解", false);
+    s.appendStream("understand", "意图", true);
+    expect(useAgentStore.getState().streamText).toBe("已理解意图");
+    expect(useAgentStore.getState().streamDone).toBe(true);
+    s.toolStarted("get_shot", "abc123");
+    const running = useAgentStore.getState().tools.filter((t) => t.status === "running");
+    expect(running).toHaveLength(1);
+  });
+
+  it("runCancelled 置 cancelled（非 failed）；reset 清空会话", () => {
+    const s = useAgentStore.getState();
+    s.startRun("run_3", "改");
+    s.runCancelled();
+    expect(useAgentStore.getState().status).toBe("cancelled");
+    s.reset();
+    const after = useAgentStore.getState();
+    expect(after.runId).toBeNull();
+    expect(after.messages).toEqual([]);
+    expect(after.streamText).toBe("");
+    expect(after.stages.every((x) => x.status === "pending")).toBe(true);
+  });
+});

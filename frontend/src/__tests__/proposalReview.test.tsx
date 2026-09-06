@@ -404,6 +404,42 @@ describe("EventRouter proposal/approval events", () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: ["storyboard"] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["shots"] });
   });
+  it("C 真流式：stage 事件推进时间线，run.stream 拼接增量", () => {
+    const qc = new QueryClient();
+    const router = new EventRouter(qc);
+    useAgentStore.getState().startRun("run_stream_1", "改成近景");
+    const base = {
+      event_version: 1,
+      project_id: "p1",
+      entity_type: "agent_run",
+      entity_id: "run_stream_1",
+      timestamp: "2026-01-01",
+    } as const;
+    router.handle({ ...base, event_id: "s1", event_type: "agent.intent.resolved", sequence: 11, payload: { instruction: "改成近景" } });
+    router.handle({ ...base, event_id: "s2", event_type: "agent.run.stream", sequence: 12, payload: { stage: "understand", delta: "已理解", done: false } });
+    router.handle({ ...base, event_id: "s3", event_type: "agent.run.stream", sequence: 13, payload: { stage: "understand", delta: "意图", done: true } });
+    const state = useAgentStore.getState();
+    expect(state.stages.find((x) => x.stage === "understand")?.status).toBe("done");
+    expect(state.streamText).toBe("已理解意图");
+    expect(state.streamDone).toBe(true);
+  });
+  it("run.cancelled 置 cancelled（不再误标 failed）", () => {
+    const qc = new QueryClient();
+    const router = new EventRouter(qc);
+    useAgentStore.getState().startRun("run_cancel_1", "改");
+    router.handle({
+      event_id: "c1",
+      event_type: "agent.run.cancelled",
+      event_version: 1,
+      project_id: "p1",
+      entity_type: "agent_run",
+      entity_id: "run_cancel_1",
+      timestamp: "2026-01-01",
+      sequence: 14,
+      payload: {},
+    });
+    expect(useAgentStore.getState().status).toBe("cancelled");
+  });
 });
 
 // ---- 6. P2-E3-T02: risk metadata on the proposal card ----

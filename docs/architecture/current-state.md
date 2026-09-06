@@ -104,10 +104,12 @@ SQLite 是当前业务事实源，方向正确。LangGraph checkpoint 没有替�
 
 这些 Module 的目标是提高 Locality 与 Leverage，而不是增加层数。单次使用、没有变化轴的逻辑不应再抽象。
 
-## 8. 事实源漂移
+## 8. 事实源漂移（P1-E6-T02 已关闭，2026-09-06）
 
-- 根 `README.md` 仍把项目描述为 Stage A，并将 WebSocket、AI Director、ComfyUI 列为后续工作。
-- `design-qa.md` 仍称 Stage D 未接入。
-- `AGENTS.md` 已更新到 MVP 完成，但技术栈小节仍写 `asyncio.Queue`，与真实 DB-poll worker 不一致。
+- ~~根 `README.md` 仍把项目描述为 Stage A~~ → 已修正：README 现声明 MVP+/Alpha 闭环 + 能力矩阵（含默认模式与真实验证状态）。
+- ~~`design-qa.md` 仍称 Stage D 未接入~~ → 已修正：两处改为历史记录口径（QA 当时未接，现已接 live Director API）。
+- ~~`AGENTS.md` 技术栈小节仍写 `asyncio.Queue`~~ → 已修正：改为 DB-poll Worker。
+- 遗留 `frontend/src/features/ai/DirectorPanel.tsx`（锁定版）已确认移除，目录仅剩 `useOperationPolling.ts`；现用 `features/director/AIDirectorPanel.tsx`。
+- 回归防线：`backend/tests/test_docs_factsource.py` 锁定上述入口文案，漂移即红。
 
 在 Phase 1 应建立“代码、契约、操作手册、里程碑状态”同步规则；以后不能再以单一状态段落代替可执行验证。

@@ -5,7 +5,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_script_llm
-from app.domain.analysis import AnalysisPreview, SnapshotRead
+from app.domain.analysis import (
+    AnalysisPreview,
+    CharacterDecisionsRequest,
+    CharacterDecisionsResult,
+    SnapshotRead,
+)
 from app.domain.episode import (
     EpisodeCreate,
     EpisodeRead,
@@ -59,6 +64,13 @@ def delete_episode(episode_id: str, db: Session = Depends(get_db)) -> dict:
     return {"id": episode_id, "deleted": True}
 
 
+@router.post("/episodes/{episode_id}/restore", response_model=EpisodeRead)
+def restore_episode(episode_id: str, db: Session = Depends(get_db)) -> EpisodeRead:
+    """P2-E2-T01: restore a soft-deleted episode + its cascade set (409 when the
+    parent project is deleted or a live sibling reuses the number)."""
+    return EpisodeService(db).restore_episode(episode_id)
+
+
 @router.post("/episodes/{episode_id}/analyze/preview", response_model=AnalysisPreview)
 async def preview_analysis(
     episode_id: str,
@@ -71,6 +83,24 @@ async def preview_analysis(
     plans are EXACTLY what a later confirm writes (no second LLM call).
     """
     return await ScriptService(db, llm).preview_analysis(episode_id)
+
+
+@router.post(
+    "/episodes/{episode_id}/analyze/characters",
+    response_model=CharacterDecisionsResult,
+)
+async def apply_character_decisions(
+    episode_id: str,
+    body: CharacterDecisionsRequest,
+    db: Session = Depends(get_db),
+) -> CharacterDecisionsResult:
+    """P2-E1-T02: create / merge / skip reviewed candidates (per-item results).
+
+    Router holds no business logic — ScriptService owns the snapshot-truth
+    lookup, ownership checks, and per-item outcomes (always 200; failures are
+    item-level, mirroring the batch逐项结果 pattern).
+    """
+    return await ScriptService(db, None).apply_character_decisions(episode_id, body)  # type: ignore[arg-type]
 
 
 @router.get("/episodes/{episode_id}/analysis-snapshots/latest", response_model=SnapshotRead | None)

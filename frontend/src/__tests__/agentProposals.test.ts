@@ -4,7 +4,7 @@
 //   3. changeSetToolLabel maps change-set tools incl. undo: compensations
 //   4. formatDeadline renders a locale-free YYYY-MM-DD HH:mm deadline
 import { describe, expect, it } from "vitest";
-import { changeSetToolLabel, formatDeadline, proposalStatusLabel, riskLevelLabel } from "../lib/agentProposals";
+import { changeSetToolLabel, formatDeadline, proposalStatusLabel, proposalToolLabel, riskLevelLabel } from "../lib/agentProposals";
 
 describe("proposalStatusLabel (P2-E3-T02)", () => {
   it("labels the expired status in Chinese", () => {
@@ -45,6 +45,18 @@ describe("changeSetToolLabel (P2-E3-T03)", () => {
   it("labels undo compensations regardless of the wrapped tool", () => {
     expect(changeSetToolLabel("undo:update_shot")).toBe("撤销操作");
     expect(changeSetToolLabel("undo:generate_image")).toBe("撤销操作");
+  });
+
+  it("labels continuity_fix in Chinese (proposal + change set)", () => {
+    expect(changeSetToolLabel("continuity_fix")).toBe("修复连续性");
+    expect(proposalToolLabel("continuity_fix")).toBe("修复连续性");
+  });
+
+  it("labels structural ops in Chinese (create/delete/reorder)", () => {
+    expect(changeSetToolLabel("create_shot")).toBe("新建镜头");
+    expect(changeSetToolLabel("delete_shot")).toBe("删除镜头");
+    expect(changeSetToolLabel("reorder_shots")).toBe("重排镜头");
+    expect(proposalToolLabel("delete_shot")).toBe("删除镜头");
   });
 });
 

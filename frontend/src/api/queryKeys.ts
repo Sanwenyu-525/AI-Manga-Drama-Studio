@@ -21,6 +21,8 @@ export const queryKeys = {
   locations: (projectId: string) => ["locations", projectId] as const,
   locationVersions: (locationId: string) => ["locationVersions", locationId] as const,
   projectTree: (projectId: string) => ["projectTree", projectId] as const,
+  /** P2-E2-T01: 项目回收站（软删除的剧集/场景/镜头/角色，时间倒序）。 */
+  trash: (projectId: string) => ["trash", projectId] as const,
   projectSettings: (projectId: string) => ["projectSettings", projectId] as const,
   provenance: (assetId: string) => ["provenance", assetId] as const,
   jobs: (projectId: string) => ["jobs", projectId] as const,
@@ -72,6 +74,9 @@ export const queryKeys = {
    *  Matching an `as const` array by prefix is a deliberate, documented pattern — prefer
    *  these over hand-typed `["domain"]` literals so every key stays in one place. */
   prefixes: {
+    /** P2-E2-T02：项目资产库（asset.* 事件后刷新列表/详情）。 */
+    projectAssets: ["projectAssets"] as const,
+    trash: ["trash"] as const,
     shots: ["shots"] as const,
     scenes: ["scenes"] as const,
     storyboard: ["storyboard"] as const,

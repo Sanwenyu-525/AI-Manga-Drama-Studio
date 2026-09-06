@@ -363,3 +363,52 @@ describe("生产就绪度（自主迭代 04）", () => {
     expect(link.getAttribute("href")).toBe("/projects/p1/continuity");
   });
 });
+
+describe("工作区 B+C（KPI 行 + 阶段 stepper）", () => {
+  const stubApi = () => {
+    const get = vi.fn().mockImplementation((path: string) => {
+      if (path === "/projects/p1/tree") return Promise.resolve(tree);
+      if (path === "/projects/p1/episodes") return Promise.resolve(episodes);
+      if (path === "/projects/p1/bootstrap") return Promise.resolve(bootstrap);
+      if (path === "/generations/recent") return Promise.resolve(recent);
+      if (path === "/projects/p1/readiness") return Promise.resolve(readyReadiness);
+      return Promise.reject(new Error("unexpected " + path));
+    });
+    vi.spyOn(client.api, "get").mockImplementation(get);
+  };
+
+  it("KPI 四卡全部来自真实状态：出图100%/2集1场/缺口0/无失败", async () => {
+    stubApi();
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+
+    // ep1 1 镜头已出图、ep2 空 → 1/1=100%；2 集 1 场；全就绪缺口 0；无失败无运行中
+    const progress = await screen.findByRole("link", { name: /指标：出图进度100%/ }, { timeout: 4000 });
+    expect(progress.textContent).toContain("1/1");
+    const scale = screen.getByRole("link", { name: /指标：2集1场/ });
+    expect(scale.textContent).toContain("1 镜头");
+    const gap = screen.getByRole("link", { name: /指标：待补缺口0项/ });
+    expect(gap.getAttribute("href")).toBe("/projects/p1/continuity");
+    const risk = screen.getByRole("link", { name: /指标：无失败，空闲/ });
+    expect(risk.getAttribute("href")).toBe("/projects/p1/production-log");
+  });
+
+  it("阶段条是 stepper：当前阶段带 aria-current=step，完成态不变", async () => {
+    stubApi();
+    const { wrapper } = makeWrapper();
+    render(<WorkspaceOverviewPage projectId="p1" />, { wrapper });
+
+    // ep1 有时间线、无成片 → 导出为 running
+    await waitFor(
+      () => {
+        const exportStage = screen.getByText("导出").closest("li");
+        expect(exportStage?.className).toContain("running");
+        expect(exportStage?.getAttribute("aria-current")).toBe("step");
+      },
+      { timeout: 4000 },
+    );
+    const timeline = screen.getByText("时间线").closest("li");
+    expect(timeline?.className).toContain("done");
+    expect(timeline?.getAttribute("aria-current")).toBeNull();
+  });
+});

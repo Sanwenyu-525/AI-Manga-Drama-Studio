@@ -10,11 +10,12 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError, ValidationError
-from app.db.models import Asset, Character, Episode, Generation, Project, ProjectSetting, Scene, Shot, Timeline
+from app.db.models import Asset, Character, Costume, Episode, Generation, Location, Project, ProjectSetting, Scene, Shot, SourceDocument, Timeline
 from app.db.models.columns import utcnow_iso
 from app.events.bus import (
     EVENT_PROJECT_CREATED,
     EVENT_PROJECT_DELETED,
+    EVENT_PROJECT_RESTORED,
     EVENT_PROJECT_UPDATED,
     StudioEvent,
     bus,
@@ -27,6 +28,7 @@ from app.domain.project import (
     ProjectSettingRead,
     ProjectSettingUpdate,
     ProjectUpdate,
+    TrashItem,
 )
 from app.repositories import ProjectRepository
 from app.services.character_service import CharacterService
@@ -78,6 +80,7 @@ def _to_read(p: Project) -> ProjectRead:
         revision=p.revision,
         created_at=p.created_at,
         updated_at=p.updated_at,
+        deleted_at=p.deleted_at,
     )
 
 
@@ -151,8 +154,19 @@ class ProjectService:
             raise NotFoundError("Project does not exist.", {"project_id": project_id})
         return _to_read(project)
 
-    def list_projects(self) -> list[ProjectRead]:
-        return [_to_read(p) for p in self.repo.list_ordered(order_by="created_at")]
+    def list_projects(self, include_deleted: bool = False) -> list[ProjectRead]:
+        """Live projects by default; include_deleted=true appends soft-deleted
+        rows (P2-E2-T01 project-level trash view) oldest-last by deleted_at."""
+        live = [_to_read(p) for p in self.repo.list_ordered(order_by="created_at")]
+        if not include_deleted:
+            return live
+        deleted = [
+            _to_read(p)
+            for p in self.session.scalars(
+                select(Project).where(Project.deleted_at.is_not(None)).order_by(Project.deleted_at.desc())
+            ).all()
+        ]
+        return live + deleted
 
     def update_project(self, project_id: str, revision: int, patch: ProjectUpdate) -> ProjectRead:
         """Optimistic concurrency (AGENTS.md §3.10): atomic conditional UPDATE.
@@ -253,7 +267,14 @@ class ProjectService:
         return path if path.exists() else None
 
     def delete_project(self, project_id: str) -> None:
-        """Soft-delete the project and cascade to episodes / scenes / shots / characters."""
+        """Soft-delete the project and cascade to its tree.
+
+        Cascade set (same deleted_at timestamp, P2-E2-T01): episodes / scenes /
+        shots / characters + locations / costumes / documents. Production records
+        (generations / assets / versions / timelines / pipelines / snapshots) are
+        NOT cascade-deleted — they stay as history and remain reachable through
+        the restored project.
+        """
         project = self.repo.get(project_id)
         if project is None:
             raise NotFoundError("Project does not exist.", {"project_id": project_id})
@@ -287,6 +308,13 @@ class ProjectService:
             select(Character).where(Character.project_id == project_id, Character.deleted_at.is_(None))
         ).scalars().all():
             character.deleted_at = deleted_at
+        # P2-E2-T01: project-scoped identity tables join the cascade so a deleted
+        # project has no live children reachable by direct id (AC: 父删子不可见).
+        for model in (Location, Costume, SourceDocument):
+            for row in self.session.execute(
+                select(model).where(model.project_id == project_id, model.deleted_at.is_(None))
+            ).scalars().all():
+                row.deleted_at = deleted_at
 
         self.session.commit()
         bus.publish(
@@ -297,6 +325,122 @@ class ProjectService:
                 project_id=project.id,
             )
         )
+
+    def restore_project(self, project_id: str) -> ProjectRead:
+        """P2-E2-T01: restore a soft-deleted project + its cascade set.
+
+        Only rows sharing the project's own deleted_at timestamp are revived —
+        independently deleted children stay deleted. Already live → no-op.
+        """
+        project = self.session.get(Project, project_id)
+        if project is None:
+            raise NotFoundError("Project does not exist.", {"project_id": project_id})
+        if project.deleted_at is None:
+            return self.get_project(project_id)
+        cascade_ts = project.deleted_at
+        project.deleted_at = None
+        for model, scope_field in (
+            (Episode, Episode.project_id),
+            (Character, Character.project_id),
+            (Location, Location.project_id),
+            (Costume, Costume.project_id),
+            (SourceDocument, SourceDocument.project_id),
+        ):
+            for row in self.session.scalars(
+                select(model).where(scope_field == project_id, model.deleted_at == cascade_ts)
+            ).all():
+                row.deleted_at = None
+        # autoflush is OFF: flush revived rows before the dependent reads below.
+        self.session.flush()
+        episode_ids = [
+            e.id
+            for e in self.session.scalars(
+                select(Episode).where(Episode.project_id == project_id, Episode.deleted_at.is_(None))
+            ).all()
+        ]
+        scenes = self.session.scalars(
+            select(Scene).where(
+                Scene.episode_id.in_(episode_ids) if episode_ids else Scene.id == "",
+                Scene.deleted_at == cascade_ts,
+            )
+        ).all()
+        for scene in scenes:
+            scene.deleted_at = None
+        self.session.flush()
+        scene_ids = [s.id for s in scenes]
+        if scene_ids:
+            for shot in self.session.scalars(
+                select(Shot).where(Shot.scene_id.in_(scene_ids), Shot.deleted_at == cascade_ts)
+            ).all():
+                shot.deleted_at = None
+        self.session.commit()
+        bus.publish(
+            StudioEvent(
+                event_type=EVENT_PROJECT_RESTORED,
+                entity_type="project",
+                entity_id=project.id,
+                project_id=project.id,
+            )
+        )
+        return self.get_project(project_id)
+
+    def get_trash(self, project_id: str) -> list[TrashItem]:
+        """P2-E2-T01: soft-deleted rows of the five restorable entities.
+
+        Project itself is addressed by id (projects list only live rows); the
+        trash covers its episode / scene / shot / character rows for review +
+        per-row restore. Sorted by deleted_at descending (most recent first).
+        Works for live AND soft-deleted projects (a deleted project's trash is
+        how the user decides whether to restore it); unknown id → 404.
+        """
+        if self.session.get(Project, project_id) is None:
+            raise NotFoundError("Project does not exist.", {"project_id": project_id})
+        items: list[TrashItem] = []
+        for row in self.session.scalars(
+            select(Episode).where(Episode.project_id == project_id, Episode.deleted_at.is_not(None))
+        ).all():
+            items.append(TrashItem(
+                entity_type="episode", id=row.id,
+                name=row.title or f"EP{row.episode_number}",
+                number=row.episode_number, parent_id=project_id,
+                deleted_at=row.deleted_at,
+            ))
+        episode_ids = list(self.session.scalars(select(Episode.id).where(Episode.project_id == project_id)).all())
+        for row in self.session.scalars(
+            select(Scene).where(
+                Scene.episode_id.in_(episode_ids) if episode_ids else Scene.id == "",
+                Scene.deleted_at.is_not(None),
+            )
+        ).all():
+            items.append(TrashItem(
+                entity_type="scene", id=row.id,
+                name=row.name or f"SC{row.scene_number}",
+                number=row.scene_number, parent_id=row.episode_id,
+                deleted_at=row.deleted_at,
+            ))
+        scene_ids = list(self.session.scalars(select(Scene.id).where(Scene.episode_id.in_(episode_ids) if episode_ids else Scene.id == "")).all())
+        for row in self.session.scalars(
+            select(Shot).where(
+                Shot.scene_id.in_(scene_ids) if scene_ids else Shot.id == "",
+                Shot.deleted_at.is_not(None),
+            )
+        ).all():
+            items.append(TrashItem(
+                entity_type="shot", id=row.id,
+                name=f"SH{row.shot_number:03d}",
+                number=row.shot_number, parent_id=row.scene_id,
+                deleted_at=row.deleted_at,
+            ))
+        for row in self.session.scalars(
+            select(Character).where(Character.project_id == project_id, Character.deleted_at.is_not(None))
+        ).all():
+            items.append(TrashItem(
+                entity_type="character", id=row.id,
+                name=row.name, number=None, parent_id=project_id,
+                deleted_at=row.deleted_at,
+            ))
+        items.sort(key=lambda item: item.deleted_at or "", reverse=True)
+        return items
 
     # --- ProjectSetting (database-schema-design §15) ---
 

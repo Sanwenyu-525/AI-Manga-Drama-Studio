@@ -19,7 +19,12 @@ from app.core.logging import get_logger
 from app.db import session as db_session_module
 from app.domain.agent import DirectorPlan, ProductionIntent, ToolOperation
 from app.events.bus import (
+    EVENT_AGENT_CONTEXT_LOADED,
+    EVENT_AGENT_INTENT_RESOLVED,
     EVENT_AGENT_PLAN_CREATED,
+    EVENT_AGENT_REVIEW_COMPLETED,
+    EVENT_AGENT_REVIEW_STARTED,
+    EVENT_AGENT_RUN_STREAM,
     EVENT_AGENT_TOOL_COMPLETED,
     EVENT_AGENT_TOOL_STARTED,
     StudioEvent,
@@ -32,7 +37,11 @@ logger = get_logger("agent.director")
 
 UNDERSTAND_SYSTEM_PROMPT = (
     "你是 AI 漫剧 Studio 的导演。把用户的自然语言指令解析为结构化意图。"
-    "支持：query / modify / generate。目标可以是 shot（镜头）。"
+    "支持：query / modify / generate / create / delete / review。"
+    "目标可以是 shot（镜头）或 scene（场景）；context.scene_shots 是全场镜头简表，"
+    "压缩/合并/重排时从中枚举目标并输出多步 operations（shot_number:N 引用由执行器解析）。"
+    "删除必须用 delete_shot（R3，会走人工审批）；新建用 create_shot（需 scene_id）。"
+    "连续性修复用 continuity_fix（只需 shot_id，warning 由执行器解析）。"
     "如果用户说『这个』『它』且未指明编号，用 selection 提供的信息。"
     "当用户要求修改但未说明具体改法时，输出空的 operations 并要求澄清。"
     "严格遵守输出 JSON 结构。"
@@ -86,6 +95,24 @@ def _publish(event_type: str, state: DirectorState, payload: dict[str, Any] | No
     )
 
 
+def _stream(state: DirectorState, stage: str, text: str, *, done: bool = False) -> None:
+    """阶段增量流（诚实状态文本，非 LLM 思考冒充）：长文本按 ~24 字分片逐条
+    publish，前端拼成打字机效果。取消后不再产生任何事件。"""
+    if _cancelled(state):
+        return
+    for i in range(0, len(text), 24):
+        _publish(
+            EVENT_AGENT_RUN_STREAM,
+            state,
+            {
+                "run_id": state.get("run_id", ""),
+                "stage": stage,
+                "delta": text[i : i + 24],
+                "done": done and i + 24 >= len(text),
+            },
+        )
+
+
 # ---------- nodes ----------
 
 async def understand_node(state: DirectorState) -> DirectorState:
@@ -103,6 +130,17 @@ async def understand_node(state: DirectorState) -> DirectorState:
     )
     intent = await llm.structured(ProductionIntent, UNDERSTAND_SYSTEM_PROMPT, prompt)  # type: ignore[return-value]
     logger.info("run %s intent=%s ops=%d", state.get("run_id"), intent.intent_type, len(intent.operations))
+    _publish(
+        EVENT_AGENT_INTENT_RESOLVED,
+        state,
+        {
+            "run_id": state.get("run_id", ""),
+            "intent_type": intent.intent_type,
+            "instruction": intent.instruction,
+            "operation_count": len(intent.operations),
+        },
+    )
+    _stream(state, "understand", f"已理解意图：{intent.instruction or intent.intent_type}。", done=True)
     return {**state, "intent": intent.model_dump()}
 
 
@@ -138,6 +176,38 @@ async def load_context_node(state: DirectorState) -> DirectorState:
             context["resolution_message"] = resolution.message
         if resolution.shot_id:
             context["shot"] = context_service.get_shot_context(resolution.shot_id)
+        # planner 可直引 warning_id（真实 LLM 路径）：挂该场景的开放警告摘要。
+        open_scene_id = scene_id or (context["shot"]["scene"]["id"] if context.get("shot") and context["shot"].get("scene") else None)
+        if open_scene_id:
+            from sqlalchemy import select
+
+            from app.db.models import ContinuityWarning
+
+            open_warnings = list(
+                session.scalars(
+                    select(ContinuityWarning)
+                    .where(ContinuityWarning.scene_id == open_scene_id, ContinuityWarning.status == "open")
+                    .order_by(ContinuityWarning.created_at.desc())
+                    .limit(5)
+                )
+            )
+            context["open_warnings"] = [
+                {"id": w.id, "category": w.category, "message": w.message, "shot_id": w.shot_id}
+                for w in open_warnings
+            ]
+            # 结构规划（压缩/合并/重排，真机路径）：挂全场镜头简表供 planner 枚举。
+            from app.services.shot_service import ShotService
+
+            context["scene_shots"] = [
+                {
+                    "id": s.id,
+                    "shot_number": s.shot_number,
+                    "shot_type": s.shot_type,
+                    "action": s.action,
+                    "emotion": s.emotion,
+                }
+                for s in ShotService(session).list_shots(open_scene_id)
+            ]
         # P7-T005/6/7: attach a budgeted, typed context via ContextResolver (shot_planning)
         # so the resolver integration is exercised and the LLM gets a token-capped block.
         from app.agents.context_resolver import ContextResolver
@@ -150,6 +220,20 @@ async def load_context_node(state: DirectorState) -> DirectorState:
             scene_id=scene_id,
         )
 
+    _publish(
+        EVENT_AGENT_CONTEXT_LOADED,
+        state,
+        {
+            "run_id": state.get("run_id", ""),
+            "shot_id": context.get("resolved_shot_id"),
+            "status": context.get("resolution_status"),
+            "message": context.get("resolution_message"),
+        },
+    )
+    if context.get("resolved_shot_id"):
+        _stream(state, "load_context", f"已定位镜头 …{str(context['resolved_shot_id'])[-4:]}，上下文加载完成。", done=True)
+    elif context.get("resolution_message"):
+        _stream(state, "load_context", str(context["resolution_message"]), done=True)
     return {**state, "context": context}
 
 
@@ -174,6 +258,7 @@ async def plan_node(state: DirectorState) -> DirectorState:
         )
 
     _publish(EVENT_AGENT_PLAN_CREATED, state, {"plan": plan.model_dump()})
+    _stream(state, "plan", f"计划：{plan.objective}（{len(plan.steps)} 步）。", done=True)
     return {**state, "plan": plan.model_dump()}
 
 
@@ -191,7 +276,7 @@ async def execute_node(state: DirectorState) -> DirectorState:
         # P1-E3-T01: ambiguous / not found / forged target — never guess, ask.
         # 自主迭代 07：场景级工具（update_scene / get_scene_shots / 检查通道）不需要
         # 镜头解析——只有镜头定位工具才强制 resolved_shot_id。
-        shot_tools = {"get_shot", "update_shot", "generate_image", "continuity_fix"}
+        shot_tools = {"get_shot", "update_shot", "generate_image", "continuity_fix", "delete_shot"}
         if any(op.tool in shot_tools for op in plan.steps):
             message = (
                 context.get("resolution_message")
@@ -210,6 +295,10 @@ async def execute_node(state: DirectorState) -> DirectorState:
 
     factory = db_session_module.session_factory_provider()
     with factory() as session:
+        from app.services.context_service import ContextService
+
+        context_service = ContextService(session)
+        selection = state.get("selection") or {}
         executor = ToolExecutor(
             session,
             project_id=state.get("project_id"),
@@ -222,11 +311,79 @@ async def execute_node(state: DirectorState) -> DirectorState:
             if _cancelled(state):
                 status = "cancelled"
                 break
-            # resolve symbolic references ('shot_number:N') to real ids (context node resolved them)
+            # resolve symbolic references ('shot_number:N') per step, scoped to
+            # the selected scene — batch plans carry several numbers that must
+            # NOT collapse onto the single context-resolved id.
             args = dict(step.arguments)
             ref = args.get("shot_id")
             if isinstance(ref, str) and ref.startswith("shot_number:"):
-                args["shot_id"] = resolved_shot_id
+                resolution = context_service.resolve_shot_reference(
+                    state.get("project_id", ""), ref, [], selection.get("scene_id")
+                )
+                if resolution.status == "resolved" and resolution.shot_id:
+                    args["shot_id"] = resolution.shot_id
+                elif step.tool == "delete_shot":
+                    # Resume 重放时目标已软删除，活体解析会 not_found——
+                    # 按包含软删除的回退查询定位原镜头，让 executor 的
+                    # already-decided 守卫幂等通过，避免把 run 判 failed。
+                    from sqlalchemy import select
+
+                    from app.db.models import Episode, Scene, Shot
+
+                    fallback_id: str | None = None
+                    try:
+                        number = int(ref.split(":", 1)[1])
+                    except ValueError:
+                        number = -1
+                    if number != -1:
+                        stmt = (
+                            select(Shot.id)
+                            .join(Scene, Shot.scene_id == Scene.id)
+                            .join(Episode, Scene.episode_id == Episode.id)
+                            .where(Episode.project_id == state.get("project_id", ""), Shot.shot_number == number)
+                        )
+                        scene_id = selection.get("scene_id")
+                        if scene_id:
+                            stmt = stmt.where(Shot.scene_id == scene_id)
+                        row = session.execute(stmt).first()
+                        if row is not None:
+                            fallback_id = row[0]
+                    if fallback_id is not None:
+                        args["shot_id"] = fallback_id
+                    else:
+                        results.append({
+                            "tool": step.tool,
+                            "arguments": step.arguments,
+                            "result": {
+                                "success": False,
+                                "entity_id": None,
+                                "changed_fields": [],
+                                "created_entities": [],
+                                "warnings": [],
+                                "error": resolution.message or f"无法解析镜头引用 {ref}。",
+                                "data": {"code": "SHOT_RESOLUTION_FAILED", "status": resolution.status},
+                                "proposal_created": False,
+                                "proposal_id": None,
+                            },
+                        })
+                        continue
+                else:
+                    results.append({
+                        "tool": step.tool,
+                        "arguments": step.arguments,
+                        "result": {
+                            "success": False,
+                            "entity_id": None,
+                            "changed_fields": [],
+                            "created_entities": [],
+                            "warnings": [],
+                            "error": resolution.message or f"无法解析镜头引用 {ref}。",
+                            "data": {"code": "SHOT_RESOLUTION_FAILED", "status": resolution.status},
+                            "proposal_created": False,
+                            "proposal_id": None,
+                        },
+                    })
+                    continue
             op = ToolOperation(tool=step.tool, arguments=args)
             _publish(EVENT_AGENT_TOOL_STARTED, state, {"tool": op.tool, "target": {"type": "shot", "id": op.arguments.get("shot_id")}})
             result = executor.execute(op)
@@ -260,6 +417,7 @@ async def execute_node(state: DirectorState) -> DirectorState:
 async def review_node(state: DirectorState) -> DirectorState:
     """Task-level review (agent-director §36-37): summarize what happened for the user."""
     _stage(state, "review")
+    _publish(EVENT_AGENT_REVIEW_STARTED, state, {"run_id": state.get("run_id", "")})
     results = state.get("tool_results") or []
     plan = state.get("plan") or {}
 
@@ -328,6 +486,8 @@ async def review_node(state: DirectorState) -> DirectorState:
         "details": results,
         "clarification": plan.get("clarification_message") if plan.get("requires_clarification") else None,
     }
+    _stream(state, "review", final["summary"], done=True)
+    _publish(EVENT_AGENT_REVIEW_COMPLETED, state, {"run_id": state.get("run_id", ""), "summary": final["summary"]})
     return {**state, "status": "completed" if not failures else "failed", "final_result": final}
 
 
@@ -346,6 +506,28 @@ def _summarize(results: list[dict[str, Any]]) -> str:
                 parts.append("已提交图片生成方案待审批（R2）")
             else:
                 parts.append("已提交图片生成任务（不等待完成）")
+        elif tool == "create_shot":
+            if r["result"].get("created_entities"):
+                parts.append("已新建镜头")
+            else:
+                parts.append(f"新建镜头未执行：{r['result'].get('error') or '未知原因'}")
+        elif tool == "delete_shot":
+            if r["result"].get("proposal_created"):
+                parts.append("已提交镜头删除方案待审批（R3）")
+            else:
+                parts.append(f"删除镜头未执行：{r['result'].get('error') or '未知原因'}")
+        elif tool == "reorder_shots":
+            if (r["result"].get("data") or {}).get("applied"):
+                parts.append("已重排镜头顺序")
+            else:
+                parts.append(f"重排未执行：{r['result'].get('error') or (r['result'].get('data') or {}).get('message') or '未知原因'}")
+        elif tool == "continuity_fix":
+            if r["result"].get("proposal_created"):
+                parts.append("已提交连续性修复方案待审批")
+            elif not r["result"].get("success"):
+                parts.append(f"连续性修复未执行：{r['result'].get('error') or '未知原因'}")
+            else:
+                parts.append("连续性修复已就绪")
         elif tool == "get_shot":
             parts.append("已读取镜头信息")
     return "；".join(parts) or "没有执行任何操作。"

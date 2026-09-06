@@ -8,8 +8,8 @@ Levels (design ai-director §24):
   approval for every close-up edit (task risk note: 审批粒度过细会打断创作).
 - R2 Expensive: generate_image — queues a generation task; approval required
   by default (configurable), with affected entity / task count / cost surfaced.
-- R3 Destructive: no MVP tool maps here yet; the classifier is ready for
-  delete/overwrite tools, which must always be approved.
+- R3 Destructive: delete_shot — always approved (soft delete keeps the data;
+  restore via POST /shots/{id}/restore, the trash view, or ChangeSet undo, P2-E2-T01).
 
 The policy never trusts the planner's self-assessment: classification is
 deterministic from (tool, arguments).
@@ -44,6 +44,21 @@ def classify_tool_operation(tool: str, arguments: dict) -> RiskAssessment:
             reason="可逆场景编辑：通过 ChangeSet 记录，可撤销；触发连续性重算。",
             affected_entities=[str(arguments.get("scene_id") or "")],
             estimated_tasks=1,
+        )
+    if tool in ("create_shot", "reorder_shots"):
+        return RiskAssessment(
+            risk_level=RISK_R1,
+            reason="可逆结构编辑：通过 ChangeSet 记录，可撤销。",
+            affected_entities=[str(arguments.get("scene_id") or arguments.get("shot_id") or "")],
+            estimated_tasks=1,
+        )
+    if tool == "delete_shot":
+        return RiskAssessment(
+            risk_level=RISK_R3,
+            reason="破坏性操作：删除镜头，必须人工审批（软删除保留数据恢复可能）。",
+            affected_entities=[str(arguments.get("shot_id") or "")],
+            estimated_tasks=1,
+            irreversible=True,
         )
     if tool == "generate_image":
         return RiskAssessment(

@@ -49,6 +49,13 @@ def delete_scene(scene_id: str, db: Session = Depends(get_db)) -> dict:
     return {"id": scene_id, "deleted": True}
 
 
+@router.post("/scenes/{scene_id}/restore", response_model=SceneRead)
+def restore_scene(scene_id: str, db: Session = Depends(get_db)) -> SceneRead:
+    """P2-E2-T01: restore a soft-deleted scene (409 when the parent episode is
+    deleted or a live sibling reuses the number)."""
+    return SceneService(db).restore_scene(scene_id)
+
+
 @router.get("/scenes/{scene_id}/storyboard", response_model=StoryboardRead)
 def get_storyboard(scene_id: str, db: Session = Depends(get_db)) -> StoryboardRead:
     """Aggregate endpoint (api-event-contract §101): scene + shot summaries in one call."""
