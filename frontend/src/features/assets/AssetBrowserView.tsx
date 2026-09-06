@@ -58,7 +58,17 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
 
   // Pass image/video to the server as the type filter; source groups refine client-side.
   const hookFilter = filter === "image" || filter === "video" ? filter : "all";
-  const { assets, total, isLoading } = useProjectAssetLibrary(projectId, hookFilter);
+  const {
+    assets,
+    total,
+    isLoading,
+    isError,
+    error,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    refetch,
+  } = useProjectAssetLibrary(projectId, hookFilter);
 
   const filtered = useMemo(() => {
     return assets.filter((a) => {
@@ -104,7 +114,15 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
       </header>
 
       {isLoading && <div className="home-loading">正在加载项目资产…</div>}
-      {!isLoading && filtered.length === 0 && (
+      {!isLoading && isError && error && (
+        <div className="home-empty-card">
+          <ApiErrorPanel error={error} />
+          <button type="button" className="btn secondary compact" onClick={() => refetch()}>
+            重试
+          </button>
+        </div>
+      )}
+      {!isLoading && !isError && filtered.length === 0 && (
         <div className="home-empty-card">
           <ImageSquare size={34} />
           <h2>这个视图还没有资产</h2>
@@ -112,7 +130,7 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {!isLoading && filtered.length > 0 && (
+      {!isLoading && !isError && filtered.length > 0 && (
         <div className="asset-grid">
           {filtered.map((item) => (
             <button
@@ -139,6 +157,19 @@ export function AssetBrowserView({ projectId }: { projectId: string }) {
               <span className="asset-index">{item.label}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {!isLoading && !isError && hasNextPage && (
+        <div className="asset-pager">
+          <button
+            type="button"
+            className="btn secondary compact"
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+          >
+            {isFetchingNextPage ? "正在加载更多…" : `加载更多（${assets.length} / ${total}）`}
+          </button>
         </div>
       )}
 
@@ -225,6 +256,8 @@ function AssetInspector({
           <KV k="文件大小" v={fileSize(data?.file_size)} mono />
           <KV k="文件" v={data?.mime_type ?? "—"} mono />
           <KV k="校验和" v={checksumShort(data?.checksum ?? entry.checksum)} mono />
+          {data?.integrity && <KV k="完整性" v={integrityText(data.integrity)} />}
+          {data?.version_context && <KV k="版本状态" v={versionStateText(data.version_context)} />}
         </div>
       )}
 
@@ -268,6 +301,22 @@ function fileSize(bytes: number | null | undefined): string {
 
 function checksumShort(c: string | null | undefined): string {
   return c ? c.slice(0, 16) : "—";
+}
+
+function integrityText(integrity: {
+  file_exists: boolean;
+  checksum_match: boolean | null;
+}): string {
+  if (!integrity.file_exists) return "文件缺失";
+  if (integrity.checksum_match === true) return "正常";
+  if (integrity.checksum_match === false) return "校验不一致";
+  return "未校验";
+}
+
+function versionStateText(version: { is_active: boolean; is_master: boolean }): string {
+  if (version.is_active) return "当前生效";
+  if (version.is_master) return "MASTER";
+  return "历史版本";
 }
 
 function statusText(s: string): string {
